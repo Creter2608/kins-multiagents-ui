@@ -104,13 +104,18 @@ export const TerminalStage: React.FC = () => {
   }, []);
 
   const handleRestart = async () => {
+    if (isRestarting) return;
     setIsRestarting(true);
     try {
+      if (window.cockpitApi) {
+        await window.cockpitApi.terminal.restart();
+      }
       if (terminalRef.current) {
         terminalRef.current.clear();
       }
-      if (window.cockpitApi) {
-        await window.cockpitApi.terminal.restart();
+    } catch (err) {
+      if (terminalRef.current) {
+        terminalRef.current.writeln(`\r\n\x1b[31m[Restart Failed] ${err}\x1b[0m\r\n`);
       }
     } finally {
       setIsRestarting(false);

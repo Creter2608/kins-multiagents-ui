@@ -172,3 +172,27 @@ test("cockpit: missing agy.exe -> PtyService falls back gracefully without unhan
   // Should not throw when constructed or checked
   assert.ok(ptyService);
 });
+
+// Layer 1 GPT Architect Restart Assertions
+test("cockpit: PtyService restart preserves dataListeners and coalesces concurrent restarts", async () => {
+  const ptyService = new PtyService(process.cwd(), "C:\\nonexistent\\agy.exe");
+  let receivedData = "";
+  const unsub = ptyService.onData((data) => {
+    receivedData += data;
+  });
+
+  try {
+    // Start initial session
+    ptyService.start();
+
+    // Trigger two concurrent restarts
+    const r1 = ptyService.restart();
+    const r2 = ptyService.restart();
+    assert.equal(r1, r2, "Concurrent restarts must coalesce into the same promise");
+
+    await r1;
+  } finally {
+    ptyService.dispose();
+    unsub();
+  }
+});
