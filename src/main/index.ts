@@ -68,9 +68,18 @@ function createWindow(): void {
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl);
   } else {
-    const indexPath = path.join(__dirname, "../renderer/index.html");
-    void mainWindow.loadFile(indexPath);
+    const indexPath = path.resolve(__dirname, "../../renderer/index.html");
+    mainWindow.loadFile(indexPath).catch((err) => {
+      console.error("Failed to load index.html:", err);
+    });
   }
+
+  // Allow F12 to toggle DevTools for inspection
+  mainWindow.webContents.on("before-input-event", (_event, input) => {
+    if (input.key === "F12" && input.type === "keyDown") {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
