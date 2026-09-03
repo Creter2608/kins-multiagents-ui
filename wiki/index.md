@@ -14,6 +14,7 @@ Welcome to the living project knowledge base, structured according to Andrej Kar
 ### 📝 Decision Records & Syntheses
 - [ADR-001: 2-Tier Multi-Agent Pipeline & Zero-Token Verification](decisions/ADR-001-two-tier-agent-loop.md) - Layer 1 GPT Architect + Layer 2 Gemini Operator model separation.
 - [ADR-002: Multi-IDE Thin Adapters, Persistent Loop Runner & Project Scaffolding](decisions/ADR-002-multi-ide-and-persistent-loop.md) - Universal adapters, persistent LoopEngine runner, and deterministic scaffolding.
+- [ADR-003: Desktop Cockpit Architecture for Antigravity CLI](decisions/ADR-003-desktop-cockpit-architecture.md) - Mission-control desktop UI, ConPTY terminal, telemetry HUD, and log tailing.
 
 ### ⚠️ Pitfalls & Anti-Patterns (Failure Modes & Lessons Learned)
 - [Pitfalls Registry (wiki/pitfalls.md)](pitfalls.md) - Living catalog of real-world stumbling blocks, cognitive traps, and preventive invariants.

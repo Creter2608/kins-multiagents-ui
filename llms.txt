@@ -1,24 +1,32 @@
-# AI-Ready Project Template
+# Kin's Multi-Agents UI (Cockpit)
 
-> Enterprise-Grade AI-Ready Template designed for deterministic, token-efficient, and security-hardened autonomous pair programming.
+> Desktop mission-control cockpit designed for autonomous AI pair programming (Antigravity CLI, Claude Code, Cursor) with real-time telemetry, 10-phase loop orchestration, and Docker isolation.
+> Repository: https://github.com/Creter2608/kins-multiagents-ui
 
 ## Architecture & Specifications
-- [docs/LOOP.md](docs/LOOP.md): Canonical Autonomous Loop v2.0 state machine, 9 operational pillars, and hard ceilings.
+- [docs/LOOP.md](docs/LOOP.md): Canonical Autonomous Loop v2.0 state machine (10 phases: INITIALIZE -> SPEC_GATE -> ISOLATE -> DETECT_STACKS -> PLAN -> EXECUTE -> VERIFY -> REALITY_CHECK -> RELEASE_GATE -> COMPLETE).
 - [AGENTS.md](AGENTS.md): Core agent operational guidelines, 2-Tier Multi-Agent pipeline, and Karpathy behavioral invariants.
-- [README.md](README.md): Repository overview, getting started, and container commands.
+- [README.md](README.md): Repository overview, desktop cockpit architecture, getting started, and container commands.
 
 ## Key Operational Invariants
 - **2-Tier Multi-Agent Pipeline**: Layer 1 GPT Architect (strategic blueprint & compact assertions) + Layer 2 Gemini 3.8 Flash (native code synthesis & deterministic CPU execution).
 - **Anti-Token-Drain**: $0 CPU verification (`npm test`), 32 KiB byte-capped command output, hard cap of 1 retry on test failure.
+- **Telemetry HUD**: Live prompt, completion, and cache tracking for GPT (gpt-5.6-sol) and Gemini 3.8 Flash (including thinking/reasoning token accounting).
 - **Protected Eval Zone**: `.eval/golden_assertions.json` is read-only and locked by SHA-256 checksum.
 - **Execution Isolation**: When `kins_autonomous_sandbox` is active, all shell operations run inside Docker.
 
 ## Key Commands
-- `npm test`: Clean, build, and execute deterministic test suite.
+- `npm run app:dev`: Start Vite UI development server.
+- `npm run app:start`: Launch Electron desktop cockpit.
+- `npm run build`: Full production build (tsc + preload bundling + Vite UI).
+- `npm test`: Clean, build, and execute deterministic test suite (55 tests).
 - `npm run typecheck`: Strict TypeScript type checking without emitting files.
-- `npm run test:ai`: Run test suite through byte-capped runner (32 KiB cap).
+- `node scripts/ai-loop.mjs verify`: Validate workspace assertions against golden SHA-256.
 - `docker exec kins_autonomous_sandbox npm test`: Isolated test execution inside container sandbox.
 
 ## Living Knowledge
 - [wiki/index.md](wiki/index.md): Living knowledge index and active task state.
 - [wiki/decisions/ADR-001-two-tier-agent-loop.md](wiki/decisions/ADR-001-two-tier-agent-loop.md): Architecture decision record for 2-tier pipeline.
+- [wiki/decisions/ADR-002-multi-ide-and-persistent-loop.md](wiki/decisions/ADR-002-multi-ide-and-persistent-loop.md): Multi-IDE adapters and persistent LoopEngine.
+- [wiki/decisions/ADR-003-desktop-cockpit-architecture.md](wiki/decisions/ADR-003-desktop-cockpit-architecture.md): Desktop cockpit architecture, ConPTY terminal, and telemetry ingestion.
+
