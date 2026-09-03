@@ -1,5 +1,22 @@
 # Project Log
 
+## [2026-09-04] Pipeline Phases Auto-Transition, Session-Lifecycle Reset, and Resilient Rollback
+
+### Summary
+Implemented automated workflow phase transitions directly from active transcript ingestion, eliminated obsolete manual "New Run" UI controls in favor of automatic session-switch reset, and hardened rollback mechanics to allow robust recovery from `FAILED` and `BLOCKED` states as well as unexpected session drops.
+
+### Delivered Capabilities
+1. **Automated Workflow Phase Ingestion**: Added `detectPhaseFromTranscriptStep` and `isVerificationCommand` in `TranscriptIngestionService.ts` to inspect tool calls (`craft_technical_prompt_with_gpt` ➔ `PLAN`, `write_to_file`/`replace_file_content` ➔ `EXECUTE`, test commands ➔ `VERIFY`) and template markers (`[Template Applied]`, `[Phase: XYZ]`), automatically advancing `LoopStateService` sequentially through canonical loop phases.
+2. **Session Lifecycle Auto-Reset**: Connected session detection in `TranscriptIngestionService` (`isSwitchingSession`) to execute `loopService.resetLoop()` on session switches, resetting `currentPhase` to `INITIALIZE` cleanly before ingesting new session events.
+3. **Resilient Rollback Engine**: Updated `LoopEngine.canRollback` and `LoopEngine.rollback` in `engine.ts` to permit recovery while in `FAILED` or `BLOCKED` states. Provided canonical phase order fallback when transition history is absent and `currentPhase !== "INITIALIZE"`.
+4. **Clean PhaseTracker UI**: Removed manual "New Run" button from `PhaseTracker.tsx` and `App.tsx`. Upgraded the Rollback button to full-width and unblocked rollback eligibility whenever `currentPhase !== "INITIALIZE"` or status is `failed`/`blocked`.
+
+### Verification Evidence (CPU $0)
+- `npm run typecheck`: 0 errors
+- `npm test`: 55/55 tests passed in 2.61s
+- `node scripts/ai-loop.mjs verify`: 2/2 golden assertions verified against SHA-256
+- `npm run build`: Clean production build across Node main process, preload, and Vite renderer UI
+
 ## [2026-09-03] Implement Kins Multi-Agents Desktop Cockpit UI
 
 ### Summary

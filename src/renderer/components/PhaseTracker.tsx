@@ -5,14 +5,11 @@ import { RefreshCw, RotateCcw, AlertCircle, CheckCircle2, CircleDot, Circle } fr
 interface PhaseTrackerProps {
   readonly loopState: LoopStateSnapshot;
   readonly onRollback: () => Promise<void>;
-  readonly onReset?: () => Promise<void>;
 }
 
-export const PhaseTracker: React.FC<PhaseTrackerProps> = ({ loopState, onRollback, onReset }) => {
+export const PhaseTracker: React.FC<PhaseTrackerProps> = ({ loopState, onRollback }) => {
   const [isRollingBack, setIsRollingBack] = useState(false);
   const [confirmRollback, setConfirmRollback] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   const handleRollbackClick = async () => {
     if (!confirmRollback) {
@@ -26,25 +23,6 @@ export const PhaseTracker: React.FC<PhaseTrackerProps> = ({ loopState, onRollbac
       await onRollback();
     } finally {
       setIsRollingBack(false);
-    }
-  };
-
-  const handleResetClick = async () => {
-    if (!confirmReset) {
-      setConfirmReset(true);
-      setTimeout(() => setConfirmReset(false), 4000);
-      return;
-    }
-    setIsResetting(true);
-    setConfirmReset(false);
-    try {
-      if (onReset) {
-        await onReset();
-      } else if (window.cockpitApi?.loop?.reset) {
-        await window.cockpitApi.loop.reset();
-      }
-    } finally {
-      setIsResetting(false);
     }
   };
 
@@ -144,34 +122,26 @@ export const PhaseTracker: React.FC<PhaseTrackerProps> = ({ loopState, onRollbac
           </div>
         </div>
 
-        {/* Actions: Rollback and New Run */}
-        <div className="flex gap-2">
-          <button
-            onClick={handleRollbackClick}
-            disabled={isRollingBack || loopState.status === "succeeded" || loopState.usage.transitions === 0}
-            className={`flex-1 py-2 px-2.5 rounded text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
-              confirmRollback
-                ? "bg-amber-600 hover:bg-amber-500 text-white"
-                : "bg-[#141414] hover:bg-[#1f1f1f] text-zinc-300 border border-[#27272a]"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            <RotateCcw className={`w-3.5 h-3.5 ${isRollingBack ? "animate-spin" : ""}`} />
-            <span className="truncate">{confirmRollback ? "Confirm" : "Rollback"}</span>
-          </button>
-
-          <button
-            onClick={handleResetClick}
-            disabled={isResetting}
-            className={`flex-1 py-2 px-2.5 rounded text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
-              confirmReset
-                ? "bg-rose-600 hover:bg-rose-500 text-white"
-                : "bg-[#141414] hover:bg-[#1f1f1f] text-zinc-300 border border-[#27272a]"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isResetting ? "animate-spin" : ""}`} />
-            <span className="truncate">{confirmReset ? "Confirm Reset" : "New Run"}</span>
-          </button>
-        </div>
+        {/* Action: Resilient Rollback */}
+        <button
+          onClick={handleRollbackClick}
+          disabled={
+            isRollingBack ||
+            loopState.status === "succeeded" ||
+            (loopState.currentPhase === "INITIALIZE" &&
+              loopState.usage.transitions === 0 &&
+              loopState.status !== "failed" &&
+              loopState.status !== "blocked")
+          }
+          className={`w-full py-2 px-2.5 rounded text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
+            confirmRollback
+              ? "bg-amber-600 hover:bg-amber-500 text-white"
+              : "bg-[#141414] hover:bg-[#1f1f1f] text-zinc-300 border border-[#27272a]"
+          } disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          <RotateCcw className={`w-3.5 h-3.5 ${isRollingBack ? "animate-spin" : ""}`} />
+          <span className="truncate">{confirmRollback ? "Confirm Rollback" : "Rollback to Prior Phase"}</span>
+        </button>
       </div>
     </aside>
   );

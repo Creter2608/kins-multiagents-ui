@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { computePhaseStatuses, LOOP_PHASES } from "../../shared/phases.js";
+import { computePhaseStatuses, LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
 import type { LoopStateSnapshot, LoopResetResult } from "../../shared/contracts.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
@@ -92,7 +92,7 @@ export class LoopStateService {
     return this.lastValidSnapshot;
   }
 
-  async resetLoop(customRunId?: string): Promise<LoopResetResult> {
+  resetLoop(customRunId?: string): LoopResetResult {
     try {
       const initialPhase = LOOP_PHASES[0];
       const runId = customRunId || `run-${Date.now()}`;
@@ -136,6 +136,94 @@ export class LoopStateService {
         success: false,
         message: `Failed to reset loop: ${err instanceof Error ? err.message : String(err)}`
       };
+    }
+  }
+
+  advanceToPhase(targetPhase: LoopPhase): boolean {
+    const current = this.readState();
+    if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
+      return false;
+    }
+
+    const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
+    const targetIdx = LOOP_PHASES.indexOf(targetPhase);
+
+    if (targetIdx === -1 || currentIdx === -1) {
+      return false;
+    }
+
+    // Do not regress to an earlier or equal phase
+    if (targetIdx <= currentIdx) {
+      return false;
+    }
+
+    // Sequentially advance through intermediate phases
+    for (let i = currentIdx + 1; i <= targetIdx; i++) {
+      const nextPhase = LOOP_PHASES[i];
+      if (!nextPhase) break;
+      const ok = this.transitionPhase(nextPhase);
+      if (!ok) return false;
+    }
+
+    return true;
+  }
+
+  transitionPhase(to: LoopPhase): boolean {
+    try {
+      const current = this.readState();
+      if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
+        return false;
+      }
+      if (current.currentPhase === to) {
+        return true;
+      }
+
+      let stateData: any = {};
+      if (fs.existsSync(this.stateFilePath)) {
+        try {
+          stateData = JSON.parse(fs.readFileSync(this.stateFilePath, "utf-8"));
+        } catch {
+          stateData = {};
+        }
+      }
+
+      const nextTransitions = (Number(stateData.usage?.transitions) || current.usage.transitions) + 1;
+      const history = Array.isArray(stateData.history) ? [...stateData.history] : [];
+      history.push({
+        sequence: history.length + 1,
+        from: current.currentPhase,
+        to
+      });
+
+      const nextStatus: LoopStateSnapshot["status"] = to === "COMPLETE" ? "succeeded" : "running";
+
+      const updatedState = {
+        schemaVersion: 1,
+        runId: stateData.runId || current.runId,
+        currentPhase: to,
+        status: nextStatus,
+        budget: stateData.budget || current.budget,
+        usage: {
+          transitions: nextTransitions,
+          retries: stateData.usage?.retries ?? current.usage.retries,
+          operations: stateData.usage?.operations ?? current.usage.operations
+        },
+        history
+      };
+
+      const dir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const tempPath = `${this.stateFilePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      fs.writeFileSync(tempPath, JSON.stringify(updatedState, null, 2), "utf-8");
+      fs.renameSync(tempPath, this.stateFilePath);
+
+      this.readState();
+      return true;
+    } catch {
+      return false;
     }
   }
 

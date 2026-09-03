@@ -2,6 +2,84 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TelemetryService } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
+import type { LoopStateService } from "./LoopStateService.js";
+import { type LoopPhase } from "../../shared/phases.js";
+
+export function isVerificationCommand(cmd: string): boolean {
+  if (!cmd || typeof cmd !== "string") return false;
+  const lower = cmd.toLowerCase().trim();
+  const verifyPattern = /\b(test|typecheck|tsc|lint|check|verify|pytest|vitest|jest|cargo\s+test|ctest|mvn\s+test|gradlew\s+test)\b/i;
+  return verifyPattern.test(lower);
+}
+
+export function detectPhaseFromTranscriptStep(step: unknown): LoopPhase | null {
+  if (!step || typeof step !== "object") return null;
+  const s = step as Record<string, unknown>;
+
+  // 1. Check Tool Calls (Highest precedence)
+  if (Array.isArray(s.tool_calls) && s.tool_calls.length > 0) {
+    for (const tc of s.tool_calls) {
+      if (!tc || typeof tc !== "object") continue;
+      const call = tc as Record<string, unknown>;
+      const name = String(call.name || "");
+      const args = call.args && typeof call.args === "object" ? (call.args as Record<string, unknown>) : {};
+
+      if (name === "craft_technical_prompt_with_gpt") {
+        return "PLAN";
+      }
+
+      if (name === "call_mcp_tool") {
+        const toolName = String(args.ToolName || args.tool_name || "").replace(/^"|"$/g, "");
+        const serverName = String(args.ServerName || args.server_name || "").replace(/^"|"$/g, "");
+        if (toolName === "craft_technical_prompt_with_gpt" || serverName === "gpt_architect") {
+          return "PLAN";
+        }
+      }
+
+      if (name === "write_to_file" || name === "replace_file_content") {
+        return "EXECUTE";
+      }
+
+      if (name === "run_command") {
+        const cmd = String(args.CommandLine || args.command || "");
+        if (isVerificationCommand(cmd)) {
+          return "VERIFY";
+        }
+      }
+    }
+  }
+
+  // 2. Check Textual / Template Signals in content or thinking
+  const content = typeof s.content === "string" ? s.content : "";
+  const thinking = typeof s.thinking === "string" ? s.thinking : "";
+  const combined = content + "\n" + thinking;
+
+  if (combined) {
+    const phaseMatch = /\[Phase:\s*(INITIALIZE|SPEC_GATE|ISOLATE|DETECT_STACKS|PLAN|EXECUTE|VERIFY|REALITY_CHECK|RELEASE_GATE|COMPLETE)\]/i.exec(combined);
+    if (phaseMatch && phaseMatch[1]) {
+      return phaseMatch[1].toUpperCase() as LoopPhase;
+    }
+
+    const templateMatch = /\[Template Applied\]:\s*Loaded\s+([^\s]+\.md)/i.exec(combined);
+    if (templateMatch && templateMatch[1]) {
+      const tName = templateMatch[1].toLowerCase();
+      if (tName.includes("writing-plans") || tName.includes("brainstorming") || tName.includes("spec-document")) {
+        return "PLAN";
+      }
+      if (tName.includes("implementer-prompt")) {
+        return "EXECUTE";
+      }
+      if (tName.includes("task-reviewer") || tName.includes("verification-before-completion")) {
+        return "VERIFY";
+      }
+      if (tName.includes("reality-checker")) {
+        return "REALITY_CHECK";
+      }
+    }
+  }
+
+  return null;
+}
 
 export interface ParsedGptTokenUsage {
   readonly inputTokens: number;
@@ -41,6 +119,7 @@ export function parseGptTokenUsageLine(text: string): ParsedGptTokenUsage | null
 export class TranscriptIngestionService {
   private telemetryService: TelemetryService;
   private mcpService: McpMonitorService;
+  private loopService: LoopStateService | null = null;
   private customTranscriptPath: string | null = null;
   private currentTranscriptPath: string | null = null;
   private lastOffset: number = 0;
@@ -64,11 +143,18 @@ export class TranscriptIngestionService {
   constructor(
     telemetryService: TelemetryService,
     mcpService: McpMonitorService,
-    customTranscriptPath: string | null = null
+    loopServiceOrPath?: LoopStateService | string | null,
+    customTranscriptPath?: string | null
   ) {
     this.telemetryService = telemetryService;
     this.mcpService = mcpService;
-    this.customTranscriptPath = customTranscriptPath;
+    if (typeof loopServiceOrPath === "string") {
+      this.customTranscriptPath = loopServiceOrPath;
+      this.loopService = null;
+    } else {
+      this.loopService = loopServiceOrPath ?? null;
+      this.customTranscriptPath = customTranscriptPath ?? null;
+    }
   }
 
   resetSessionCounters(): void {
@@ -244,6 +330,12 @@ export class TranscriptIngestionService {
         });
       }
     }
+
+    // 4. Process Workflow Phase Detection & Auto-Transition
+    const detectedPhase = detectPhaseFromTranscriptStep(step);
+    if (detectedPhase && this.loopService) {
+      this.loopService.advanceToPhase(detectedPhase);
+    }
   }
 
   processFile(): void {
@@ -261,6 +353,9 @@ export class TranscriptIngestionService {
       if (isSwitchingSession) {
         this.resetSessionCounters();
         this.telemetryService.resetCurrentSession();
+        if (this.loopService) {
+          this.loopService.resetLoop();
+        }
       }
     }
 

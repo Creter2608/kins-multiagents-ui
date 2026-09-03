@@ -186,12 +186,40 @@ test("engine: rollback from terminal states is rejected without mutation", () =>
     runId: "run-rollback-term-2"
   });
   engineFailed.transition("SPEC_GATE");
+  engineFailed.transition("ISOLATE");
   engineFailed.fail("EXECUTION_FAILED", "Test fatal error");
   assert.equal(engineFailed.snapshot().status, "failed");
 
-  assert.throws(
-    () => engineFailed.rollback(),
-    (err: unknown) => err instanceof LoopError && err.code === "TRANSITION_INVALID"
+  // Rollback from failed state must succeed and return to prior phase
+  const rolledBack = engineFailed.rollback();
+  assert.equal(rolledBack.currentPhase, "SPEC_GATE");
+  assert.equal(rolledBack.status, "running");
+});
+
+test("engine: FAILED, phase=EXECUTE, transitions=0 -> rollback allowed to prior canonical phase", () => {
+  const engine = new LoopEngine(
+    {
+      phases: CANONICAL_PHASES,
+      initialPhase: "INITIALIZE",
+      terminalPhase: "COMPLETE",
+      budget: { maxTransitions: 10, maxRetries: 2, maxOperations: 5 },
+      goldenSha256: DUMMY_SHA,
+      runId: "run-rollback-zero-trans"
+    },
+    {
+      schemaVersion: 1,
+      runId: "run-rollback-zero-trans",
+      currentPhase: "EXECUTE",
+      status: "failed",
+      goldenSha256: DUMMY_SHA,
+      budget: { maxTransitions: 10, maxRetries: 2, maxOperations: 5 },
+      usage: { transitions: 0, retries: 0, operations: 0 },
+      history: []
+    }
   );
-  assert.equal(engineFailed.snapshot().currentPhase, "FAILED");
+
+  assert.equal(engine.canRollback(), true);
+  const next = engine.rollback();
+  assert.equal(next.currentPhase, "PLAN");
+  assert.equal(next.status, "running");
 });

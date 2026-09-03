@@ -79,7 +79,10 @@ export class LoopEngine {
     }
 
     if (initialState) {
-      this.state = { ...initialState };
+      this.state = {
+        ...initialState,
+        history: Array.isArray(initialState.history) ? [...initialState.history] : []
+      };
     } else {
       this.state = {
         schemaVersion: 1,
@@ -205,14 +208,23 @@ export class LoopEngine {
   }
 
   canRollback(): boolean {
-    if (this.isTerminal()) {
+    if (this.state.status === "succeeded") {
       return false;
     }
-    return this.state.history.length > 0;
+    const history = Array.isArray(this.state.history) ? this.state.history : [];
+    if (
+      this.state.currentPhase === this.options.initialPhase &&
+      history.length === 0 &&
+      this.state.status !== "failed" &&
+      this.state.status !== "blocked"
+    ) {
+      return false;
+    }
+    return true;
   }
 
   rollback(): LoopState {
-    if (this.isTerminal()) {
+    if (this.state.status === "succeeded") {
       throw new LoopError(
         "TRANSITION_INVALID",
         "transition",
@@ -220,7 +232,7 @@ export class LoopEngine {
       );
     }
 
-    if (this.state.history.length === 0) {
+    if (!this.canRollback()) {
       throw new LoopError(
         "STATE_INVALID",
         "state",
@@ -228,20 +240,39 @@ export class LoopEngine {
       );
     }
 
-    const lastTransition = this.state.history[this.state.history.length - 1];
-    if (!lastTransition) {
-      throw new LoopError(
-        "STATE_INVALID",
-        "state",
-        "Cannot rollback: transition history is empty"
-      );
-    }
-    const priorPhase = lastTransition.from;
-    const nextHistory = this.state.history.slice(0, -1);
-    const nextStatus: RunStatus = nextHistory.length === 0 ? "ready" : "running";
+    const history = Array.isArray(this.state.history) ? this.state.history : [];
+    let priorPhase: PhaseId;
+    let nextHistory: TransitionRecord[];
 
+    if (history.length > 0) {
+      const lastTransition = history[history.length - 1];
+      if (!lastTransition) {
+        throw new LoopError(
+          "STATE_INVALID",
+          "state",
+          "Cannot rollback: transition history is empty"
+        );
+      }
+      priorPhase = lastTransition.from;
+      nextHistory = history.slice(0, -1);
+    } else {
+      // Fallback target using canonical phase order when history is absent
+      const phaseIds = this.options.phases.map((p) => p.id);
+      const currentIndex = phaseIds.indexOf(this.state.currentPhase);
+      if (currentIndex > 0) {
+        priorPhase = phaseIds[currentIndex - 1] ?? this.options.initialPhase;
+      } else {
+        priorPhase = this.options.initialPhase;
+      }
+      nextHistory = [];
+    }
+
+    const nextStatus: RunStatus =
+      nextHistory.length === 0 && priorPhase === this.options.initialPhase ? "ready" : "running";
+
+    const { lastError: _omittedError, ...restState } = this.state;
     this.state = {
-      ...this.state,
+      ...restState,
       currentPhase: priorPhase,
       status: nextStatus,
       history: Object.freeze(nextHistory)

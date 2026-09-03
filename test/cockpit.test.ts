@@ -10,7 +10,9 @@ import { CriticalLogService, classifyLogLine } from "../src/main/services/Critic
 import { mapDockerState } from "../src/main/services/DockerStatusService.js";
 import { McpMonitorService } from "../src/main/services/McpMonitorService.js";
 import { PtyService } from "../src/main/services/PtyService.js";
-import { TranscriptIngestionService, parseGptTokenUsageLine } from "../src/main/services/TranscriptIngestionService.js";
+import { TranscriptIngestionService, parseGptTokenUsageLine, detectPhaseFromTranscriptStep, isVerificationCommand } from "../src/main/services/TranscriptIngestionService.js";
+import { LoopEngine, type PhaseDefinition } from "../src/engine.js";
+import { parseSha256Hex } from "../src/checksum.js";
 
 // Assertion 1: {"in":"phase=VERIFY","out":"first 6 complete, VERIFY current, later pending"}
 test("cockpit: phase=VERIFY -> first 6 complete, VERIFY current, later pending", () => {
@@ -432,6 +434,177 @@ test("cockpit: reset then restart -> session=0; persisted allTime retained", () 
     const snapRestart = telemetryRestart.getSnapshot();
     assert.equal(snapRestart.currentSession.gpt.inputTokens, 0);
     assert.equal(snapRestart.allTime.gpt.inputTokens, 2000);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 1: {"in":"tool: craft_technical_prompt_with_gpt","out":"phase=PLAN"}
+test("cockpit auto-phase: tool: craft_technical_prompt_with_gpt -> phase=PLAN", () => {
+  const step = {
+    step_index: 1,
+    tool_calls: [
+      {
+        name: "call_mcp_tool",
+        args: { ServerName: "gpt_architect", ToolName: "craft_technical_prompt_with_gpt" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(step), "PLAN");
+});
+
+// Layer 1 Assertion 2: {"in":"tool: write_to_file","out":"phase=EXECUTE"}
+test("cockpit auto-phase: tool: write_to_file -> phase=EXECUTE", () => {
+  const step = {
+    step_index: 2,
+    tool_calls: [
+      {
+        name: "write_to_file",
+        args: { TargetFile: "src/foo.ts" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(step), "EXECUTE");
+});
+
+// Layer 1 Assertion 3: {"in":"run_command:npm test","out":"phase=VERIFY"}
+test("cockpit auto-phase: run_command:npm test -> phase=VERIFY; generic command -> null", () => {
+  assert.equal(isVerificationCommand("npm test"), true);
+  assert.equal(isVerificationCommand("npx tsc --noEmit"), true);
+  assert.equal(isVerificationCommand("git status"), false);
+  assert.equal(isVerificationCommand("ls -la"), false);
+
+  const verifyStep = {
+    step_index: 3,
+    tool_calls: [
+      {
+        name: "run_command",
+        args: { CommandLine: "npm test" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(verifyStep), "VERIFY");
+
+  const nonVerifyStep = {
+    step_index: 4,
+    tool_calls: [
+      {
+        name: "run_command",
+        args: { CommandLine: "git status" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(nonVerifyStep), null);
+});
+
+// Layer 1 Assertion 4: {"in":"session A→B; B writes file","out":"reset INITIALIZE before EXECUTE"}
+test("cockpit auto-phase: session A->B; B writes file -> reset INITIALIZE before EXECUTE", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-session-switch-"));
+  const stateFile = path.join(tempDir, "state.json");
+  const sessionA = path.join(tempDir, "transcriptA.jsonl");
+  const sessionB = path.join(tempDir, "transcriptB.jsonl");
+
+  try {
+    const loopService = new LoopStateService(stateFile);
+    await loopService.resetLoop("run-session-a");
+
+    const telemetry = new TelemetryService();
+    const mcp = new McpMonitorService();
+
+    // Session A writes file -> advances to EXECUTE
+    fs.writeFileSync(
+      sessionA,
+      JSON.stringify({
+        step_index: 1,
+        source: "MODEL",
+        tool_calls: [{ name: "write_to_file", args: {} }]
+      }) + "\n",
+      "utf-8"
+    );
+
+    const ingestion = new TranscriptIngestionService(telemetry, mcp, loopService, sessionA);
+    ingestion.processFile();
+    assert.equal(loopService.getSnapshot().currentPhase, "EXECUTE");
+
+    // Session B switches transcript and writes file
+    fs.writeFileSync(
+      sessionB,
+      JSON.stringify({
+        step_index: 1,
+        source: "MODEL",
+        tool_calls: [{ name: "write_to_file", args: {} }]
+      }) + "\n",
+      "utf-8"
+    );
+
+    // Point ingestion to session B
+    (ingestion as any).customTranscriptPath = sessionB;
+    ingestion.processFile();
+
+    // Must have reset to INITIALIZE before advancing to EXECUTE
+    assert.equal(loopService.getSnapshot().currentPhase, "EXECUTE");
+    assert.notEqual(loopService.getSnapshot().runId, "run-session-a");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 5: {"in":"FAILED, phase=EXECUTE, transitions=0","out":"rollback allowed to prior canonical phase"}
+test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allowed to prior canonical phase", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-rollback-failed-"));
+  const stateFile = path.join(tempDir, "state.json");
+
+  try {
+    // Write failed EXECUTE state with 0 transitions
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-failed-0",
+        currentPhase: "EXECUTE",
+        status: "failed",
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        usage: { transitions: 0, retries: 0, operations: 0 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const loopService = new LoopStateService(stateFile);
+    const snap = loopService.readState();
+    assert.equal(snap.status, "failed");
+    assert.equal(snap.currentPhase, "EXECUTE");
+
+    const CANONICAL_PHASES: readonly PhaseDefinition[] = [
+      { id: "INITIALIZE", allowedNext: ["SPEC_GATE", "FAILED"] },
+      { id: "SPEC_GATE", allowedNext: ["ISOLATE", "BLOCKED"] },
+      { id: "ISOLATE", allowedNext: ["DETECT_STACKS", "BLOCKED", "FAILED"] },
+      { id: "DETECT_STACKS", allowedNext: ["PLAN", "FAILED"] },
+      { id: "PLAN", allowedNext: ["EXECUTE", "BLOCKED", "FAILED"] },
+      { id: "EXECUTE", allowedNext: ["VERIFY", "BLOCKED", "FAILED"] },
+      { id: "VERIFY", allowedNext: ["REALITY_CHECK", "EXECUTE", "BLOCKED", "FAILED"] },
+      { id: "REALITY_CHECK", allowedNext: ["RELEASE_GATE", "EXECUTE", "BLOCKED", "FAILED"] },
+      { id: "RELEASE_GATE", allowedNext: ["COMPLETE", "BLOCKED"] },
+      { id: "COMPLETE", allowedNext: [], terminal: true },
+      { id: "BLOCKED", allowedNext: [], terminal: true },
+      { id: "FAILED", allowedNext: [], terminal: true }
+    ];
+    const engine = new LoopEngine(
+      {
+        phases: CANONICAL_PHASES,
+        initialPhase: "INITIALIZE",
+        terminalPhase: "COMPLETE",
+        budget: snap.budget,
+        goldenSha256: parseSha256Hex("0000000000000000000000000000000000000000000000000000000000000000"),
+        runId: snap.runId
+      },
+      snap as any
+    );
+
+    assert.equal(engine.canRollback(), true);
+    const rolledBack = engine.rollback();
+    assert.equal(rolledBack.currentPhase, "PLAN");
+    assert.equal(rolledBack.status, "running");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

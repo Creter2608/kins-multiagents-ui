@@ -29,7 +29,7 @@ const logService = new CriticalLogService();
 const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot);
-const transcriptService = new TranscriptIngestionService(telemetryService, mcpService);
+const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService);
 
 // Connect docker status updates to telemetry service
 dockerService.subscribe((status) => {

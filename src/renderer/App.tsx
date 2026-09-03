@@ -112,16 +112,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleReset = async () => {
-    const api = window.cockpitApi;
-    if (api) {
-      const res = await api.loop.reset();
-      if (!res.success) {
-        alert(res.message);
-      }
-    }
-  };
-
   return (
     <div className="h-screen w-screen flex flex-col bg-[#000000] text-[#e2e8f0] overflow-hidden">
       {/* Top Cockpit Bar */}
@@ -151,7 +141,7 @@ export const App: React.FC = () => {
       {/* Main 3-Column Cockpit Workspace */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Autonomous Loop Tracker */}
-        <PhaseTracker loopState={loopState} onRollback={handleRollback} onReset={handleReset} />
+        <PhaseTracker loopState={loopState} onRollback={handleRollback} />
 
         {/* Center: Interactive Terminal Stage */}
         <TerminalStage />
