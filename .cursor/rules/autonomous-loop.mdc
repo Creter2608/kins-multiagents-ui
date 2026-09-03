@@ -1,0 +1,15 @@
+---
+description: Autonomous Loop v2.0 TypeScript and testing invariants
+globs: ["src/**/*.ts", "test/**/*.ts"]
+alwaysApply: false
+---
+# Cursor Agent Operating Invariants
+
+Canonical specifications reside in [AGENTS.md](../../AGENTS.md) and [docs/LOOP.md](../../docs/LOOP.md).
+
+## Rules for TypeScript & Tests
+- **Surgical Edits**: Touch only lines directly related to the user request. Match existing code style.
+- **Local Verification ($0 Tokens)**: Run `npm test` and `npm run typecheck` locally. Maximum 1 targeted fix retry.
+- **Docker Isolation**: When `kins_autonomous_sandbox` is active, run all shell commands via `docker exec kins_autonomous_sandbox <cmd>`.
+- **Protected Eval Zone**: Never modify, comment out, or relax files in `.eval/`.
+- **Context Conservation**: Inspect changes using diffs (`git diff -U3`). Do not re-read entire files after edits.

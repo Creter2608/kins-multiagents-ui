@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sandbox": {
+      "command": "docker",
+      "args": ["exec", "-i", "kins_autonomous_sandbox", "node", "dist/src/index.js"],
+      "env": {}
+    }
+  }
+}

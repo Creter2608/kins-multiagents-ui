@@ -1,0 +1,20 @@
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kins-template-sandbox:latest
+    container_name: kins_autonomous_sandbox
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      - NODE_ENV=development
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+    stdin_open: true
+    tty: true
+    command: ["tail", "-f", "/dev/null"]

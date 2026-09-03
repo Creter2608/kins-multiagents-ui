@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.worktrees/
+*.log
+.DS_Store
+Thumbs.db
+.ai/

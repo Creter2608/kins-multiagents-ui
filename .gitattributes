@@ -1,0 +1,9 @@
+﻿# Force Unix (LF) line endings across all operating systems
+# This prevents cryptographic checksum divergence between Windows and Linux/CI
+* text=auto eol=lf
+.eval/* text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.md text eol=lf

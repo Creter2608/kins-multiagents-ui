@@ -1,0 +1,46 @@
+{
+  "$schema": "https://repomix.com/schemas/config.json",
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": true,
+    "removeEmptyLines": true,
+    "compress": true,
+    "showLineNumbers": true
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "docs/**/*",
+    "wiki/**/*",
+    "AGENTS.md",
+    "README.md",
+    "llms.txt",
+    "package.json",
+    "tsconfig.json"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "package-lock.json",
+      "dist/**",
+      ".eval/*.sha256",
+      "*.log",
+      ".devcontainer/**",
+      "docker-compose.yml",
+      "Dockerfile",
+      ".codegraph/**",
+      "docs/archive/**"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

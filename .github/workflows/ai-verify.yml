@@ -1,0 +1,57 @@
+name: AI-Ready Verification Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Autonomous Engine & Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
+      - name: Build and Run Engine Tests
+        run: npm test
+
+      - name: Verify Golden Assertions SHA-256 Tamper Gate
+        run: |
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            import { validateWorkspace, parseSha256Hex } from './dist/src/index.js';
+            const expectedSha = fs.readFileSync('.eval/golden_assertions.sha256', 'utf-8').trim().split(/\s+/)[0];
+            const results = await validateWorkspace({
+              goldenPath: '.eval/golden_assertions.json',
+              expectedSha256: expectedSha
+            });
+            console.log('Successfully verified', results.length, 'golden assertions.');
+          "
+
+      - name: Verify Docker Container Build & Execution
+        run: |
+          docker build -t test-ai-sandbox .
+          docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace test-ai-sandbox npm test

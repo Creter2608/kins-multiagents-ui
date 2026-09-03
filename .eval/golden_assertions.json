@@ -1,0 +1,16 @@
+{
+  "title": "kins-multiagents-ui Golden Assertions",
+  "description": "Baseline golden verification assertions for kins-multiagents-ui",
+  "assertions": [
+    {
+      "id": "smoke-test-1",
+      "in": "initialization",
+      "out": "healthy"
+    },
+    {
+      "id": "baseline-check",
+      "in": "environment",
+      "out": "docker-isolated"
+    }
+  ]
+}

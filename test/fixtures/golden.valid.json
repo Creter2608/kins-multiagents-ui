@@ -1,0 +1,7 @@
+{
+  "title": "Valid Fixture",
+  "description": "Fixture for testing",
+  "assertions": [
+    { "id": "TEST-01", "in": "sample input", "out": "sample output" }
+  ]
+}

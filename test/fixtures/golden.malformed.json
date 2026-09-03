@@ -1,0 +1,4 @@
+{
+  "title": "Malformed Fixture",
+  "assertions": "not-an-array"
+}

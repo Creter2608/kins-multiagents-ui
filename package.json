@@ -1,0 +1,26 @@
+{
+  "name": "kins-multiagents-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js",
+    "test:ai": "node scripts/ai-exec.mjs npm test",
+    "typecheck:ai": "node scripts/ai-exec.mjs npm run typecheck",
+    "loop": "node scripts/ai-loop.mjs",
+    "template:init": "node scripts/init-template.mjs",
+    "test:docker": "docker run --rm -v \".:/workspace\" -w /workspace node:22-bookworm-slim npm test",
+    "typecheck:docker": "docker run --rm -v \".:/workspace\" -w /workspace node:22-bookworm-slim npm run typecheck",
+    "sandbox:sh": "docker run --rm -it -v \".:/workspace\" -w /workspace node:22-bookworm-slim /bin/sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}

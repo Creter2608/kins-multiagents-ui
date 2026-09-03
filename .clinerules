@@ -1,0 +1,14 @@
+# Cline / Roo Code Agent Guidelines
+
+Canonical specification: [AGENTS.md](AGENTS.md) and [docs/LOOP.md](docs/LOOP.md).
+
+## Core Operating Invariants
+1. **Execution Sandboxing**: Run all build, test, and shell commands inside Docker container `kins_autonomous_sandbox`: `docker exec kins_autonomous_sandbox <command>`.
+2. **Protected Eval Zone**: Never tamper with `.eval/golden_assertions.json` or `.eval/golden_assertions.sha256`. Any modification triggers immediate integrity failure.
+3. **Two-Tier Pipeline**:
+   - Layer 1 (Architect): Plan and adversarial test criteria (One-shot).
+   - Layer 2 (Executor): Surgical code synthesis & local deterministic verification.
+4. **Hard Budget Ceilings**:
+   - `verificationRetry <= 1` (Max 1 targeted fix attempt upon test failure).
+   - Use `npm run test:ai` to prevent terminal buffer token blowup (32 KiB cap).
+5. **Diff-First Verification**: Inspect edits with `git diff -U3`. Never re-read full files post-edit.

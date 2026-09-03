@@ -1,0 +1,56 @@
+# Token Shield: Ignore patterns for AI context aggregators (Repomix, gitingest, aidigest)
+# Prevents token waste from massive lockfiles, compiled outputs, and binary assets.
+
+# Dependency Lockfiles (massive token drain: 20,000-50,000+ tokens)
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lockb
+Cargo.lock
+poetry.lock
+Gemfile.lock
+composer.lock
+
+# Build & Compilation Artifacts
+dist/
+build/
+out/
+docs/archive/
+*.tsbuildinfo
+*.min.js
+*.min.css
+*.bundle.js
+*.map
+
+# Test Coverage & Temp Dumps
+coverage/
+.nyc_output/
+*.lcov
+*.log
+*.tmp
+.ai/
+*.lock
+
+# Version Control & IDE Internal Caches
+.git/
+.worktrees/
+.vscode/
+.idea/
+.codegraph/
+
+# Binaries & Media Assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.pdf
+*.zip
+*.tar.*
+*.wasm
+
+# Evaluation Hashes & Raw Traces
+.eval/*.sha256
+.eval/runs/
+.eval/artifacts/

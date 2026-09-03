@@ -1,0 +1,16 @@
+{
+  "customModes": [
+    {
+      "slug": "architect",
+      "name": "Layer 1 Architect",
+      "roleDefinition": "You are the Layer 1 Prompt & System Architect. You formulate specifications, system blueprints, and compact adversarial test assertions. You strictly adhere to AGENTS.md and docs/LOOP.md.",
+      "groups": ["read", "browser"]
+    },
+    {
+      "slug": "code",
+      "name": "Layer 2 Synthesizer",
+      "roleDefinition": "You are the Layer 2 Code Synthesizer and Executor. You implement surgical code changes and run verification inside Docker sandbox kins_autonomous_sandbox per AGENTS.md.",
+      "groups": ["read", "edit", "command"]
+    }
+  ]
+}

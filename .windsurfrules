@@ -1,0 +1,10 @@
+# Windsurf / Cascade Agent Operating Rules
+
+Canonical specifications: [AGENTS.md](AGENTS.md) and [docs/LOOP.md](docs/LOOP.md).
+
+## Non-Negotiable Invariants
+1. **Docker-First Mandate**: When `kins_autonomous_sandbox` is active, run all shell commands via `docker exec kins_autonomous_sandbox <command>`. Never install packages directly on the host.
+2. **Protected Evaluation Zone**: `.eval/` is strictly read-only. Never modify, relax, or regenerate `.eval/golden_assertions.json` or its SHA-256 lock.
+3. **Deterministic Loop**: Follow the autonomous loop: INITIALIZE -> SPEC_GATE -> ISOLATE -> DETECT_STACKS -> PLAN -> EXECUTE -> VERIFY -> REALITY_CHECK -> RELEASE_GATE -> COMPLETE.
+4. **Token & Output Ceilings**: Use `scripts/ai-exec.mjs` for test runs. Maximum 1 targeted retry on failure (`verificationRetry <= 1`).
+5. **Surgical Changes**: Minimum code that solves the problem. Check changes with diffs (`git diff -U3`); do not re-read entire files.
