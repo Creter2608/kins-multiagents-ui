@@ -15,29 +15,29 @@ export const TerminalStage: React.FC = () => {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      fontSize: 13,
-      lineHeight: 1.25,
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+      fontSize: 14,
+      lineHeight: 1.3,
       theme: {
-        background: "#090d16",
-        foreground: "#f1f5f9",
+        background: "#0c1322",
+        foreground: "#ffffff",
         cursor: "#38bdf8",
-        selectionBackground: "#334155",
-        black: "#0f172a",
+        selectionBackground: "#1e3a8a",
+        black: "#1e293b",
         red: "#f43f5e",
         green: "#10b981",
-        yellow: "#f59e0b",
+        yellow: "#fbbf24",
         blue: "#38bdf8",
-        magenta: "#d946ef",
-        cyan: "#06b6d4",
-        white: "#f8fafc",
-        brightBlack: "#475569",
+        magenta: "#e879f9",
+        cyan: "#22d3ee",
+        white: "#ffffff",
+        brightBlack: "#64748b",
         brightRed: "#fb7185",
-        brightGreen: "#34d399",
-        brightYellow: "#fbbf24",
+        brightGreen: "#4ade80",
+        brightYellow: "#fde047",
         brightBlue: "#60a5fa",
-        brightMagenta: "#e879f9",
-        brightCyan: "#22d3ee",
+        brightMagenta: "#f0abfc",
+        brightCyan: "#67e8f9",
         brightWhite: "#ffffff"
       }
     });
@@ -118,40 +118,42 @@ export const TerminalStage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#090d16] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[#0c1322] overflow-hidden">
       {/* Terminal Top Bar */}
-      <div className="h-9 px-3.5 bg-slate-950 border-b border-slate-800/80 flex items-center justify-between select-none">
-        <div className="flex items-center space-x-2">
+      <div className="h-10 px-4 bg-slate-900 border-b border-slate-700 flex items-center justify-between select-none">
+        <div className="flex items-center space-x-2.5">
           <TerminalIcon className="w-4 h-4 text-sky-400" />
-          <span className="text-xs font-mono font-medium text-slate-300">
+          <span className="text-sm font-semibold text-white">
             Antigravity CLI (agy)
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800/60 font-mono">
-            ConPTY
+          <span className="text-xs px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-600/70 font-mono font-bold">
+            ConPTY Active
           </span>
         </div>
 
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-2">
           <button
             onClick={handleClear}
             title="Clear terminal buffer"
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            className="px-2 py-1 rounded text-xs text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors flex items-center space-x-1"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span>Clear</span>
           </button>
           <button
             onClick={handleRestart}
             disabled={isRestarting}
             title="Restart agy session"
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className="px-2.5 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors flex items-center space-x-1 disabled:opacity-50"
           >
             <RotateCw className={`w-3.5 h-3.5 ${isRestarting ? "animate-spin" : ""}`} />
+            <span>Restart CLI</span>
           </button>
         </div>
       </div>
 
       {/* Embedded Terminal Canvas */}
-      <div className="flex-1 p-2 overflow-hidden" ref={containerRef} />
+      <div className="flex-1 p-2 overflow-hidden bg-[#0c1322]" ref={containerRef} />
     </div>
   );
 };

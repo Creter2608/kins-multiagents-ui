@@ -85,19 +85,21 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#090d16] text-slate-100 overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#0b101b] text-slate-100 overflow-hidden">
       {/* Top Cockpit Bar */}
-      <header className="h-8 bg-slate-950 border-b border-slate-800/80 px-4 flex items-center justify-between select-none shrink-0">
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
-          <span className="font-semibold text-xs tracking-wider text-slate-200">
+      <header className="h-10 bg-slate-900 border-b border-slate-700 px-4 flex items-center justify-between select-none shrink-0">
+        <div className="flex items-center space-x-2.5">
+          <span className="w-3 h-3 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/80 animate-pulse" />
+          <span className="font-bold text-sm tracking-wide text-white">
             KINS COCKPIT
           </span>
-          <span className="text-[10px] text-slate-500 font-mono">v1.0.0</span>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono font-medium border border-slate-700">
+            v1.0.0
+          </span>
         </div>
 
-        <div className="text-xs text-slate-400 font-mono truncate max-w-sm">
-          Run: <span className="text-cyan-300 font-medium">{loopState.runId}</span>
+        <div className="text-xs text-slate-200 font-mono bg-slate-950/80 px-3 py-1 rounded border border-slate-800">
+          Run ID: <span className="text-cyan-400 font-semibold">{loopState.runId}</span>
         </div>
       </header>
 

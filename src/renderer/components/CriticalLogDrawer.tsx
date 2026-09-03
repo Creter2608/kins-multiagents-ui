@@ -56,32 +56,32 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
   }, [logs]);
 
   return (
-    <div className="border-t border-slate-800 bg-slate-950/95 flex flex-col transition-all duration-200 select-none">
+    <div className="border-t border-slate-700 bg-slate-900 flex flex-col transition-all duration-200 select-none">
       {/* Drawer Header Toggle Bar */}
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className="h-8 px-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-900/60 transition-colors"
+        className="h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-slate-800 transition-colors bg-slate-950/50"
       >
-        <div className="flex items-center space-x-3 text-xs">
-          <div className="flex items-center space-x-1.5 font-medium text-slate-300">
+        <div className="flex items-center space-x-3.5 text-xs">
+          <div className="flex items-center space-x-2 font-bold text-sm text-white">
             {isOpen ? (
-              <ChevronDown className="w-4 h-4 text-slate-400" />
+              <ChevronDown className="w-4 h-4 text-cyan-400" />
             ) : (
-              <ChevronUp className="w-4 h-4 text-slate-400" />
+              <ChevronUp className="w-4 h-4 text-cyan-400" />
             )}
             <span>Critical Logs & Events</span>
           </div>
 
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-2">
             {errorCount > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono font-medium flex items-center space-x-1">
-                <AlertOctagon className="w-3 h-3 text-rose-400" />
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
                 <span>{errorCount} ERRORS</span>
               </span>
             )}
             {warnCount > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-medium flex items-center space-x-1">
-                <AlertTriangle className="w-3 h-3 text-amber-400" />
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                 <span>{warnCount} WARNS</span>
               </span>
             )}
@@ -90,7 +90,7 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
 
         {/* Right side summary when closed */}
         {!isOpen && latestError && (
-          <div className="text-[11px] text-rose-400/90 font-mono truncate max-w-md hidden md:block">
+          <div className="text-xs text-rose-300 font-mono font-medium truncate max-w-md hidden md:block bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/60">
             Latest: {latestError.message}
           </div>
         )}
