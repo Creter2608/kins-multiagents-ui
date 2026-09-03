@@ -4,7 +4,7 @@ import type { McpSnapshot, McpServerInfo, ToolCallRecord } from "../../shared/co
 
 export class McpMonitorService {
   private projectRoot: string;
-  private globalMcpDir: string;
+  private globalMcpDirs: string[];
   private servers: Map<string, McpServerInfo> = new Map();
   private recentCalls: ToolCallRecord[] = [];
   private pollTimer: NodeJS.Timeout | null = null;
@@ -12,15 +12,13 @@ export class McpMonitorService {
 
   constructor(
     projectRoot: string = process.cwd(),
-    globalMcpDir: string = path.join(
-      process.env.USERPROFILE || process.env.HOME || "",
-      ".gemini",
-      "antigravity-cli",
-      "mcp"
-    )
+    globalMcpDirs: string[] = [
+      path.join(process.env.USERPROFILE || process.env.HOME || "", ".gemini", "antigravity", "mcp"),
+      path.join(process.env.USERPROFILE || process.env.HOME || "", ".gemini", "antigravity-cli", "mcp")
+    ]
   ) {
     this.projectRoot = projectRoot;
-    this.globalMcpDir = globalMcpDir;
+    this.globalMcpDirs = globalMcpDirs;
   }
 
   getSnapshot(): McpSnapshot {
@@ -34,26 +32,31 @@ export class McpMonitorService {
   refresh(): McpSnapshot {
     const discovered: McpServerInfo[] = [];
 
-    // 1. Scan global ~/.gemini/antigravity-cli/mcp/
-    if (fs.existsSync(this.globalMcpDir)) {
-      try {
-        const entries = fs.readdirSync(this.globalMcpDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            const serverPath = path.join(this.globalMcpDir, entry.name);
-            const toolFiles = fs.readdirSync(serverPath).filter((f) => f.endsWith(".json"));
-            const tools = toolFiles.map((f) => f.replace(/\.json$/, ""));
-            discovered.push({
-              name: entry.name,
-              status: "connected",
-              source: "global",
-              tools,
-              lastObserved: Date.now()
-            });
+    // 1. Scan global ~/.gemini/antigravity*/mcp/ directories
+    for (const dir of this.globalMcpDirs) {
+      if (fs.existsSync(dir)) {
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.endsWith(".disabled")) {
+              if (discovered.some((s) => s.name === entry.name)) {
+                continue;
+              }
+              const serverPath = path.join(dir, entry.name);
+              const toolFiles = fs.readdirSync(serverPath).filter((f) => f.endsWith(".json"));
+              const tools = toolFiles.map((f) => f.replace(/\.json$/, ""));
+              discovered.push({
+                name: entry.name,
+                status: "connected",
+                source: "global",
+                tools,
+                lastObserved: Date.now()
+              });
+            }
           }
+        } catch {
+          // Ignore read errors
         }
-      } catch {
-        // Ignore read errors
       }
     }
 

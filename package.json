@@ -9,7 +9,8 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build:node": "tsc -p tsconfig.json",
+    "build:preload": "node -e \"require('esbuild').buildSync({ entryPoints: ['src/preload/index.ts'], outfile: 'dist/src/preload/index.cjs', format: 'cjs', platform: 'node', external: ['electron'], bundle: true })\"",
+    "build:node": "tsc -p tsconfig.json && npm run build:preload",
     "build:ui": "vite build",
     "build": "npm run clean && npm run build:node && npm run build:ui",
     "typecheck": "tsc -p tsconfig.json --noEmit",

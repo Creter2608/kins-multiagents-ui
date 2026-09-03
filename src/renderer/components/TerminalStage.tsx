@@ -82,9 +82,14 @@ export const TerminalStage: React.FC = () => {
       resizeObserver.observe(containerRef.current);
 
       // Start PTY session
-      void api.terminal.start().then(() => {
-        handleResize();
-      });
+      api.terminal
+        .start()
+        .then(() => {
+          handleResize();
+        })
+        .catch((err) => {
+          term.writeln(`\r\n\x1b[31m[Pty Error] Failed to launch CLI session: ${err}\x1b[0m\r\n`);
+        });
 
       return () => {
         unsubData();
@@ -92,7 +97,8 @@ export const TerminalStage: React.FC = () => {
         term.dispose();
       };
     } else {
-      term.writeln("\x1b[33m[Notice] Running in standalone web mode without desktop PTY bridge.\x1b[0m");
+      term.writeln("\r\n\x1b[31m[Cockpit Error] Desktop PTY bridge (window.cockpitApi) is offline.\x1b[0m");
+      term.writeln("\x1b[33mPlease ensure dist/src/preload/index.cjs was built correctly.\x1b[0m\r\n");
       return () => term.dispose();
     }
   }, []);

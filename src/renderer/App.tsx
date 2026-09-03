@@ -50,21 +50,44 @@ export const App: React.FC = () => {
   const [logs, setLogs] = useState<readonly CriticalLogEntry[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(DEFAULT_TELEMETRY);
 
+  const [bridgeConnected, setBridgeConnected] = useState<boolean>(true);
+
   useEffect(() => {
     const api = window.cockpitApi;
-    if (!api) return;
+    if (!api) {
+      setBridgeConnected(false);
+      return;
+    }
 
-    // Initialize snapshots
-    void api.loop.getSnapshot().then(setLoopState);
-    void api.mcp.getSnapshot().then(setMcpState);
-    void api.logs.getSnapshot().then((s) => setLogs(s.entries));
-    void api.telemetry.getSnapshot().then(setTelemetry);
+    setBridgeConnected(true);
 
-    // Subscribe to live events
-    const unsubLoop = api.loop.onSnapshot(setLoopState);
-    const unsubMcp = api.mcp.onSnapshot(setMcpState);
-    const unsubLogs = api.logs.onEntries(setLogs);
-    const unsubTelemetry = api.telemetry.onSnapshot(setTelemetry);
+    // 1. Subscribe to live push events first to prevent race conditions
+    const unsubLoop = api.loop.onSnapshot((state) => {
+      setLoopState(state);
+    });
+    const unsubMcp = api.mcp.onSnapshot((state) => {
+      setMcpState(state);
+    });
+    const unsubLogs = api.logs.onEntries((entries) => {
+      setLogs(entries);
+    });
+    const unsubTelemetry = api.telemetry.onSnapshot((state) => {
+      setTelemetry(state);
+    });
+
+    // 2. Fetch initial snapshots independently so one failure does not block the rest
+    void api.loop.getSnapshot().then(setLoopState).catch((err) => {
+      console.error("[Cockpit] Failed to fetch loop snapshot:", err);
+    });
+    void api.mcp.getSnapshot().then(setMcpState).catch((err) => {
+      console.error("[Cockpit] Failed to fetch MCP snapshot:", err);
+    });
+    void api.logs.getSnapshot().then((s) => setLogs(s.entries)).catch((err) => {
+      console.error("[Cockpit] Failed to fetch logs snapshot:", err);
+    });
+    void api.telemetry.getSnapshot().then(setTelemetry).catch((err) => {
+      console.error("[Cockpit] Failed to fetch telemetry snapshot:", err);
+    });
 
     return () => {
       unsubLoop();
@@ -98,8 +121,15 @@ export const App: React.FC = () => {
           </span>
         </div>
 
-        <div className="text-xs text-slate-200 font-mono bg-slate-950/80 px-3 py-1 rounded border border-slate-800">
-          Run ID: <span className="text-cyan-400 font-semibold">{loopState.runId}</span>
+        <div className="flex items-center space-x-2.5">
+          {!bridgeConnected && (
+            <span className="text-xs px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/50 font-mono font-bold animate-pulse">
+              IPC BRIDGE OFFLINE
+            </span>
+          )}
+          <div className="text-xs text-slate-200 font-mono bg-slate-950/80 px-3 py-1 rounded border border-slate-800">
+            Run ID: <span className="text-cyan-400 font-semibold">{loopState.runId}</span>
+          </div>
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from "electron";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PtyService } from "./services/PtyService.js";
@@ -16,10 +17,12 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let teardownIpc: (() => void) | null = null;
 
-// Instantiate backend services
-const projectRoot = process.cwd();
+// Determine absolute project repository root
+const projectRoot = path.resolve(__dirname, "../../..");
+
+// Instantiate backend services with deterministic absolute paths
 const ptyService = new PtyService(projectRoot);
-const loopService = new LoopStateService();
+const loopService = new LoopStateService(path.join(projectRoot, ".ai", "state.json"));
 const mcpService = new McpMonitorService(projectRoot);
 const logService = new CriticalLogService();
 const telemetryService = new TelemetryService();
@@ -32,6 +35,11 @@ dockerService.subscribe((status) => {
 });
 
 function createWindow(): void {
+  const preloadPath = path.resolve(__dirname, "../preload/index.cjs");
+  if (!fs.existsSync(preloadPath)) {
+    console.error(`[CRITICAL] Preload artifact missing at: ${preloadPath}`);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -41,11 +49,20 @@ function createWindow(): void {
     title: "Kins Multi-Agents Cockpit",
     titleBarStyle: "hiddenInset",
     webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
+  });
+
+  // Diagnostics for preload & renderer loading
+  mainWindow.webContents.on("preload-error", (_event, pPath, error) => {
+    console.error(`[Preload Error] Failed to load ${pPath}:`, error);
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    console.error(`[Renderer Load Error] Code: ${errorCode}, Description: ${errorDescription}`);
   });
 
   // Start background monitoring services
@@ -61,6 +78,16 @@ function createWindow(): void {
     logs: logService,
     telemetry: telemetryService,
     rollback: rollbackService
+  });
+
+  // Push immediate snapshots as soon as renderer is ready
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("loop:snapshot", loopService.getSnapshot());
+      mainWindow.webContents.send("mcp:snapshot", mcpService.getSnapshot());
+      mainWindow.webContents.send("logs:entries", logService.getSnapshot().entries);
+      mainWindow.webContents.send("telemetry:snapshot", telemetryService.getSnapshot());
+    }
   });
 
   // Check if running in dev mode or prod
