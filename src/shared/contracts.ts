@@ -76,6 +76,20 @@ export interface CriticalLogSnapshot {
 
 export type DockerSandboxStatus = "Active" | "Stopped" | "Missing" | "Unavailable";
 
+export interface ProviderTokenUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cachedInputTokens: number;
+}
+
+export interface TelemetryMetrics {
+  readonly gpt: ProviderTokenUsage;
+  readonly gemini: ProviderTokenUsage;
+  readonly estimatedCostUsd: number;
+}
+
+export type TelemetryViewScope = "session" | "allTime";
+
 export interface TelemetrySnapshot {
   readonly gptPromptTokens: number | null;
   readonly gptCompletionTokens: number | null;
@@ -89,6 +103,8 @@ export interface TelemetrySnapshot {
   readonly budgetLimitUsd: number;
   readonly dockerStatus: DockerSandboxStatus;
   readonly lastUpdated: number;
+  readonly currentSession: TelemetryMetrics;
+  readonly allTime: TelemetryMetrics;
 }
 
 export interface RollbackResult {
@@ -96,6 +112,12 @@ export interface RollbackResult {
   readonly message: string;
   readonly previousPhase?: string | undefined;
   readonly currentPhase?: string | undefined;
+}
+
+export interface LoopResetResult {
+  readonly success: boolean;
+  readonly message: string;
+  readonly state?: LoopStateSnapshot | undefined;
 }
 
 export interface CockpitApi {
@@ -110,6 +132,7 @@ export interface CockpitApi {
   readonly loop: {
     readonly getSnapshot: () => Promise<LoopStateSnapshot>;
     readonly rollback: () => Promise<RollbackResult>;
+    readonly reset: () => Promise<LoopResetResult>;
     readonly onSnapshot: (listener: (state: LoopStateSnapshot) => void) => Unsubscribe;
   };
   readonly mcp: {
@@ -123,5 +146,6 @@ export interface CockpitApi {
   readonly telemetry: {
     readonly getSnapshot: () => Promise<TelemetrySnapshot>;
     readonly onSnapshot: (listener: (state: TelemetrySnapshot) => void) => Unsubscribe;
+    readonly resetSession: () => Promise<{ success: boolean }>;
   };
 }

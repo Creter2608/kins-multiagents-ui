@@ -18,7 +18,7 @@
     "test:ai": "node scripts/ai-exec.mjs npm test",
     "typecheck:ai": "node scripts/ai-exec.mjs npm run typecheck",
     "app:dev": "vite",
-    "app:start": "node node_modules/electron/cli.js dist/src/main/index.js",
+    "app:start": "npm run build && node node_modules/electron/cli.js dist/src/main/index.js",
     "loop": "node scripts/ai-loop.mjs",
     "template:init": "node scripts/init-template.mjs",
     "test:docker": "docker run --rm -v \".:/workspace\" -w /workspace node:22-bookworm-slim npm test",

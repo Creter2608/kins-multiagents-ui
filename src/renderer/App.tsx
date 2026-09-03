@@ -29,6 +29,9 @@ const DEFAULT_MCP_STATE: McpSnapshot = {
   lastUpdated: Date.now()
 };
 
+const DEFAULT_USAGE = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+const DEFAULT_METRICS = { gpt: DEFAULT_USAGE, gemini: DEFAULT_USAGE, estimatedCostUsd: 0 };
+
 const DEFAULT_TELEMETRY: TelemetrySnapshot = {
   gptPromptTokens: null,
   gptCompletionTokens: null,
@@ -41,7 +44,9 @@ const DEFAULT_TELEMETRY: TelemetrySnapshot = {
   estimatedCostUsd: null,
   budgetLimitUsd: 0.50,
   dockerStatus: "Unavailable",
-  lastUpdated: Date.now()
+  lastUpdated: Date.now(),
+  currentSession: DEFAULT_METRICS,
+  allTime: DEFAULT_METRICS
 };
 
 export const App: React.FC = () => {
@@ -107,28 +112,38 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleReset = async () => {
+    const api = window.cockpitApi;
+    if (api) {
+      const res = await api.loop.reset();
+      if (!res.success) {
+        alert(res.message);
+      }
+    }
+  };
+
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#0b101b] text-slate-100 overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#000000] text-[#e2e8f0] overflow-hidden">
       {/* Top Cockpit Bar */}
-      <header className="h-10 bg-slate-900 border-b border-slate-700 px-4 flex items-center justify-between select-none shrink-0">
+      <header className="h-10 bg-[#0c0c0c] border-b border-[#1f1f1f] px-4 flex items-center justify-between select-none shrink-0">
         <div className="flex items-center space-x-2.5">
-          <span className="w-3 h-3 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/80 animate-pulse" />
-          <span className="font-bold text-sm tracking-wide text-white">
+          <span className="w-2 h-2 rounded-sm bg-emerald-500 shadow-sm shadow-emerald-500/30" />
+          <span className="font-bold text-sm tracking-wide text-zinc-100 font-mono">
             KINS COCKPIT
           </span>
-          <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono font-medium border border-slate-700">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-[#18181b] text-zinc-400 font-mono font-medium border border-[#27272a]">
             v1.0.0
           </span>
         </div>
 
         <div className="flex items-center space-x-2.5">
           {!bridgeConnected && (
-            <span className="text-xs px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/50 font-mono font-bold animate-pulse">
+            <span className="text-xs px-2 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-800/60 font-mono font-bold">
               IPC BRIDGE OFFLINE
             </span>
           )}
-          <div className="text-xs text-slate-200 font-mono bg-slate-950/80 px-3 py-1 rounded border border-slate-800">
-            Run ID: <span className="text-cyan-400 font-semibold">{loopState.runId}</span>
+          <div className="text-xs text-zinc-400 font-mono bg-[#141414] px-3 py-1 rounded border border-[#27272a]">
+            Run ID: <span className="text-zinc-200 font-semibold">{loopState.runId}</span>
           </div>
         </div>
       </header>
@@ -136,7 +151,7 @@ export const App: React.FC = () => {
       {/* Main 3-Column Cockpit Workspace */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Autonomous Loop Tracker */}
-        <PhaseTracker loopState={loopState} onRollback={handleRollback} />
+        <PhaseTracker loopState={loopState} onRollback={handleRollback} onReset={handleReset} />
 
         {/* Center: Interactive Terminal Stage */}
         <TerminalStage />

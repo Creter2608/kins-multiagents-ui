@@ -19,25 +19,25 @@ export const TerminalStage: React.FC = () => {
       fontSize: 14,
       lineHeight: 1.3,
       theme: {
-        background: "#0c1322",
-        foreground: "#ffffff",
-        cursor: "#38bdf8",
-        selectionBackground: "#1e3a8a",
-        black: "#1e293b",
-        red: "#f43f5e",
-        green: "#10b981",
-        yellow: "#fbbf24",
-        blue: "#38bdf8",
-        magenta: "#e879f9",
-        cyan: "#22d3ee",
-        white: "#ffffff",
-        brightBlack: "#64748b",
-        brightRed: "#fb7185",
+        background: "#000000",
+        foreground: "#cccccc",
+        cursor: "#4ade80",
+        selectionBackground: "#333333",
+        black: "#0c0c0c",
+        red: "#ef4444",
+        green: "#22c55e",
+        yellow: "#eab308",
+        blue: "#3b82f6",
+        magenta: "#d946ef",
+        cyan: "#06b6d4",
+        white: "#cccccc",
+        brightBlack: "#52525b",
+        brightRed: "#f87171",
         brightGreen: "#4ade80",
-        brightYellow: "#fde047",
+        brightYellow: "#facc15",
         brightBlue: "#60a5fa",
-        brightMagenta: "#f0abfc",
-        brightCyan: "#67e8f9",
+        brightMagenta: "#e879f9",
+        brightCyan: "#22d3ee",
         brightWhite: "#ffffff"
       }
     });
@@ -76,10 +76,7 @@ export const TerminalStage: React.FC = () => {
         }
       };
 
-      const resizeObserver = new ResizeObserver(() => {
-        handleResize();
-      });
-      resizeObserver.observe(containerRef.current);
+      window.addEventListener("resize", handleResize);
 
       // Start PTY session
       api.terminal
@@ -93,7 +90,7 @@ export const TerminalStage: React.FC = () => {
 
       return () => {
         unsubData();
-        resizeObserver.disconnect();
+        window.removeEventListener("resize", handleResize);
         term.dispose();
       };
     } else {
@@ -129,15 +126,15 @@ export const TerminalStage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0c1322] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[#000000] overflow-hidden">
       {/* Terminal Top Bar */}
-      <div className="h-10 px-4 bg-slate-900 border-b border-slate-700 flex items-center justify-between select-none">
+      <div className="h-10 px-4 bg-[#0c0c0c] border-b border-[#1f1f1f] flex items-center justify-between select-none font-mono">
         <div className="flex items-center space-x-2.5">
-          <TerminalIcon className="w-4 h-4 text-sky-400" />
-          <span className="text-sm font-semibold text-white">
+          <TerminalIcon className="w-4 h-4 text-emerald-400" />
+          <span className="text-sm font-semibold text-zinc-100">
             Antigravity CLI (agy)
           </span>
-          <span className="text-xs px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-600/70 font-mono font-bold">
+          <span className="text-xs px-2 py-0.5 rounded bg-[#141414] text-zinc-400 border border-[#27272a] font-mono font-medium">
             ConPTY Active
           </span>
         </div>
@@ -146,7 +143,7 @@ export const TerminalStage: React.FC = () => {
           <button
             onClick={handleClear}
             title="Clear terminal buffer"
-            className="px-2 py-1 rounded text-xs text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors flex items-center space-x-1"
+            className="px-2 py-1 rounded text-xs text-zinc-300 hover:text-white bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] transition-colors flex items-center space-x-1"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear</span>
@@ -155,7 +152,7 @@ export const TerminalStage: React.FC = () => {
             onClick={handleRestart}
             disabled={isRestarting}
             title="Restart agy session"
-            className="px-2.5 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors flex items-center space-x-1 disabled:opacity-50"
+            className="px-2.5 py-1 rounded text-xs font-medium text-zinc-300 hover:text-white bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] transition-colors flex items-center space-x-1 disabled:opacity-50"
           >
             <RotateCw className={`w-3.5 h-3.5 ${isRestarting ? "animate-spin" : ""}`} />
             <span>Restart CLI</span>
@@ -164,7 +161,7 @@ export const TerminalStage: React.FC = () => {
       </div>
 
       {/* Embedded Terminal Canvas */}
-      <div className="flex-1 p-2 overflow-hidden bg-[#0c1322]" ref={containerRef} />
+      <div className="flex-1 p-2 overflow-hidden bg-[#000000]" ref={containerRef} />
     </div>
   );
 };

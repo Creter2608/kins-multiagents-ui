@@ -9,6 +9,7 @@ import { CriticalLogService } from "./services/CriticalLogService.js";
 import { TelemetryService } from "./services/TelemetryService.js";
 import { DockerStatusService } from "./services/DockerStatusService.js";
 import { RollbackService } from "./services/RollbackService.js";
+import { TranscriptIngestionService } from "./services/TranscriptIngestionService.js";
 import { registerIpcHandlers } from "./ipc.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +29,7 @@ const logService = new CriticalLogService();
 const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot);
+const transcriptService = new TranscriptIngestionService(telemetryService, mcpService);
 
 // Connect docker status updates to telemetry service
 dockerService.subscribe((status) => {
@@ -45,7 +47,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 1024,
     minHeight: 680,
-    backgroundColor: "#090d16",
+    backgroundColor: "#000000",
     title: "Kins Multi-Agents Cockpit",
     titleBarStyle: "hiddenInset",
     webPreferences: {
@@ -70,6 +72,7 @@ function createWindow(): void {
   mcpService.start();
   logService.start();
   dockerService.start();
+  transcriptService.start();
 
   teardownIpc = registerIpcHandlers(mainWindow, {
     pty: ptyService,
@@ -139,4 +142,5 @@ app.on("before-quit", () => {
   logService.dispose();
   dockerService.dispose();
   telemetryService.dispose();
+  transcriptService.dispose();
 });

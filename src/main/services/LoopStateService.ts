@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { computePhaseStatuses, LOOP_PHASES } from "../../shared/phases.js";
-import type { LoopStateSnapshot } from "../../shared/contracts.js";
+import type { LoopStateSnapshot, LoopResetResult } from "../../shared/contracts.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
   const parsed = JSON.parse(content);
@@ -90,6 +90,53 @@ export class LoopStateService {
     }
 
     return this.lastValidSnapshot;
+  }
+
+  async resetLoop(customRunId?: string): Promise<LoopResetResult> {
+    try {
+      const initialPhase = LOOP_PHASES[0];
+      const runId = customRunId || `run-${Date.now()}`;
+      const freshState = {
+        schemaVersion: 1,
+        runId,
+        currentPhase: initialPhase,
+        status: "ready" as const,
+        budget: {
+          maxTransitions: 25,
+          maxRetries: 2,
+          maxOperations: 50
+        },
+        usage: {
+          transitions: 0,
+          retries: 0,
+          operations: 0
+        },
+        history: []
+      };
+
+      const dir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Write atomically via temp file
+      const tempPath = `${this.stateFilePath}.tmp-${Date.now()}`;
+      fs.writeFileSync(tempPath, JSON.stringify(freshState, null, 2), "utf-8");
+      fs.renameSync(tempPath, this.stateFilePath);
+
+      // Immediately read back and emit to all listeners
+      const state = this.readState();
+      return {
+        success: true,
+        message: `Loop run ${runId} successfully initialized to ${initialPhase}`,
+        state
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message: `Failed to reset loop: ${err instanceof Error ? err.message : String(err)}`
+      };
+    }
   }
 
   start(): void {

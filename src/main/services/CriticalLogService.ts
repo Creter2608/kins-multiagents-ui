@@ -2,20 +2,91 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CriticalLogEntry, CriticalLogSnapshot, LogSeverity } from "../../shared/contracts.js";
 
-export function classifyLogLine(line: string): { severity: LogSeverity; source: CriticalLogEntry["source"] } | null {
+export function sanitizeLogLine(line: string): string | null {
   const trimmed = line.trim();
   if (!trimmed) {
     return null;
   }
 
-  // Regex patterns for logs from cli.log or AI Loop
-  if (/\b(ERROR|E\d{4}|FATAL|panic:|Exception)\b/i.test(trimmed) || /Failed to/i.test(trimmed)) {
-    return { severity: "ERROR", source: trimmed.includes("[ai-loop]") ? "ai-loop" : "cli" };
+  // Detect permission-store diagnostics quoting command strings (e.g. permission_grant_store.go)
+  // Example: ignoring invalid allow entry "command(node -e ... let errors = 0 ...)"
+  if (/permission_grant_store\.go:\d+\]\s*ignoring invalid allow entry/i.test(trimmed)) {
+    return null;
   }
-  if (/\b(WARNING|W\d{4}|WARN)\b/i.test(trimmed)) {
-    return { severity: "WARNING", source: trimmed.includes("[ai-loop]") ? "ai-loop" : "cli" };
+
+  // Detect tool confirmation / input loop echoes
+  if (/(?:tool_confirmation_manager\.go|input_loop\.go:\d+\]\s*Responding to tool confirmation)/i.test(trimmed)) {
+    return null;
   }
-  if (/\b(Transitioned to|Phase|Verified|COMPLETE|SPEC_GATE|VERIFY)\b/i.test(trimmed)) {
+
+  // Detect Google glog diagnostic boilerplate: "ERROR: logging before google.Init: [IWEF]\d{4}..."
+  const glogMatch = /^ERROR:\s*logging before google\.Init:\s*([IWEF]\d{4})\b/i.exec(trimmed);
+  if (glogMatch && glogMatch[1]) {
+    const marker = glogMatch[1].toUpperCase();
+    if (marker.startsWith("I")) {
+      return null;
+    }
+    // Suppress transient startup auth race conditions before keyring finishes loading
+    if (/error getting token source:\s*You are not logged into Antigravity/i.test(trimmed)) {
+      return null;
+    }
+    // Suppress benign background cache refreshes or admin notices
+    if (/admin controls not applicable/i.test(trimmed) || /skipping empty or temp file/i.test(trimmed)) {
+      return null;
+    }
+    if (marker.startsWith("W")) {
+      return trimmed;
+    }
+    if (marker.startsWith("E") || marker.startsWith("F")) {
+      return trimmed;
+    }
+  }
+
+  // Suppress startup auth error even if prefix was stripped
+  if (/error getting token source:\s*You are not logged into Antigravity/i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+export function classifyLogLine(line: string): { severity: LogSeverity; source: CriticalLogEntry["source"] } | null {
+  const sanitized = sanitizeLogLine(line);
+  if (!sanitized) {
+    return null;
+  }
+
+  const source: CriticalLogEntry["source"] = sanitized.includes("[ai-loop]") ? "ai-loop" : "cli";
+
+  // Check glog marker
+  const glogMatch = /^ERROR:\s*logging before google\.Init:\s*([IWEF]\d{4})\b/i.exec(sanitized);
+  if (glogMatch && glogMatch[1]) {
+    const marker = glogMatch[1].toUpperCase();
+    if (marker.startsWith("W")) {
+      return { severity: "WARNING", source };
+    }
+    if (marker.startsWith("E") || marker.startsWith("F")) {
+      return { severity: "ERROR", source };
+    }
+  }
+
+  // Strip prefix if present without the [IWEF] marker so it doesn't falsely trigger the generic ERROR matcher
+  const cleanLine = sanitized.replace(/^ERROR:\s*logging before google\.Init:\s*/i, "");
+
+  // Regex patterns for authentic errors from cli.log or AI Loop (avoiding quoted commands)
+  if (/\b(FATAL|panic|UncaughtException|AssertionError)\b/i.test(cleanLine) || /\[ai-loop ERROR\]/i.test(cleanLine)) {
+    return { severity: "ERROR", source };
+  }
+  if (/\b(ERROR|E\d{4}|Exception)\b/.test(cleanLine) || /Failed to/i.test(cleanLine)) {
+    // Ensure this is not just an informational line that mentions error
+    if (!/Starting language server|Language server listening/i.test(cleanLine)) {
+      return { severity: "ERROR", source };
+    }
+  }
+  if (/\b(WARNING|W\d{4})\b/.test(cleanLine)) {
+    return { severity: "WARNING", source };
+  }
+  if (/\b(Transitioned to|Phase|Verified|COMPLETE|SPEC_GATE|VERIFY)\b/i.test(cleanLine)) {
     return { severity: "MILESTONE", source: "ai-loop" };
   }
 

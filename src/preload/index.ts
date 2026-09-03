@@ -30,6 +30,7 @@ const cockpitApi: CockpitApi = {
   loop: {
     getSnapshot: () => ipcRenderer.invoke("loop:getSnapshot"),
     rollback: () => ipcRenderer.invoke("loop:rollback"),
+    reset: () => ipcRenderer.invoke("loop:reset"),
     onSnapshot: (listener: (state: LoopStateSnapshot) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: LoopStateSnapshot) => listener(state);
       ipcRenderer.on("loop:snapshot", handler);
@@ -54,6 +55,7 @@ const cockpitApi: CockpitApi = {
   },
   telemetry: {
     getSnapshot: () => ipcRenderer.invoke("telemetry:getSnapshot"),
+    resetSession: () => ipcRenderer.invoke("telemetry:resetSession"),
     onSnapshot: (listener: (state: TelemetrySnapshot) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: TelemetrySnapshot) => listener(state);
       ipcRenderer.on("telemetry:snapshot", handler);

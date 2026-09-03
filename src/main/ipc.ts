@@ -62,6 +62,10 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return await services.rollback.executeRollback();
   });
 
+  ipcMain.handle("loop:reset", async () => {
+    return await services.loop.resetLoop();
+  });
+
   unsubs.push(
     services.loop.subscribe((snapshot) => {
       if (!window.isDestroyed()) {
@@ -101,6 +105,11 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return services.telemetry.getSnapshot();
   });
 
+  ipcMain.handle("telemetry:resetSession", async () => {
+    services.telemetry.resetCurrentSession();
+    return { success: true };
+  });
+
   unsubs.push(
     services.telemetry.subscribe((snapshot) => {
       if (!window.isDestroyed()) {
@@ -119,8 +128,10 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("terminal:restart");
     ipcMain.removeHandler("loop:getSnapshot");
     ipcMain.removeHandler("loop:rollback");
+    ipcMain.removeHandler("loop:reset");
     ipcMain.removeHandler("mcp:getSnapshot");
     ipcMain.removeHandler("logs:getSnapshot");
     ipcMain.removeHandler("telemetry:getSnapshot");
+    ipcMain.removeHandler("telemetry:resetSession");
   };
 }

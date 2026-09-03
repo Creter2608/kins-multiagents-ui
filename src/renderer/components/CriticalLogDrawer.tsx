@@ -56,31 +56,31 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
   }, [logs]);
 
   return (
-    <div className="border-t border-slate-700 bg-slate-900 flex flex-col transition-all duration-200 select-none">
+    <div className="border-t border-[#1f1f1f] bg-[#0c0c0c] flex flex-col transition-all duration-200 select-none font-mono">
       {/* Drawer Header Toggle Bar */}
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className="h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-slate-800 transition-colors bg-slate-950/50"
+        className="h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-[#141414] transition-colors bg-[#0c0c0c]"
       >
         <div className="flex items-center space-x-3.5 text-xs">
-          <div className="flex items-center space-x-2 font-bold text-sm text-white">
+          <div className="flex items-center space-x-2 font-bold text-sm text-zinc-100">
             {isOpen ? (
-              <ChevronDown className="w-4 h-4 text-cyan-400" />
+              <ChevronDown className="w-4 h-4 text-zinc-400" />
             ) : (
-              <ChevronUp className="w-4 h-4 text-cyan-400" />
+              <ChevronUp className="w-4 h-4 text-zinc-400" />
             )}
             <span>Critical Logs & Events</span>
           </div>
 
           <div className="flex items-center space-x-2">
             {errorCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40">
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-rose-950/40 text-rose-300 border border-rose-800/60">
                 <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
                 <span>{errorCount} ERRORS</span>
               </span>
             )}
             {warnCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-amber-950/40 text-amber-300 border border-amber-800/60">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                 <span>{warnCount} WARNS</span>
               </span>
@@ -98,9 +98,9 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
 
       {/* Drawer Content */}
       {isOpen && (
-        <div className="h-44 border-t border-slate-800/80 flex flex-col bg-slate-950">
+        <div className="h-44 border-t border-[#1f1f1f] flex flex-col bg-[#000000]">
           {/* Filter & Toolbar */}
-          <div className="px-3 py-1.5 border-b border-slate-800/60 flex items-center justify-between gap-2 text-xs">
+          <div className="px-3 py-1.5 border-b border-[#1f1f1f] flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center space-x-1.5">
               {(["ALL", "ERROR", "WARNING", "MILESTONE"] as const).map((sev) => (
                 <button
@@ -108,8 +108,8 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
                   onClick={() => setFilterSeverity(sev)}
                   className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
                     filterSeverity === sev
-                      ? "bg-slate-800 text-slate-100 font-medium border border-slate-700"
-                      : "text-slate-400 hover:text-slate-200"
+                      ? "bg-[#1f1f1f] text-zinc-100 font-medium border border-[#27272a]"
+                      : "text-zinc-400 hover:text-zinc-200"
                   }`}
                 >
                   {sev}
@@ -125,7 +125,7 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
                 placeholder="Search log messages..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded pl-7 pr-2 py-0.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-600 font-mono"
+                className="w-full bg-[#121212] border border-[#262626] rounded pl-7 pr-2 py-0.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#404040] font-mono"
               />
             </div>
           </div>
@@ -145,12 +145,12 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
                 return (
                   <div
                     key={entry.id}
-                    className={`p-1.5 rounded flex items-start justify-between group hover:bg-slate-900/60 ${
+                    className={`p-1.5 rounded flex items-start justify-between group hover:bg-[#121212] ${
                       isError
                         ? "bg-rose-950/20 text-rose-300/90 border-l-2 border-rose-500"
                         : isWarning
                         ? "bg-amber-950/20 text-amber-300/90 border-l-2 border-amber-500"
-                        : "bg-slate-900/40 text-slate-300 border-l-2 border-cyan-500"
+                        : "bg-[#121212] text-slate-300 border-l-2 border-cyan-600"
                     }`}
                   >
                     <div className="flex items-start space-x-2 truncate">
@@ -177,7 +177,7 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
                       className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-200 shrink-0 ml-2"
                     >
                       {copiedId === entry.id ? (
-                        <Check className="w-3 h-3 text-emerald-400" />
+                        <Check className="w-3 h-3 text-emerald-500" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}
