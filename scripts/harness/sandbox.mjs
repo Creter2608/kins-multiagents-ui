@@ -9,6 +9,8 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { validateNetworkPolicy, buildProxyEnvironment } from "./network-policy.mjs";
+
 
 const DEFAULT_CAP_BYTES = 32 * 1024; // 32 KiB cap matching ai-exec.mjs
 const DOCKER_PROBE_TIMEOUT_MS = 3000;
@@ -72,15 +74,33 @@ export function getSandboxConfig(runId, options = {}) {
     ? options.timeoutMs
     : 300000;
 
-  const network = typeof options.network === "string" && options.network.trim().length > 0
+  let network = typeof options.network === "string" && options.network.trim().length > 0
     ? options.network.trim()
     : "none";
+
+  let networkPolicy = options.networkPolicy;
+  if (networkPolicy) {
+    const policyVal = validateNetworkPolicy(networkPolicy);
+    if (!policyVal.valid) {
+      throw new Error(`Invalid networkPolicy: ${policyVal.errors.join("; ")}`);
+    }
+    if (networkPolicy.mode === "none") {
+      network = "none";
+    } else if (networkPolicy.mode === "allowlist") {
+      network = network === "none" ? "bridge" : network;
+    }
+  } else {
+    networkPolicy = { mode: "none" };
+  }
+
 
   const workdir = typeof options.workdir === "string" && options.workdir.trim().length > 0
     ? options.workdir.trim()
     : "/workspace";
 
-  const fallbackToProcess = options.fallbackToProcess !== false;
+  const strictIsolation = Boolean(options.strictIsolation);
+  const fallbackToProcess = strictIsolation ? false : (options.fallbackToProcess !== false);
+  const enableBrowser = Boolean(options.enableBrowser);
 
   const rawMounts = Array.isArray(options.mounts) ? options.mounts : [];
   const mounts = rawMounts.map((m, idx) => {
@@ -96,7 +116,16 @@ export function getSandboxConfig(runId, options = {}) {
     };
   });
 
-  const rawEnv = options.env && typeof options.env === "object" ? options.env : {};
+  const rawEnv = options.env && typeof options.env === "object" ? { ...options.env } : {};
+  if (networkPolicy.mode === "allowlist") {
+    Object.assign(rawEnv, buildProxyEnvironment(networkPolicy));
+  }
+  if (enableBrowser) {
+    rawEnv.DISPLAY = rawEnv.DISPLAY || ":99";
+    rawEnv.PLAYWRIGHT_BROWSERS_PATH = rawEnv.PLAYWRIGHT_BROWSERS_PATH || "0";
+    rawEnv.CHROME_BIN = rawEnv.CHROME_BIN || "/usr/bin/chromium";
+    rawEnv.PUPPETEER_EXECUTABLE_PATH = rawEnv.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium";
+  }
   const env = {};
   for (const [k, v] of Object.entries(rawEnv)) {
     assertNoControlChars(k, `env key ${k}`);
@@ -123,7 +152,10 @@ export function getSandboxConfig(runId, options = {}) {
     workdir,
     mounts,
     env,
-    fallbackToProcess
+    fallbackToProcess,
+    strictIsolation,
+    networkPolicy,
+    enableBrowser
   };
 }
 
@@ -141,10 +173,17 @@ export function buildDockerRunArgs(config) {
     "--cpus", String(config.cpuLimit),
     "--memory", config.memoryLimit,
     "--pids-limit", String(config.pidsLimit),
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
     "--network", config.network,
     "--label", "kins.sandbox=true",
     "--label", `kins.run-id=${config.sanitizedRunId}`
   ];
+
+  if (config.enableBrowser) {
+    args.push("--init", "--ipc=host");
+  }
+
 
   // Sort mounts by target ascending, then source ascending
   const sortedMounts = [...config.mounts].sort((a, b) => {
@@ -265,7 +304,7 @@ export async function spawnEphemeralSandbox(config) {
   }
 
   // Docker not available: Process Fallback
-  if (config.fallbackToProcess) {
+  if (!config.strictIsolation && config.fallbackToProcess) {
     const tmpPrefix = path.join(os.tmpdir(), `kins-sandbox-${config.sanitizedRunId}-`);
     const workspacePath = fs.mkdtempSync(tmpPrefix);
     return {

@@ -15,6 +15,61 @@ export interface HiddenAssertion {
   readonly sha256: string;
 }
 
+export type NetworkPolicy =
+  | { readonly mode: "none" }
+  | {
+      readonly mode: "allowlist";
+      readonly proxyUrl: string;
+      readonly allowedHosts: readonly string[];
+    };
+
+export interface DatasetVersion {
+  readonly datasetId: string;
+  readonly version: string;
+  readonly schemaVersion: 1;
+  readonly manifestSha256: string;
+  readonly createdAt: string;
+}
+
+export interface TaskProvenance {
+  readonly repositoryUrl: string;
+  readonly baseCommit: string;
+  readonly targetCommit: string;
+  readonly sourceType: "commit" | "issue";
+  readonly sourceId: string;
+  readonly license: string;
+}
+
+export interface TokenUsage {
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly source: "provider" | "gateway" | "unavailable";
+}
+
+export interface CostAttribution {
+  readonly pricingCatalogVersion: string;
+  readonly currency: "USD";
+  readonly inputMicroUsd: number;
+  readonly outputMicroUsd: number;
+  readonly cacheMicroUsd: number;
+  readonly surchargeMicroUsd: number;
+  readonly totalMicroUsd: number;
+}
+
+export interface WorkerAttempt {
+  readonly runId: string;
+  readonly taskId: string;
+  readonly attempt: number;
+  readonly workerId: string;
+  readonly containerId: string;
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly tokenUsage: TokenUsage;
+  readonly cost: CostAttribution | null;
+}
+
 export interface BenchmarkTask {
   readonly schemaVersion: 1;
   readonly id: string;
@@ -22,6 +77,11 @@ export interface BenchmarkTask {
   readonly kind: EvaluationTaskKind;
   readonly command: EvaluationCommand;
   readonly hiddenAssertions: readonly HiddenAssertion[];
+  readonly datasetId?: string | undefined;
+  readonly datasetVersion?: string | undefined;
+  readonly manifestSha256?: string | undefined;
+  readonly provenance?: TaskProvenance | undefined;
+  readonly weight?: number | undefined;
 }
 
 export interface TaskExecution {
@@ -42,7 +102,9 @@ export interface EvaluationTaskResult {
 export interface EvaluationMetrics {
   readonly passAt1: number;
   readonly passAtK: number;
-  readonly k: 1;
+  readonly k: number;
+  readonly passAtKDistributions?: Readonly<Record<number, number>> | undefined;
+  readonly flakyTaskIds?: readonly string[] | undefined;
   readonly ssi: number;
 }
 
@@ -74,4 +136,17 @@ export interface EvaluationReport {
   readonly passed: boolean;
   readonly results: readonly EvaluationTaskResult[];
   readonly violations: readonly AntiGamingViolation[];
+  readonly flakyTaskIds?: readonly string[] | undefined;
 }
+
+export interface BatchEvaluationReport {
+  readonly schemaVersion: 1;
+  readonly dataset: DatasetVersion;
+  readonly attempts: readonly WorkerAttempt[];
+  readonly taskReports: readonly EvaluationReport[];
+  readonly weightedPassed: number;
+  readonly totalCostMicroUsd: number;
+  readonly dollarEfficiencyIndex: number | null;
+  readonly auditDigest: string;
+}
+

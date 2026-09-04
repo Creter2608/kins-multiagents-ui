@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 
 const REPO_ROOT = process.cwd();
 const RUNNER_URL = pathToFileURL(path.join(REPO_ROOT, "scripts", "harness", "runner.mjs")).href;
-const { parseTask, computeMetrics, runEvaluation } = await import(RUNNER_URL) as typeof import("../scripts/harness/runner.d.mts");
+const { parseTask, computeMetrics, runEvaluation, executeTaskCommand } = await import(RUNNER_URL) as typeof import("../scripts/harness/runner.d.mts");
 
 test("harness: parseTask validates schema, task ID, and constraints", () => {
   const validTask = {
@@ -404,4 +404,16 @@ test("harness: zero discovered tasks returns schema-valid empty report with pass
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("harness: executeTaskCommand runs legacy host process when sandbox is not requested", async () => {
+  const res = await executeTaskCommand(
+    { argv: [process.execPath, "-e", "console.log('legacy')"], timeoutMs: 5000 },
+    REPO_ROOT,
+    "test",
+    REPO_ROOT
+  );
+  assert.equal(res.passed, true);
+  assert.equal(res.exitCode, 0);
+  assert.equal(res.timedOut, false);
 });

@@ -306,3 +306,27 @@ test("SandboxLifecycleService: observes state file and emits status updates", as
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
 });
+
+test("sandbox: strictIsolation option forces fallbackToProcess to false", () => {
+  const cfg = getSandboxConfig("strict-run", { strictIsolation: true });
+  assert.equal(cfg.strictIsolation, true);
+  assert.equal(cfg.fallbackToProcess, false);
+
+  // Overriding fallbackToProcess: true must still resolve to false under strictIsolation
+  const forced = getSandboxConfig("strict-forced", { strictIsolation: true, fallbackToProcess: true });
+  assert.equal(forced.strictIsolation, true);
+  assert.equal(forced.fallbackToProcess, false);
+});
+
+test("sandbox: strictIsolation fails closed and throws when Docker is unavailable", async () => {
+  const dockerAvailable = await isDockerAvailable();
+  if (!dockerAvailable) {
+    const cfg = getSandboxConfig("strict-offline", { strictIsolation: true });
+    await assert.rejects(
+      async () => {
+        await spawnEphemeralSandbox(cfg);
+      },
+      /Docker engine is unavailable and process fallback is disabled/
+    );
+  }
+});

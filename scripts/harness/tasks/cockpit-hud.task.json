@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "cockpit-hud-telemetry",
+  "title": "Kins Cockpit HUD Telemetry & Scoreboard Rendering",
+  "kind": "p2p",
+  "command": {
+    "argv": ["node", "--test", "dist/test/visual.test.js"],
+    "timeoutMs": 10000
+  },
+  "hiddenAssertions": [],
+  "datasetId": "kins-cockpit-e2e",
+  "datasetVersion": "1.0.0",
+  "weight": 2
+}

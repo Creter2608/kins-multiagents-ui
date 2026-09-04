@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PricingCatalog",
+  "description": "Schema for immutable, versioned LLM token pricing catalog with micro-USD rates",
+  "type": "object",
+  "required": ["version", "currency", "updatedAt", "models"],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["USD"]
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider", "inputMicroUsdPerMillion", "outputMicroUsdPerMillion"],
+        "properties": {
+          "provider": { "type": "string" },
+          "inputMicroUsdPerMillion": { "type": "integer", "minimum": 0 },
+          "outputMicroUsdPerMillion": { "type": "integer", "minimum": 0 },
+          "cacheReadMicroUsdPerMillion": { "type": "integer", "minimum": 0 },
+          "cacheWriteMicroUsdPerMillion": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

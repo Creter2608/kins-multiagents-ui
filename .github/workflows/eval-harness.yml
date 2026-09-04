@@ -1,0 +1,43 @@
+name: Kins Autonomous Agent Evaluation Harness Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmark-gate:
+    name: Evaluate Benchmark Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck & Compile Verifiers
+        run: npm run build:node
+
+      - name: Run Deterministic Harness Test Suite
+        run: node --test --test-concurrency=1 dist/test/*.test.js
+
+      - name: Check Protected Zone Immutability
+        run: |
+          if [ -n "$(git status --porcelain .eval/)" ]; then
+            echo "::error::Tampering detected in protected .eval/ directory!"
+            exit 1
+          fi

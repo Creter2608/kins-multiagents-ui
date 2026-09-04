@@ -3,6 +3,8 @@
  * TypeScript contracts for the Ephemeral Sandboxing & Container Lifecycle engine.
  */
 
+import type { NetworkPolicy } from "../../src/shared/harness.js";
+
 export interface SandboxMount {
   readonly source: string;
   readonly target: string;
@@ -20,6 +22,9 @@ export interface SandboxOptions {
   readonly mounts?: readonly SandboxMount[] | undefined;
   readonly env?: Readonly<Record<string, string>> | undefined;
   readonly fallbackToProcess?: boolean | undefined;
+  readonly strictIsolation?: boolean | undefined;
+  readonly networkPolicy?: NetworkPolicy | undefined;
+  readonly enableBrowser?: boolean | undefined;
 }
 
 export interface SandboxConfig {
@@ -36,7 +41,11 @@ export interface SandboxConfig {
   readonly mounts: readonly SandboxMount[];
   readonly env: Readonly<Record<string, string>>;
   readonly fallbackToProcess: boolean;
+  readonly strictIsolation: boolean;
+  readonly networkPolicy: NetworkPolicy;
+  readonly enableBrowser: boolean;
 }
+
 
 export interface SandboxInstance {
   readonly runId: string;

@@ -11,11 +11,13 @@ import * as path from 'node:path';
 
 const FORBIDDEN_PATH_PATTERNS = [
   /^\.eval(?:\/|$)/i,
+  /^\.ai\/secure-patches(?:\/|$)/i,
   /^\.github(?:\/|$)/i,
   /(?:^|\/)(?:jest|vitest|playwright|cypress|mocha|test)\.config\.[a-z0-9]+$/i,
   /(?:^|\/)\.mocharc(?:\.[a-z0-9]+)?$/i,
   /(?:^|\/)tsconfig\.test\.json$/i
 ];
+
 
 const TEST_SCRIPT_KEY_REGEX = /^(?:pretest|test|posttest)(?::|$)/;
 const TEST_FILE_PATH_REGEX = /(?:^|\/)(?:test|tests|__tests__)\/|\.(?:test|spec)\.[a-z0-9]+$/i;
@@ -62,8 +64,23 @@ export async function validateGitDiffIntegrity(repoRoot, baseCommit, options = {
 
   const changedPaths = parseNameStatusZ(nameStatusRaw);
 
+  // 2.5 Query untracked, non-ignored files to prevent evasion via untracked additions
+  let untrackedRaw = '';
+  try {
+    untrackedRaw = execFileSync(
+      'git',
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      { cwd: repoRoot, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+  } catch (err) {
+    throw new Error(`Git ls-files untracked query failed: ${err.message}`);
+  }
+
+  const untrackedPaths = untrackedRaw ? untrackedRaw.split('\0').filter(Boolean) : [];
+  const candidatePaths = Array.from(new Set([...changedPaths, ...untrackedPaths])).sort();
+
   // 3. Path-level inspection (FORBIDDEN_FILE_MODIFIED)
-  for (const filePath of changedPaths) {
+  for (const filePath of candidatePaths) {
     const normalized = filePath.replace(/\\/g, '/');
 
     // Check forbidden directories and test configs

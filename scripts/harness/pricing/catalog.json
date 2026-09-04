@@ -1,0 +1,71 @@
+{
+  "$schema": "../schemas/pricing-catalog.schema.json",
+  "version": "2026-09-01",
+  "currency": "USD",
+  "updatedAt": "2026-09-01T00:00:00.000Z",
+  "models": {
+    "claude-3-5-sonnet-20241022": {
+      "provider": "anthropic",
+      "inputMicroUsdPerMillion": 3000000,
+      "outputMicroUsdPerMillion": 15000000,
+      "cacheReadMicroUsdPerMillion": 300000,
+      "cacheWriteMicroUsdPerMillion": 3750000
+    },
+    "claude-3-haiku-20240307": {
+      "provider": "anthropic",
+      "inputMicroUsdPerMillion": 250000,
+      "outputMicroUsdPerMillion": 1250000,
+      "cacheReadMicroUsdPerMillion": 25000,
+      "cacheWriteMicroUsdPerMillion": 300000
+    },
+    "claude-3-opus-20240229": {
+      "provider": "anthropic",
+      "inputMicroUsdPerMillion": 15000000,
+      "outputMicroUsdPerMillion": 75000000,
+      "cacheReadMicroUsdPerMillion": 1500000,
+      "cacheWriteMicroUsdPerMillion": 18750000
+    },
+    "gpt-4o": {
+      "provider": "openai",
+      "inputMicroUsdPerMillion": 2500000,
+      "outputMicroUsdPerMillion": 10000000,
+      "cacheReadMicroUsdPerMillion": 1250000,
+      "cacheWriteMicroUsdPerMillion": 2500000
+    },
+    "gpt-4o-mini": {
+      "provider": "openai",
+      "inputMicroUsdPerMillion": 150000,
+      "outputMicroUsdPerMillion": 600000,
+      "cacheReadMicroUsdPerMillion": 75000,
+      "cacheWriteMicroUsdPerMillion": 150000
+    },
+    "o1-preview": {
+      "provider": "openai",
+      "inputMicroUsdPerMillion": 15000000,
+      "outputMicroUsdPerMillion": 60000000,
+      "cacheReadMicroUsdPerMillion": 7500000,
+      "cacheWriteMicroUsdPerMillion": 15000000
+    },
+    "gemini-1.5-pro": {
+      "provider": "google",
+      "inputMicroUsdPerMillion": 3500000,
+      "outputMicroUsdPerMillion": 10500000,
+      "cacheReadMicroUsdPerMillion": 875000,
+      "cacheWriteMicroUsdPerMillion": 3500000
+    },
+    "gemini-1.5-flash": {
+      "provider": "google",
+      "inputMicroUsdPerMillion": 75000,
+      "outputMicroUsdPerMillion": 300000,
+      "cacheReadMicroUsdPerMillion": 18750,
+      "cacheWriteMicroUsdPerMillion": 75000
+    },
+    "gemini-2.0-flash": {
+      "provider": "google",
+      "inputMicroUsdPerMillion": 100000,
+      "outputMicroUsdPerMillion": 400000,
+      "cacheReadMicroUsdPerMillion": 25000,
+      "cacheWriteMicroUsdPerMillion": 100000
+    }
+  }
+}

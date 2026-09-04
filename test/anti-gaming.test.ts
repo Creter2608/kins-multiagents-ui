@@ -194,3 +194,47 @@ test("anti-gaming: altered package.json test script returns FORBIDDEN_FILE_MODIF
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("anti-gaming: untracked file under .eval/ returns FORBIDDEN_FILE_MODIFIED", async () => {
+  const { tempDir, repoRoot, baseCommit } = setupTestGitRepo();
+  try {
+    fs.mkdirSync(path.join(repoRoot, ".eval"), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".eval", "untracked-test.json"), '{"hacked":true}\n', "utf-8");
+
+    const result = await validateGitDiffIntegrity(repoRoot, baseCommit);
+    assert.equal(result.clean, false);
+    const violation = result.violations.find((v) => v.code === "FORBIDDEN_FILE_MODIFIED");
+    assert.ok(violation);
+    assert.equal(violation.path, ".eval/untracked-test.json");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("anti-gaming: untracked protected test config returns FORBIDDEN_FILE_MODIFIED", async () => {
+  const { tempDir, repoRoot, baseCommit } = setupTestGitRepo();
+  try {
+    fs.writeFileSync(path.join(repoRoot, "vitest.config.ts"), "export default {};\n", "utf-8");
+
+    const result = await validateGitDiffIntegrity(repoRoot, baseCommit);
+    assert.equal(result.clean, false);
+    const violation = result.violations.find((v) => v.code === "FORBIDDEN_FILE_MODIFIED");
+    assert.ok(violation);
+    assert.equal(violation.path, "vitest.config.ts");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("anti-gaming: untracked ordinary source file remains allowed", async () => {
+  const { tempDir, repoRoot, baseCommit } = setupTestGitRepo();
+  try {
+    fs.writeFileSync(path.join(repoRoot, "src", "untracked-helper.js"), "export const x = 1;\n", "utf-8");
+
+    const result = await validateGitDiffIntegrity(repoRoot, baseCommit);
+    assert.equal(result.clean, true);
+    assert.equal(result.violations.length, 0);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

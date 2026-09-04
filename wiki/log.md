@@ -1,6 +1,166 @@
 # Project Log
 
+## [2026-09-04] Stage 7 Delivery: Hybrid LLM-as-a-Judge & Continuous CI/CD PR Gates
+
+### Summary
+Delivered Stage 7 (the final stage) of the Enterprise Autonomous Agent Evaluation Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented the Continuous Integration PR quality gate engine (`scripts/harness/ci-report.mjs` and `ci-report.d.mts`) enforcing regression ceilings and anti-gaming gates with idempotent GitHub markdown scorecards, the Layer 1 LLM-as-a-Judge architectural compliance rubric engine (`scripts/harness/judge.mjs` and `judge.d.mts`) computing the composite Architecture Quality Index (AQI 1.0 - 5.0), and a production GitHub Actions CI workflow (`.github/workflows/eval-harness.yml`) with secret isolation and protected `.eval/` immutability verification. Executed full Autonomous Loop v2.0 (`run-stage7-1788533000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 202 to 210 tests passing 100% (at $0 LLM token cost on local CPU inside Docker sandbox).
+
+### Key Deliverables in Stage 7
+1. **CI Quality Gate Engine (`scripts/harness/ci-report.mjs`)**:
+   - `compareBenchmarkReports`: Enforces Pass@1 floors, maximum allowable Pass@1 regression, SSI (System Stability Index) regression ceilings ($\le 5\%$), and zero anti-gaming violations.
+   - **Incomparable Detection**: Flags incompatible report versions across schema versions or benchmark dataset versions (`datasetId` and `version`).
+   - `generateMarkdownScorecard`: Generates idempotent, markdown-formatted scorecard tables with marker `<!-- kins-eval-scorecard -->` for automatic PR bot commenting.
+2. **Layer 1 LLM-as-a-Judge Rubric & AQI Engine (`scripts/harness/judge.mjs`)**:
+   - Evaluates git unified diffs against Karpathy simplicity invariants and SWE-bench best practices:
+     - **Surgical Changes (30%)**: Penalizes touched files $> 15$, commented-out code blocks.
+     - **Simplicity First (30%)**: Penalizes speculative additions ($> 800$ added lines with minimal deletions).
+     - **Modularity & Contracts (20%)**: Clean typed interface compliance.
+     - **Maintainability (20%)**: Penalizes leftover debug prints (`console.log`) and `debugger;` statements.
+   - Computes weighted composite **Architecture Quality Index (AQI 1.0 - 5.0)** against gate floor (default 3.5).
+   - `buildJudgeEvaluationPrompt`: Provides a structured evaluation prompt for Layer 1 model integration.
+3. **Continuous CI/CD PR Gate Workflow (`.github/workflows/eval-harness.yml`)**:
+   - Triggers on `pull_request` against `main` branch.
+   - Configured with secret isolation for untrusted community forks.
+   - Runs deterministic test suites and asserts 100% immutability of protected `.eval/` directory.
+4. **Deterministic Test Suite (`test/ci-report.test.ts`, `test/judge.test.ts`)**:
+   - 8 comprehensive unit and integration tests verifying gate passes/failures, regression thresholds, dataset version mismatch handling, scorecard markdown generation, AQI scoring, debug code penalization, file footprint penalties, and rubric prompt generation.
+5. **Autonomous Loop Completion**: Autonomous loop `run-stage7-1788533000` reached `COMPLETE (succeeded)` with 210/210 tests passing.
+
+## [2026-09-04] Stage 6 Delivery: Flakiness Filter & Pass@k Statistical Sampling
+
+### Summary
+Delivered Stage 6 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented the unbiased HumanEval combinatorial Pass@k estimator preventing combinatorial overflow (`scripts/harness/flakiness.mjs` and `flakiness.d.mts`), a pre-flight flakiness detector running repeated baseline evaluations to quarantine non-deterministic test failures, execution jitter and CPU stress injection helpers, and extended `EvaluationMetrics` in `src/shared/harness.ts` and `scripts/harness/runner.mjs` to support flexible $k \in \{1, 3, 5\}$, distribution maps, and flaky task segregation. Executed full Autonomous Loop v2.0 (`run-stage6-1788532000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 196 to 202 tests passing 100% (at $0 LLM token cost on local CPU inside Docker sandbox).
+
+### Key Deliverables in Stage 6
+1. **Unbiased Pass@k Combinatorial Estimator (`scripts/harness/flakiness.mjs`)**:
+   - `estimatePassAtK`: Implements the standard HumanEval formulation: $\text{pass@k} = 1 - \prod_{i=1}^k \frac{n - c - i + 1}{n - i + 1}$. Eliminates integer overflow while computing exact probabilities across repeated attempts.
+   - `computePassAtKDistribution`: Aggregates multi-task confidence curves across arbitrary $k$ sets ($k=1, 3, 5$).
+2. **Pre-flight Flakiness Detector (`detectTaskFlakiness`, `filterFlakyTasks`)**:
+   - Repeatedly executes baseline tasks (default 3 runs) prior to patch evaluation.
+   - Detects test non-determinism (`isFlaky: true`) and calculates flakiness rate.
+   - Quarantines flaky tasks from candidate penalty, ensuring agents are evaluated strictly on deterministic specifications.
+3. **Execution Jitter & CPU Stress Injection (`injectExecutionJitter`, `injectCpuStress`)**:
+   - Injects bounded random latency ($[\text{minMs}, \text{maxMs}]$) to surface concurrency race conditions.
+   - Injects deterministic compute load to stress-test timeout resilience.
+4. **Runner Integration & Shared Contracts (`src/shared/harness.ts`, `runner.mjs`)**:
+   - Extended `EvaluationMetrics` with `k: number`, `passAtKDistributions`, and `flakyTaskIds`.
+   - Updated `computeMetrics` to process custom $k$ values and report quarantined flaky tasks.
+5. **Deterministic Test Suite (`test/flakiness.test.ts`)**:
+   - 6 comprehensive tests covering Pass@k edge cases ($c=0$, $c=n$, $n-c<k$, standard HumanEval $n=10, c=2, k=2$), multi-task distribution curves, intermittent flakiness detection, stable/flaky filtering, jitter/stress bounds, and runner metrics integration.
+6. **Autonomous Loop Completion**: Autonomous loop `run-stage6-1788532000` reached `COMPLETE (succeeded)` with 202/202 tests passing.
+
+## [2026-09-04] Stage 5 Delivery: Visual & Headless Browser E2E UI Assertions
+
+### Summary
+Delivered Stage 5 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented headless browser container configuration flags in `scripts/harness/sandbox.mjs` (`--init`, `--ipc=host`, headless browser envs), a zero-dependency DOM snapshot canonicalizer and structural diff engine (`scripts/harness/visual.mjs` and `visual.d.mts`), pure-JS pixel-level visual regression diffing with PPM P6 binary buffer parsing and visual diff highlighting, Cockpit HUD / Scoreboard assertions, deterministic tab switching validators, and a sample Cockpit benchmark task (`scripts/harness/tasks/cockpit-hud.task.json`). Executed full Autonomous Loop v2.0 (`run-stage5-1788531000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 189 to 196 tests passing 100% (at $0 LLM token cost on local CPU inside Docker sandbox).
+
+### Key Deliverables in Stage 5
+1. **Headless Browser Sandbox Environment (`scripts/harness/sandbox.mjs`, `sandbox.d.mts`)**:
+   - `enableBrowser`: Configures container options for headless Chromium/Playwright execution.
+   - Injects `--init` (for Chromium zombie process reaping) and `--ipc=host` (for shared memory browser rendering).
+   - Injects deterministic browser environment variables (`DISPLAY=:99`, `PLAYWRIGHT_BROWSERS_PATH=0`, `CHROME_BIN=/usr/bin/chromium`).
+2. **DOM Snapshot Canonicalization & Diffing (`scripts/harness/visual.mjs`)**:
+   - `canonicalizeHtml`: Strips comments, collapses intra-tag whitespace, and deterministically sorts HTML tag attributes alphabetically.
+   - `compareDomSnapshots`: Compares baseline and candidate DOM trees, detects additions, deletions, modifications, and computes exact similarity ratios.
+3. **Pure-JS Visual Regression & Binary PPM Support (`scripts/harness/visual.mjs`)**:
+   - `createPpmImage` & `parsePpmImage`: Generates and parses standard 24-bit RGB PPM P6 images without native bindings or heavy external dependencies.
+   - `comparePixelBuffers`: Compares image buffers with per-channel color deviation thresholds, computes diff pixel count and percentage, and generates diff highlight buffers.
+4. **Cockpit UI Assertions & Synthetic Benchmarking**:
+   - `assertCockpitHudSnapshot`: Validates telemetry scoreboard rendering (Pass@1, SSI, DEI, Total Cost).
+   - `assertTabSwitching`: Validates deterministic tab activation and state changes.
+   - `scripts/harness/tasks/cockpit-hud.task.json`: Benchmark task for Cockpit HUD UI assertions.
+5. **Deterministic Test Suite (`test/visual.test.ts`)**:
+   - 7 comprehensive tests covering HTML canonicalization, DOM structural diffs, PPM binary roundtrip, pixel buffer diffing, HUD telemetry verification, tab switching, and sandbox browser flags.
+6. **Autonomous Loop Completion**: Autonomous loop `run-stage5-1788531000` reached `COMPLETE (succeeded)` with 196/196 tests passing.
+
+## [2026-09-04] Stage 4 Delivery: Granular Telemetry, Token Economics & DEI Metric
+
+### Summary
+Delivered Stage 4 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented multi-provider token usage normalization (`scripts/harness/telemetry.mjs` and `telemetry.d.mts`), an immutable versioned pricing catalog (`scripts/harness/pricing/catalog.json` and schema `scripts/harness/schemas/pricing-catalog.schema.json`), exact integer micro-USD cost arithmetic, the Dollar Efficiency Index (DEI) metric, a tamper-evident hash-chained audit event stream (`AuditEventStream`), and integrated batch reporting into `scripts/harness/runner.mjs`. Executed full Autonomous Loop v2.0 (`run-stage4-1788530000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 183 to 189 tests passing 100% (at $0 LLM token cost on local CPU inside Docker sandbox).
+
+### Key Deliverables in Stage 4
+1. **Multi-Provider Token Usage Normalization (`scripts/harness/telemetry.mjs`)**:
+   - `normalizeTokenUsage`: Ingests and canonicalizes token usage metrics from OpenAI (`prompt_tokens`, `completion_tokens`, `cached_tokens`), Anthropic (`input_tokens`, `output_tokens`, cache read/creation tokens), Google Gemini (`promptTokenCount`, `candidatesTokenCount`), and generic objects. Guarantees non-negative integer values.
+2. **Versioned Pricing Catalog (`scripts/harness/pricing/catalog.json`, `schemas/pricing-catalog.schema.json`)**:
+   - Version `2026-09-01` catalog specifying integer micro-USD rates per 1M tokens across major production models (Claude 3.5 Sonnet, Claude 3 Haiku, Claude 3 Opus, GPT-4o, GPT-4o-mini, o1-preview, Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash).
+3. **Exact Integer Micro-USD Arithmetic (`calculateCostAttribution`)**:
+   - Deterministic cost attribution: $\text{Total} = \text{Input} + \text{Output} + \text{Cache} + \text{Surcharge}$.
+   - Integer rounding eliminates IEEE 754 floating-point drift in economic audits.
+4. **Dollar Efficiency Index (DEI)**:
+   - $\text{DEI} = \frac{\text{Weighted Passed Tasks}}{\text{Total USD Cost}} = \frac{\text{weightedPassed} \times 1,000,000}{\text{totalMicroUsd}}$.
+   - Deterministic compact assertion verified: `passedWeight=4, cost=2,000,000 microUSD -> DEI = 2.0`.
+   - Fail-closed division-by-zero prevention: returns `null` when cost is zero or invalid.
+5. **Tamper-Evident Hash Chain (`AuditEventStream`)**:
+   - Sequence-numbered, SHA-256 hash-linked audit logging with canonical JSON key serialization.
+   - Immediate corruption detection if any past payload or sequence is modified.
+   - `toJSONL()` and `fromJSONL()` support for persistent audit files.
+6. **Integrated Batch Evaluation Report (`buildBatchEvaluationReport`, `runner.mjs`)**:
+   - Automatically computes weighted passed tasks, aggregates total micro-USD across all worker attempts, computes DEI, and seals the report with the cryptographic `auditDigest`.
+7. **Deterministic Test Suite (`test/telemetry.test.ts`)**:
+   - 6 comprehensive tests covering token normalization, catalog validation, integer cost arithmetic, compact DEI assertions, cryptographic hash chain verification, tampering detection, and full batch report generation.
+8. **Autonomous Loop Completion**: Autonomous loop `run-stage4-1788530000` reached `COMPLETE (succeeded)` with 189/189 tests passing.
+
+## [2026-09-04] Stage 3 Delivery: Parallel Worker Pool & Ephemeral Container Orchestration
+
+### Summary
+Delivered Stage 3 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented a bounded concurrent worker pool (`scripts/harness/worker-pool.mjs` and `worker-pool.d.mts`), single-task primitive `runBenchmarkTask`, concurrent batch execution `runBenchmarkBatch` in `scripts/harness/runner.mjs`, deterministic output ordering, graceful cancellation via `AbortSignal`, isolated attempt error handling, and a dedicated integration test suite (`test/worker-pool.test.ts`). Executed full Autonomous Loop v2.0 (`run-stage3-1788529000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 178 to 183 tests passing 100%.
+
+### Key Deliverables in Stage 3
+1. **Parallel Worker Pool Engine (`scripts/harness/worker-pool.mjs`, `worker-pool.d.mts`)**:
+   - `validatePoolOptions`: Validates bounded concurrency ($1 \le \text{concurrency} \le 32$), task timeouts, and network policy options.
+   - `runTaskPool`: Distributes benchmark tasks across concurrent worker loops while strictly capping `peakWorkers <= concurrency`.
+   - **Deterministic Output Ordering**: Pre-allocates fixed result slots so final reports preserve the exact input task order regardless of out-of-order asynchronous completion.
+   - **Graceful Cancellation**: Listens to `AbortSignal` to stop admitting new tasks while safely finalizing in-flight worker executions.
+   - **Isolated Error Boundary**: Converts unhandled task execution exceptions into structured failure results without crashing the worker pool or aborting unrelated tasks.
+2. **Batch & Task Runner Primitives (`scripts/harness/runner.mjs`, `runner.d.mts`, `runner.d.ts`)**:
+   - `runBenchmarkTask`: Detached worktree execution primitive against baseCommit and current workspace with automatic teardown in `finally`.
+   - `runBenchmarkBatch`: Concurrently evaluates tasks via `worker-pool.mjs` and produces schema-valid `EvaluationReport`.
+3. **Deterministic Integration Test Suite (`test/worker-pool.test.ts`)**:
+   - 5 comprehensive tests validating option bounds, concurrency ceiling enforcement, out-of-order completion re-sorting, abort cancellation, and task error isolation.
+4. **Autonomous Loop Completion**: Autonomous loop `run-stage3-1788529000` completed with 183/183 tests passing 100%.
+
+## [2026-09-04] Stage 2 Delivery: Test Patch Isolation & Hermetic Network Egress Control
+
+
+### Summary
+Delivered Stage 2 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented a fail-closed Network Egress Controller (`scripts/harness/network-policy.mjs`), default air-gap isolation (`--network none`), hardened container boundaries (`--cap-drop ALL`, `--security-opt no-new-privileges`, 4GB RAM, 2 vCPUs), Blind Evaluation test patch injection/revert lifecycle in runner (`scripts/harness/runner.mjs`), and anti-gaming protection for `.ai/secure-patches/` (`scripts/harness/anti-gaming.mjs`). Executed full Autonomous Loop v2.0 (`run-stage2-1788528000`), advancing through all canonical phases to `COMPLETE (succeeded)`. Deterministic project test suite expanded from 167 to 178 tests passing 100%.
+
+### Key Deliverables in Stage 2
+1. **Hermetic Network Policy Engine (`scripts/harness/network-policy.mjs`, `scripts/harness/network-policy.d.mts`)**:
+   - `validateNetworkPolicy`: Enforces `{ mode: "none" }` by default. Strictly rejects wildcard hostnames (`*.domain`), credentials in proxy URLs (`user:pass@`), and private/local network destinations (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `localhost`).
+   - `isDestinationAllowed`: Strict hostname matching defending against private IP bypasses and DNS rebinding.
+   - `buildProxyEnvironment`: Sanitizes proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`).
+2. **Hardened Ephemeral Sandbox (`scripts/harness/sandbox.mjs`, `scripts/harness/sandbox.d.mts`)**:
+   - Integrates `networkPolicy` into container lifecycle with default air-gap (`--network none`).
+   - Hardens Docker flags: `--cap-drop ALL`, `--security-opt no-new-privileges`, 4GB RAM ceiling, 2 vCPUs ceiling.
+3. **Blind Evaluation & Secure Patch Injection (`scripts/harness/runner.mjs`, `runner.d.mts`, `runner.d.ts`)**:
+   - `executeTaskCommand`: Automatically applies hidden test patches (`.ai/secure-patches/<taskId>.patch`) before test execution in detached worktree and cleanly reverts them in `finally` blocks, ensuring zero test leakage into the agent workspace.
+4. **Anti-Gaming Patch Protection (`scripts/harness/anti-gaming.mjs`)**:
+   - Added `^\.ai\/secure-patches` to `FORBIDDEN_PATH_PATTERNS`. Any agent modification or creation inside secure patches triggers immediate `FORBIDDEN_FILE_MODIFIED`.
+5. **Deterministic Test Suite (`test/network-policy.test.ts`)**:
+   - 11 unit and integration tests covering allowlist validation, credential rejection, private IP rejection, proxy environment generation, container hardening arguments, secure patch lifecycle, and anti-gaming tamper detection.
+6. **Autonomous Loop Completion**: Autonomous loop `run-stage2-1788528000` reached `COMPLETE (succeeded)` with 178/178 tests passing.
+
+## [2026-09-04] Stage 1 Delivery: Dataset Corpus Management & Task Ingestion Engine
+
+
+### Summary
+Delivered Stage 1 of the Enterprise Harness Evolution Roadmap ([`docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md`](docs/superpowers/plans/2026-09-04-harness-evolution-roadmap.md)). Implemented canonical task manifest hashing, JSON schema validation, Git commit/issue provenance extraction, F2P/P2P semantic execution verification on detached worktrees, a fail-closed staging boundary protecting `.eval/` (`.harness/corpus-staging/`), and a unified CLI tool (`scripts/harness/corpus-cli.mjs`). Executed full Autonomous Loop v2.0 (`run-1788526992920`), completing all 10 canonical phases successfully (`COMPLETE`). Total project test suite expanded from 161 to 167 deterministic tests passing 100%.
+
+### Key Deliverables in Stage 1
+1. **Extended Domain Contracts (`src/shared/harness.ts`)**: Added `DatasetVersion`, `TaskProvenance`, `TokenUsage`, `CostAttribution`, `NetworkPolicy`, `WorkerAttempt`, and `BatchEvaluationReport`. Backward-compatible extensions to `BenchmarkTask`.
+2. **Canonical Manifest Schema (`scripts/harness/schemas/task-manifest.schema.json`)**: Enforces 40-character commit SHAs, author provenance, license metadata, non-negative weights, commands array, and SHA-256 digests.
+3. **Corpus & Ingestion Engine (`scripts/harness/corpus.mjs`, `scripts/harness/corpus.d.mts`)**:
+   - `canonicalizeTaskManifest` & `hashTaskManifest`: Deterministic recursive object key sorting guaranteeing identical SHA-256 digests across environments.
+   - `validateCandidateTask`: Strict validation rejecting path traversals (`../`) in hidden assertions and public files.
+   - `ingestTask`: Isolated semantic F2P/P2P execution in detached worktrees; enforces `STAGING_VIOLATION` to prevent accidental direct writes into `.eval/`.
+   - `verifyCorpus`: Recursive manifest scanning and integrity digest re-computation.
+4. **Corpus CLI Interface (`scripts/harness/corpus-cli.mjs`)**: CLI with `ingest`, `validate`, and `verify` commands with standardized exit codes (0, 2, 3, 4, 5).
+5. **Deterministic Test Suite (`test/corpus.test.ts`)**: 6 targeted tests covering canonicalization, hash stability, path traversal rejection, staging safety, and tamper detection.
+6. **Autonomous Loop Completion**: Full lifecycle verification via `node scripts/ai-loop.mjs` reaching `COMPLETE (succeeded)` with 0 retries burned.
+
 ## [2026-09-04] Release v2.3.0: Enterprise Fleet Architecture (ADR-005 Full Delivery) & Eval HUD
+
 
 ### Summary
 Released version 2.3.0 delivering all 5 phases of ADR-005 (Enterprise Fleet Roadmap & Deep Evaluation Harness Architecture), integrating the Evaluation Benchmark Harness into KINS Cockpit, Anti-Gaming verification, ephemeral sandboxing, AST-level concurrent worktree merging, and refined three-state scoreboard UI handling. Deterministic test suite expanded from 109 to 155 tests passing 100%.

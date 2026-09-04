@@ -12,6 +12,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as process from 'node:process';
 import { validateGitDiffIntegrity } from './anti-gaming.mjs';
+import {
+  getSandboxConfig,
+  spawnEphemeralSandbox,
+  execInSandbox,
+  teardownEphemeralSandbox
+} from './sandbox.mjs';
+import { runTaskPool } from './worker-pool.mjs';
+import { AuditEventStream, buildBatchEvaluationReport } from './telemetry.mjs';
+
 
 const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/;
 const TASK_ID_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -99,13 +108,17 @@ export function parseTask(content, sourcePath = 'inline') {
   };
 }
 
-export function computeMetrics(results) {
+export function computeMetrics(results, options = {}) {
+  const flakyTaskIds = Array.isArray(options.flakyTaskIds) ? options.flakyTaskIds : [];
+  const k = typeof options.k === 'number' && options.k > 0 ? options.k : 1;
+  const passAtKDistributions = options.passAtKDistributions;
+
   const f2pResults = results.filter(r => r.kind === 'f2p');
   const p2pResults = results.filter(r => r.kind === 'p2p');
 
   const f2pPassed = f2pResults.filter(r => r.passed).length;
   const passAt1 = f2pResults.length === 0 ? 1 : Number((f2pPassed / f2pResults.length).toFixed(4));
-  const passAtK = passAt1;
+  const passAtK = options.passAtK !== undefined ? options.passAtK : passAt1;
 
   const basePassingP2P = p2pResults.filter(r => r.base.passed);
   let ssi = 1;
@@ -114,12 +127,21 @@ export function computeMetrics(results) {
     ssi = Number((currentPassingAmongBase / basePassingP2P.length).toFixed(4));
   }
 
-  return {
+  const metrics = {
     passAt1,
     passAtK,
-    k: 1,
+    k,
     ssi
   };
+
+  if (passAtKDistributions) {
+    metrics.passAtKDistributions = passAtKDistributions;
+  }
+  if (flakyTaskIds.length > 0) {
+    metrics.flakyTaskIds = flakyTaskIds;
+  }
+
+  return metrics;
 }
 
 function verifyHiddenAssertions(tasks, evalRoot) {
@@ -142,37 +164,298 @@ function verifyHiddenAssertions(tasks, evalRoot) {
   }
 }
 
-function executeTaskCommand(command, workingDir, mode, targetRoot) {
-  const [cmd, ...args] = command.argv;
-  const env = {
-    ...process.env,
-    KINS_EVAL_MODE: mode,
-    KINS_EVAL_TARGET_ROOT: targetRoot
-  };
+export async function executeTaskCommand(command, workingDir, mode, targetRoot, options = {}) {
+  const sandboxOpt = options?.sandbox;
+  const securePatchPath = options?.securePatchPath;
+  let patchApplied = false;
 
-  const start = Date.now();
-  const res = spawnSync(cmd, args, {
-    cwd: workingDir,
-    env,
-    shell: false,
-    timeout: command.timeoutMs,
-    stdio: ['ignore', 'pipe', 'pipe']
+  if (securePatchPath && fs.existsSync(securePatchPath)) {
+    try {
+      execFileSync('git', ['apply', '--whitespace=nowarn', securePatchPath], {
+        cwd: workingDir,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      patchApplied = true;
+    } catch (patchErr) {
+      throw new Error(`Failed to apply secure test patch ${securePatchPath}: ${patchErr.message}`);
+    }
+  }
+
+  try {
+    if (sandboxOpt) {
+      const sandboxConfigOverrides = typeof sandboxOpt === 'object' ? sandboxOpt : {};
+      const networkPolicy = options?.networkPolicy || sandboxConfigOverrides.networkPolicy;
+      const config = getSandboxConfig(`eval-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
+        workdir: '/workspace',
+        mounts: [{ source: workingDir, target: '/workspace', readOnly: false }],
+        timeoutMs: command.timeoutMs,
+        ...(networkPolicy ? { networkPolicy } : {}),
+        ...sandboxConfigOverrides
+      });
+
+      const instance = await spawnEphemeralSandbox(config);
+      try {
+        const execResult = await execInSandbox(instance, command.argv, {
+          cwd: '/workspace',
+          timeoutMs: command.timeoutMs,
+          env: {
+            KINS_EVAL_MODE: mode,
+            KINS_EVAL_TARGET_ROOT: targetRoot
+          }
+        });
+
+        const timedOut = Boolean(execResult.timedOut);
+        const exitCode = timedOut ? null : (execResult.exitCode ?? 0);
+        const passed = exitCode === 0;
+
+        return {
+          exitCode,
+          passed,
+          signal: null,
+          timedOut
+        };
+      } finally {
+        await teardownEphemeralSandbox(instance);
+      }
+    }
+
+    // Non-sandbox / host execution branch (legacy behavior unchanged)
+    const [cmd, ...args] = command.argv;
+    const env = {
+      ...process.env,
+      KINS_EVAL_MODE: mode,
+      KINS_EVAL_TARGET_ROOT: targetRoot
+    };
+
+    const res = spawnSync(cmd, args, {
+      cwd: workingDir,
+      env,
+      shell: false,
+      timeout: command.timeoutMs,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    const timedOut = res.error && res.error.code === 'ETIMEDOUT';
+    const exitCode = timedOut ? null : (res.status ?? (res.error ? 1 : 0));
+    const passed = exitCode === 0;
+
+    return {
+      exitCode,
+      passed,
+      signal: res.signal || null,
+      timedOut: Boolean(timedOut)
+    };
+  } finally {
+    if (patchApplied && securePatchPath) {
+      try {
+        execFileSync('git', ['apply', '--reverse', '--whitespace=nowarn', securePatchPath], {
+          cwd: workingDir,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      } catch {
+        // cleanup best effort
+      }
+    }
+  }
+}
+
+
+/**
+ * Executes a single benchmark task against baseCommit (in detached worktree)
+ * and current workspace.
+ */
+export async function runBenchmarkTask(task, runContext) {
+  const { repoRoot, baseCommit, evalRoot, sandbox, networkPolicy, securePatchPath } = runContext;
+
+  const tempPrefix = path.join(os.tmpdir(), 'kins-task-');
+  const tempWorktree = fs.mkdtempSync(tempPrefix);
+  let worktreeAttached = false;
+
+  try {
+    execFileSync('git', ['worktree', 'add', '--detach', tempWorktree, baseCommit], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    worktreeAttached = true;
+
+    const securePatchCandidate = evalRoot
+      ? path.join(evalRoot, '..', '.ai', 'secure-patches', `${task.id}.patch`)
+      : path.join(repoRoot, '.ai', 'secure-patches', `${task.id}.patch`);
+    const resolvedPatchPath = fs.existsSync(securePatchCandidate) ? securePatchCandidate : securePatchPath;
+    const cmdOpts = { sandbox, networkPolicy, securePatchPath: resolvedPatchPath };
+
+    // Execute against base
+    const baseExec = await executeTaskCommand(task.command, tempWorktree, 'base', tempWorktree, cmdOpts);
+
+    // Execute against current workspace
+    const currentExec = await executeTaskCommand(task.command, repoRoot, 'current', repoRoot, cmdOpts);
+
+    let passed = false;
+    if (task.kind === 'f2p') {
+      passed = !baseExec.passed && currentExec.passed;
+    } else if (task.kind === 'p2p') {
+      passed = baseExec.passed && currentExec.passed;
+    }
+
+    return {
+      id: task.id,
+      kind: task.kind,
+      base: baseExec,
+      current: currentExec,
+      passed
+    };
+  } finally {
+    if (worktreeAttached) {
+      try {
+        execFileSync('git', ['worktree', 'remove', '--force', tempWorktree], {
+          cwd: repoRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      } catch {
+        // cleanup best effort
+      }
+    }
+    try {
+      if (fs.existsSync(tempWorktree)) {
+        fs.rmSync(tempWorktree, { recursive: true, force: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Runs a batch of benchmark tasks concurrently using worker-pool.
+ */
+export async function runBenchmarkBatch(tasks, options = {}) {
+  const {
+    repoRoot,
+    evalRoot,
+    baseCommit,
+    outputPath,
+    sandbox,
+    networkPolicy,
+    concurrency,
+    dataset,
+    auditStream: customAuditStream,
+    auditLogPath
+  } = options;
+
+  let verifiedCommit;
+  try {
+    verifiedCommit = execFileSync('git', ['rev-parse', '--verify', `${baseCommit}^{commit}`], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
+  } catch (err) {
+    throw new Error(`Invalid base git commit '${baseCommit}': ${err.message}`);
+  }
+
+  const auditStream = customAuditStream instanceof AuditEventStream
+    ? customAuditStream
+    : new AuditEventStream(auditLogPath ? { logPath: auditLogPath } : {});
+
+  auditStream.append('BATCH_STARTED', {
+    taskCount: Array.isArray(tasks) ? tasks.length : 0,
+    concurrency: concurrency || 'default',
+    baseCommit: verifiedCommit
   });
 
-  const timedOut = res.error && res.error.code === 'ETIMEDOUT';
-  const exitCode = timedOut ? null : (res.status ?? (res.error ? 1 : 0));
-  const passed = exitCode === 0;
+  const poolRes = await runTaskPool(
+    tasks,
+    async (task, workerCtx) => {
+      auditStream.append('TASK_STARTED', {
+        taskId: task.id,
+        workerId: workerCtx.workerId,
+        runId: workerCtx.runId
+      });
 
-  return {
-    exitCode,
-    passed,
-    signal: res.signal || null,
-    timedOut: Boolean(timedOut)
+      const startedAt = new Date().toISOString();
+      const taskResult = await runBenchmarkTask(task, {
+        repoRoot,
+        baseCommit: verifiedCommit,
+        evalRoot,
+        sandbox,
+        networkPolicy
+      });
+      const finishedAt = new Date().toISOString();
+
+      auditStream.append('TASK_COMPLETED', {
+        taskId: task.id,
+        workerId: workerCtx.workerId,
+        passed: taskResult.passed
+      });
+
+      const attempt = {
+        runId: workerCtx.runId,
+        taskId: task.id,
+        attempt: 1,
+        workerId: workerCtx.workerId,
+        containerId: '',
+        startedAt,
+        finishedAt,
+        tokenUsage: { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, source: 'unavailable' },
+        cost: null
+      };
+      return { taskResult, attempt };
+    },
+    {
+      concurrency,
+      repoRoot,
+      baseCommit: verifiedCommit,
+      sandbox,
+      networkPolicy
+    }
+  );
+
+  auditStream.append('BATCH_COMPLETED', {
+    passed: poolRes.passed,
+    resultsCount: poolRes.results.length,
+    peakWorkers: poolRes.peakWorkers
+  });
+
+  const baseReport = {
+    schemaVersion: 1,
+    baseCommit: verifiedCommit,
+    metrics: poolRes.metrics,
+    passed: poolRes.passed,
+    results: poolRes.results,
+    violations: []
   };
+
+  const batchReport = buildBatchEvaluationReport({
+    dataset,
+    attempts: poolRes.attempts,
+    taskReports: [baseReport],
+    tasks,
+    auditStream
+  });
+
+  const fullReport = {
+    ...baseReport,
+    dataset: batchReport.dataset,
+    attempts: poolRes.attempts,
+    weightedPassed: batchReport.weightedPassed,
+    totalCostMicroUsd: batchReport.totalCostMicroUsd,
+    dollarEfficiencyIndex: batchReport.dollarEfficiencyIndex,
+    auditDigest: batchReport.auditDigest,
+    taskReports: [baseReport]
+  };
+
+  if (outputPath) {
+    writeReportAtomically(outputPath, fullReport);
+  }
+
+  return fullReport;
 }
 
 export async function runEvaluation(options) {
-  const { repoRoot, evalRoot, baseCommit, outputPath } = options;
+
+  const { repoRoot, evalRoot, baseCommit, outputPath, sandbox } = options;
 
   if (!repoRoot || !fs.existsSync(repoRoot)) {
     throw new Error(`Invalid repoRoot: ${repoRoot}`);
@@ -272,11 +555,16 @@ export async function runEvaluation(options) {
     // 6. Execute tasks against base worktree and current workspace
     const results = [];
     for (const task of tasks) {
+      const securePatchCandidate = path.join(evalRoot, '..', '.ai', 'secure-patches', `${task.id}.patch`);
+      const securePatchPath = fs.existsSync(securePatchCandidate) ? securePatchCandidate : options.securePatchPath;
+      const cmdOpts = { sandbox, networkPolicy: options.networkPolicy, securePatchPath };
+
       // Execute against base
-      const baseExec = executeTaskCommand(task.command, tempWorktree, 'base', tempWorktree);
+      const baseExec = await executeTaskCommand(task.command, tempWorktree, 'base', tempWorktree, cmdOpts);
 
       // Execute against current workspace
-      const currentExec = executeTaskCommand(task.command, repoRoot, 'current', repoRoot);
+      const currentExec = await executeTaskCommand(task.command, repoRoot, 'current', repoRoot, cmdOpts);
+
 
       // Evaluate task pass criteria
       let passed = false;
