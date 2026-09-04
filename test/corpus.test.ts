@@ -157,7 +157,7 @@ test("corpus: ingestTask successfully creates staged candidate and manifest", as
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kins-corpus-staging-"));
 
   try {
-    const headCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    const headCommit = execFileSync("git", ["-c", "safe.directory=*", "rev-parse", "HEAD"], {
       cwd: REPO_ROOT,
       encoding: "utf-8"
     }).trim();

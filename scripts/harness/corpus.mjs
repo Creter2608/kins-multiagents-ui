@@ -253,7 +253,7 @@ export async function ingestTask(options) {
   let baseSha;
   let targetSha;
   try {
-    baseSha = execFileSync('git', ['rev-parse', '--verify', `${options.baseCommit}^{commit}`], {
+    baseSha = execFileSync('git', ['-c', 'safe.directory=*', 'rev-parse', '--verify', `${options.baseCommit}^{commit}`], {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe']
@@ -263,7 +263,7 @@ export async function ingestTask(options) {
   }
 
   try {
-    targetSha = execFileSync('git', ['rev-parse', '--verify', `${options.targetCommit}^{commit}`], {
+    targetSha = execFileSync('git', ['-c', 'safe.directory=*', 'rev-parse', '--verify', `${options.targetCommit}^{commit}`], {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe']
