@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI (Cockpit)
 
-[![Release: v2.2.0](https://img.shields.io/badge/Release-v2.2.0-emerald.svg)](package.json)
-[![Tests: 109 passing](https://img.shields.io/badge/Tests-109%20passing-brightgreen.svg)](test/cockpit.test.ts)
+[![Release: v2.3.0](https://img.shields.io/badge/Release-v2.3.0-emerald.svg)](package.json)
+[![Tests: 155 passing](https://img.shields.io/badge/Tests-155%20passing-brightgreen.svg)](test/cockpit.test.ts)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)

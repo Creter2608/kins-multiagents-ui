@@ -622,11 +622,11 @@ test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allow
   }
 });
 
-// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.2.0"}
-test("cockpit v2.2: package.json specifies version 2.2.0", () => {
+// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.3.0"}
+test("cockpit v2.3: package.json specifies version 2.3.0", () => {
   const pkgPath = path.resolve(REPO_ROOT, "package.json");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  assert.equal(pkg.version, "2.2.0");
+  assert.equal(pkg.version, "2.3.0");
 });
 
 // Layer 1 Compact Assertion 2: {"input":"LOOP_PHASES","expected":"10 phases in canonical order"}
@@ -647,11 +647,11 @@ test("cockpit v2.0: LOOP_PHASES exports exactly 10 canonical phases in sequentia
   assert.deepEqual([...LOOP_PHASES], expectedPhases);
 });
 
-// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.2.0"}
-test("cockpit v2.2: App header contains visible v2.2.0 release badge", () => {
+// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.3.0"}
+test("cockpit v2.3: App header contains visible v2.3.0 release badge", () => {
   const appPath = path.resolve(REPO_ROOT, "src/renderer/App.tsx");
   const appSource = fs.readFileSync(appPath, "utf-8");
-  assert.match(appSource, />\s*v2\.2\.0\s*</);
+  assert.match(appSource, />\s*v2\.3\.0\s*</);
 });
 
 // Layer 1 Compact Assertion 4: {"input":"TelemetryHud","expected":"contains $0.50 and 60k tokens"}
