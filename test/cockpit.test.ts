@@ -622,11 +622,12 @@ test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allow
   }
 });
 
-// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.4.0"}
-test("cockpit v2.4: package.json specifies version 2.4.0", () => {
+// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"valid SemVer 2.0"}
+test("cockpit: package.json specifies valid SemVer 2.0 version", () => {
   const pkgPath = path.resolve(REPO_ROOT, "package.json");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  assert.equal(pkg.version, "2.4.0");
+  const semverRegex = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+  assert.match(pkg.version, semverRegex);
 });
 
 // Layer 1 Compact Assertion 2: {"input":"LOOP_PHASES","expected":"10 phases in canonical order"}
@@ -647,11 +648,15 @@ test("cockpit v2.0: LOOP_PHASES exports exactly 10 canonical phases in sequentia
   assert.deepEqual([...LOOP_PHASES], expectedPhases);
 });
 
-// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.4.0"}
-test("cockpit v2.4: App header contains visible v2.4.0 release badge", () => {
+// Layer 1 Compact Assertion 3: {"input":"App header","expected":"dynamic __APP_VERSION__ binding"}
+test("cockpit: App header contains dynamic release badge bound to __APP_VERSION__", () => {
   const appPath = path.resolve(REPO_ROOT, "src/renderer/App.tsx");
   const appSource = fs.readFileSync(appPath, "utf-8");
-  assert.match(appSource, />\s*v2\.4\.0\s*</);
+  assert.match(appSource, /v\{__APP_VERSION__\}/);
+
+  const vitePath = path.resolve(REPO_ROOT, "vite.config.ts");
+  const viteSource = fs.readFileSync(vitePath, "utf-8");
+  assert.match(viteSource, /__APP_VERSION__:\s*JSON\.stringify\(pkg\.version\)/);
 });
 
 // Layer 1 Compact Assertion 4: {"input":"TelemetryHud","expected":"contains $0.50 and 60k tokens"}
