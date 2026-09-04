@@ -197,9 +197,15 @@ export function detectPhaseWithEvidenceFromTranscriptStep(step: unknown): PhaseD
     }
   }
 
-  // 3. Check Initial User Prompt
-  if ((s.source === "USER" || s.source === "USER_EXPLICIT") && s.step_index === 0) {
-    candidates.push({ phase: "INITIALIZE", evidence: "user: initial prompt" });
+  // 3. Check User Prompt & Loop Reset Intent
+  if (s.source === "USER" || s.source === "USER_EXPLICIT" || s.type === "USER_INPUT") {
+    const text = typeof s.content === "string" ? s.content : "";
+    if (s.step_index === 0 || /\b(loop\s*mới|new\s*loop|start\s*loop|chạy\s*loop)\b/i.test(text)) {
+      candidates.push({
+        phase: "INITIALIZE",
+        evidence: s.step_index === 0 ? "user: initial prompt" : "user: new loop requested"
+      });
+    }
   }
 
   if (candidates.length === 0) {
@@ -378,10 +384,21 @@ export class TranscriptIngestionService {
 
     const stepIdx = typeof step.step_index === "number" ? step.step_index : Date.now();
 
-    // Cumulative context tracking from user turns
-    if (step.source === "USER_EXPLICIT" || step.source === "USER") {
+    // Cumulative context tracking and auto-reset on new user turn
+    if (step.source === "USER_EXPLICIT" || step.source === "USER" || step.type === "USER_INPUT") {
       const userContent = typeof step.content === "string" ? step.content : "";
       this.cumulativeContextLength += userContent.length;
+
+      if (this.loopService) {
+        const current = this.loopService.getSnapshot();
+        const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
+        const isExplicitNewLoop = /\b(loop\s*mới|new\s*loop|start\s*loop|chạy\s*loop)\b/i.test(userContent);
+        // Automatically reset loop if user submits a new prompt after previous run reached VERIFY or later,
+        // or if status succeeded, or if user explicitly requested a new loop
+        if (isExplicitNewLoop || (stepIdx > 0 && (currentIdx >= 6 || current.status === "succeeded"))) {
+          this.loopService.resetLoop();
+        }
+      }
     }
 
     // 1. Process Tool Calls (Layer 1 Assertion 5: dedupe step.tool_calls)

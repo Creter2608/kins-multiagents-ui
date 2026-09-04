@@ -1,5 +1,19 @@
 # Project Log
 
+## [2026-09-04] Auto-Reset for New Loop Cycles & Test Results
+
+### Summary
+Implemented seamless, automatic state and test results reset whenever a new loop or user request is initiated, eliminating the need to restart the application between tasks.
+
+### Delivered Capabilities
+1. **Upstream Phase Detection Auto-Reset**: In `LoopStateService.advanceToPhase`, transitioning to an upstream phase (`PLAN`, `SPEC_GATE`, `ISOLATE`, `INITIALIZE`) after previous verification or completion automatically invokes `resetLoop()`, resetting `currentPhase` to `INITIALIZE` and clearing `testSummary` back to `idle`.
+2. **Turn-Based User Prompt Ingestion**: In `TranscriptIngestionService`, new user turns (`USER_INPUT`) submitted after verification (`currentIdx >= 6`) or on explicit loop reset phrases (`chạy loop mới`, `new loop`) immediately trigger an automated loop reset with fresh `runId`.
+3. **Deterministic Regression Tests**: Added 3 new unit tests in `test/cockpit.test.ts` verifying automatic reset of loop state and test results when advancing from `VERIFY` to upstream phases, when advancing to `INITIALIZE`, and detecting Vietnamese/English loop request phrases.
+
+### Verification Evidence (CPU $0)
+- `node node_modules/typescript/bin/tsc -p tsconfig.json`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 81/81 tests passed (Exit code 0)
+
 ## [2026-09-04] Telemetry Ceiling Refinement: GPT-Only 60k Token Boundary
 
 ### Summary

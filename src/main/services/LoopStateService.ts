@@ -241,14 +241,36 @@ export class LoopStateService {
 
   advanceToPhase(targetPhase: LoopPhase, evidence?: string): boolean {
     const current = this.readState();
-    if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
-      return false;
-    }
 
     const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
     const targetIdx = LOOP_PHASES.indexOf(targetPhase);
 
     if (targetIdx === -1 || currentIdx === -1) {
+      return false;
+    }
+
+    // Auto-cycle reset: If we are at or past VERIFY (or COMPLETE/succeeded) and receive an upstream phase
+    // (or an explicit INITIALIZE), automatically reset the loop for the new cycle!
+    if (targetIdx < currentIdx || targetPhase === "INITIALIZE") {
+      if (
+        currentIdx >= 6 ||
+        current.status === "succeeded" ||
+        targetPhase === "INITIALIZE"
+      ) {
+        this.resetLoop(`run-${Date.now()}`);
+        if (targetPhase === "INITIALIZE") {
+          return true;
+        }
+        return this.advanceToPhase(targetPhase, evidence);
+      }
+      return false;
+    }
+
+    if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
+      if (current.status === "succeeded") {
+        this.resetLoop(`run-${Date.now()}`);
+        return this.advanceToPhase(targetPhase, evidence);
+      }
       return false;
     }
 

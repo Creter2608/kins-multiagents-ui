@@ -1023,3 +1023,98 @@ test("telemetry ceiling: cached tokens alone do not affect ceiling", () => {
   assert.equal(evaluateCeilingStatus(0, 0, null), "normal");
 });
 
+test("loop auto-cycle: auto-resets loop and testSummary when advancing to upstream phase from VERIFY", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-autoreset-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-old-123",
+        currentPhase: "VERIFY",
+        status: "running",
+        testSummary: {
+          status: "pass",
+          passCount: 25,
+          failCount: 0,
+          lastRunAt: "2026-09-04T00:00:00Z"
+        },
+        usage: { transitions: 6, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    service.readState();
+    assert.equal(service.getSnapshot().currentPhase, "VERIFY");
+    assert.equal(service.getSnapshot().testSummary?.passCount, 25);
+
+    // Starting a new task with PLAN resets the loop and test results automatically
+    const ok = service.advanceToPhase("PLAN", "mcp: gpt_architect");
+    assert.equal(ok, true);
+
+    const snapshot = service.readState();
+    assert.equal(snapshot.currentPhase, "PLAN");
+    assert.notEqual(snapshot.runId, "run-old-123");
+    assert.equal(snapshot.testSummary?.status, "idle");
+    assert.equal(snapshot.testSummary?.passCount, 0);
+    assert.equal(snapshot.testSummary?.failCount, 0);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loop auto-cycle: advancing to INITIALIZE resets state and testSummary", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-init-reset-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-complete-456",
+        currentPhase: "COMPLETE",
+        status: "succeeded",
+        testSummary: {
+          status: "pass",
+          passCount: 50,
+          failCount: 0,
+          lastRunAt: "2026-09-04T00:00:00Z"
+        },
+        usage: { transitions: 9, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const ok = service.advanceToPhase("INITIALIZE", "user: new loop requested");
+    assert.equal(ok, true);
+
+    const snapshot = service.readState();
+    assert.equal(snapshot.currentPhase, "INITIALIZE");
+    assert.equal(snapshot.testSummary?.status, "idle");
+    assert.equal(snapshot.testSummary?.passCount, 0);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("transcript ingestion: detects 'chạy loop mới' as INITIALIZE phase", () => {
+  const step = {
+    step_index: 10,
+    source: "USER_EXPLICIT",
+    type: "USER_INPUT",
+    content: "Tôi muốn chạy loop mới cho tính năng này"
+  };
+  const detection = detectPhaseWithEvidenceFromTranscriptStep(step);
+  assert.ok(detection);
+  assert.equal(detection?.phase, "INITIALIZE");
+  assert.equal(detection?.evidence, "user: new loop requested");
+});
+
+
