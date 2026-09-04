@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { TelemetryService } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
 import type { LoopStateService } from "./LoopStateService.js";
+import type { SubagentService } from "./SubagentService.js";
 import { LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
 
 import type { JsonValue, LoopTestSummary, LoopTestStatus } from "../../shared/contracts.js";
@@ -294,6 +295,7 @@ export class TranscriptIngestionService {
   private telemetryService: TelemetryService;
   private mcpService: McpMonitorService;
   private loopService: LoopStateService | null = null;
+  private subagentService: SubagentService | null = null;
   private customTranscriptPath: string | null = null;
   private currentTranscriptPath: string | null = null;
   private lastOffset: number = 0;
@@ -318,7 +320,8 @@ export class TranscriptIngestionService {
     telemetryService: TelemetryService,
     mcpService: McpMonitorService,
     loopServiceOrPath?: LoopStateService | string | null,
-    customTranscriptPath?: string | null
+    customTranscriptPath?: string | null,
+    subagentService?: SubagentService | null
   ) {
     this.telemetryService = telemetryService;
     this.mcpService = mcpService;
@@ -329,6 +332,11 @@ export class TranscriptIngestionService {
       this.loopService = loopServiceOrPath ?? null;
       this.customTranscriptPath = customTranscriptPath ?? null;
     }
+    this.subagentService = subagentService ?? null;
+  }
+
+  setSubagentService(subagentService: SubagentService | null): void {
+    this.subagentService = subagentService;
   }
 
   resetSessionCounters(): void {
@@ -482,7 +490,35 @@ export class TranscriptIngestionService {
             status: step.status === "ERROR" ? "error" : "success",
             args
           });
+
+          if (this.subagentService && (toolName === "invoke_subagent" || toolName.endsWith(".invoke_subagent"))) {
+            this.handleSubagentToolCall(step, tc, stepIdx, i);
+          }
         }
+      }
+    }
+
+    // Correlated subagent tool results or lifecycle updates
+    if (this.subagentService) {
+      if (step.tool_call_id && (step.type === "TOOL_RESULT" || step.source === "TOOL_RESULT")) {
+        const resultId = String(step.tool_call_id);
+        if (step.is_error || step.status === "ERROR") {
+          this.subagentService.updateStatus({
+            id: resultId,
+            status: "error",
+            errorMessage: typeof step.content === "string" ? step.content : "Tool execution error"
+          });
+        } else {
+          this.subagentService.updateStatus({
+            id: resultId,
+            status: "completed"
+          });
+        }
+      } else if (step.sender && typeof step.sender === "string" && (step.status === "DONE" || step.type === "SUBAGENT_COMPLETED")) {
+        this.subagentService.updateStatus({
+          id: step.sender,
+          status: "completed"
+        });
       }
     }
 
@@ -636,6 +672,67 @@ export class TranscriptIngestionService {
       }
     } catch {
       // Defensive handling
+    }
+  }
+
+  private handleSubagentToolCall(step: any, tc: any, stepIdx: number, toolIdx: number): void {
+    if (!this.subagentService) return;
+    let args = tc.args || {};
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        args = {};
+      }
+    }
+
+    const rawList = args.Subagents || args.subagents;
+    if (Array.isArray(rawList) && rawList.length > 0) {
+      for (let sIdx = 0; sIdx < rawList.length; sIdx++) {
+        const item = rawList[sIdx];
+        if (!item || typeof item !== "object") continue;
+        const subId = item.id || item.conversationId || `${stepIdx}:sub:${toolIdx}:${sIdx}`;
+        const role = item.Role || item.role || item.TypeName || item.type_name || item.typeName;
+        const model = item.Model || item.model;
+        const prompt = item.Prompt || item.prompt || item.task || item.instruction;
+
+        this.subagentService.recordInvocation({
+          id: String(subId),
+          role: role ? String(role) : undefined,
+          model: model ? String(model) : undefined,
+          prompt: prompt ? String(prompt) : undefined,
+          startedAt: typeof step.created_at === "string" ? new Date(step.created_at).getTime() : undefined
+        });
+
+        if (step.status === "ERROR") {
+          this.subagentService.updateStatus({
+            id: String(subId),
+            status: "error",
+            errorMessage: typeof step.content === "string" ? step.content : "Subagent error"
+          });
+        }
+      }
+    } else {
+      const subId = args.id || args.conversationId || `${stepIdx}:sub:${toolIdx}:0`;
+      const role = args.Role || args.role || args.TypeName || args.type_name;
+      const model = args.Model || args.model;
+      const prompt = args.Prompt || args.prompt || args.task || args.instruction;
+
+      this.subagentService.recordInvocation({
+        id: String(subId),
+        role: role ? String(role) : undefined,
+        model: model ? String(model) : undefined,
+        prompt: prompt ? String(prompt) : undefined,
+        startedAt: typeof step.created_at === "string" ? new Date(step.created_at).getTime() : undefined
+      });
+
+      if (step.status === "ERROR") {
+        this.subagentService.updateStatus({
+          id: String(subId),
+          status: "error",
+          errorMessage: typeof step.content === "string" ? step.content : "Subagent error"
+        });
+      }
     }
   }
 

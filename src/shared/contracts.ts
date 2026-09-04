@@ -216,6 +216,10 @@ export interface CockpitApi {
     readonly onSnapshot: (listener: (snapshot: EvalHarnessSnapshot) => void) => Unsubscribe;
     readonly runBenchmark: () => Promise<EvalHarnessSnapshot>;
   };
+  readonly subagents?: {
+    readonly getSubagents: () => Promise<SubagentActivity[]>;
+    readonly onSubagentsChanged: (listener: (activities: SubagentActivity[]) => void) => Unsubscribe;
+  };
 }
 
 export type EvalHarnessStatus =
@@ -231,4 +235,43 @@ export interface EvalHarnessSnapshot {
   readonly updatedAt: string | null;
   readonly error: string | null;
 }
+
+export type SubagentStatus =
+  | "running"
+  | "idle"
+  | "completed"
+  | "error";
+
+export interface SubagentActivity {
+  readonly id: string;
+  readonly role: string;
+  readonly model: string;
+  readonly promptSummary: string;
+  readonly status: SubagentStatus;
+  readonly startedAt: number;
+  readonly updatedAt: number;
+  readonly completedAt?: number | undefined;
+  readonly elapsedMs: number;
+  readonly errorMessage?: string | undefined;
+}
+
+export interface SubagentInvocationInput {
+  readonly id: string;
+  readonly role?: string | undefined;
+  readonly model?: string | undefined;
+  readonly prompt?: string | undefined;
+  readonly startedAt?: number | undefined;
+}
+
+export interface SubagentStatusUpdate {
+  readonly id: string;
+  readonly status: SubagentStatus;
+  readonly timestamp?: number | undefined;
+  readonly errorMessage?: string | undefined;
+}
+
+export const SUBAGENT_IPC_CHANNELS = {
+  list: "subagents:list",
+  changed: "subagents:changed",
+} as const;
 

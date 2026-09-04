@@ -8,8 +8,10 @@ import type {
   CriticalLogEntry,
   TelemetrySnapshot,
   RollbackResult,
-  EvalHarnessSnapshot
+  EvalHarnessSnapshot,
+  SubagentActivity
 } from "../shared/contracts.js";
+import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 
 const cockpitApi: CockpitApi = {
   project: {
@@ -79,6 +81,14 @@ const cockpitApi: CockpitApi = {
       const handler = (_event: Electron.IpcRendererEvent, state: EvalHarnessSnapshot) => listener(state);
       ipcRenderer.on("eval:snapshot", handler);
       return () => ipcRenderer.removeListener("eval:snapshot", handler);
+    }
+  },
+  subagents: {
+    getSubagents: () => ipcRenderer.invoke(SUBAGENT_IPC_CHANNELS.list),
+    onSubagentsChanged: (listener: (activities: SubagentActivity[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, activities: SubagentActivity[]) => listener(activities);
+      ipcRenderer.on(SUBAGENT_IPC_CHANNELS.changed, handler);
+      return () => ipcRenderer.removeListener(SUBAGENT_IPC_CHANNELS.changed, handler);
     }
   }
 };

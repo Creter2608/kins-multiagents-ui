@@ -4,12 +4,14 @@ import type {
   McpSnapshot,
   CriticalLogEntry,
   TelemetrySnapshot,
-  EvalHarnessSnapshot
+  EvalHarnessSnapshot,
+  SubagentActivity
 } from "../shared/contracts.js";
 import { LOOP_PHASES, computePhaseStatuses } from "../shared/phases.js";
 import { PhaseTracker } from "./components/PhaseTracker.js";
 import { TerminalStage } from "./components/TerminalStage.js";
 import { McpSidebar } from "./components/McpSidebar.js";
+import { SubagentSidebar } from "./components/SubagentSidebar.js";
 import { CriticalLogDrawer } from "./components/CriticalLogDrawer.js";
 import { TelemetryHud } from "./components/TelemetryHud.js";
 import { ProjectSelector } from "./components/ProjectSelector.js";
@@ -65,7 +67,9 @@ export const App: React.FC = () => {
   const [logs, setLogs] = useState<readonly CriticalLogEntry[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(DEFAULT_TELEMETRY);
   const [evalSnapshot, setEvalSnapshot] = useState<EvalHarnessSnapshot>(DEFAULT_EVAL_STATE);
+  const [subagents, setSubagents] = useState<readonly SubagentActivity[]>([]);
   const [activeTab, setActiveTab] = useState<"terminal" | "eval">("terminal");
+  const [rightSidebarTab, setRightSidebarTab] = useState<"mcp" | "subagents">("mcp");
 
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(true);
 
@@ -94,6 +98,12 @@ export const App: React.FC = () => {
     const unsubEval = api.eval?.onSnapshot?.((state) => {
       setEvalSnapshot(state);
     });
+    const unsubSubagents = api.subagents?.onSubagentsChanged?.((activities) => {
+      setSubagents(activities);
+      if (activities.some((a) => a.status === "running")) {
+        setRightSidebarTab("subagents");
+      }
+    });
 
     // 2. Fetch initial snapshots independently so one failure does not block the rest
     void api.loop.getSnapshot().then(setLoopState).catch((err) => {
@@ -113,6 +123,13 @@ export const App: React.FC = () => {
     }).catch((err) => {
       console.error("[Cockpit] Failed to fetch eval snapshot:", err);
     });
+    void api.subagents?.getSubagents?.().then((activities) => {
+      if (activities && activities.length > 0) {
+        setSubagents(activities);
+      }
+    }).catch((err) => {
+      console.error("[Cockpit] Failed to fetch subagents snapshot:", err);
+    });
 
     return () => {
       unsubLoop();
@@ -120,6 +137,7 @@ export const App: React.FC = () => {
       unsubLogs();
       unsubTelemetry();
       unsubEval?.();
+      unsubSubagents?.();
     };
   }, []);
 
@@ -164,6 +182,10 @@ export const App: React.FC = () => {
       }
     }
   };
+
+  const activeSubagentsCount = subagents.filter(
+    (a) => a.status === "running" || a.status === "idle"
+  ).length;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#000000] text-[#e2e8f0] overflow-hidden">
@@ -240,8 +262,53 @@ export const App: React.FC = () => {
           <EvalScoreboard snapshot={evalSnapshot} onRunBenchmark={handleRunBenchmark} />
         </div>
 
-        {/* Right: MCP Servers & Tool Activity */}
-        <McpSidebar mcpState={mcpState} />
+        {/* Right: Tabbed MCP & Subagents Sidebar */}
+        <aside className="w-80 bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col h-full overflow-hidden shrink-0 select-none font-mono">
+          <div className="flex items-center bg-[#0c0c0c] border-b border-[#1f1f1f] p-1.5 gap-1 shrink-0">
+            <button
+              onClick={() => setRightSidebarTab("mcp")}
+              className={`flex-1 py-1 px-2 text-xs font-mono font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+                rightSidebarTab === "mcp"
+                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <span>MCP Tools</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#18181b] border border-[#27272a] text-zinc-400">
+                {mcpState.servers.length}
+              </span>
+            </button>
+            <button
+              onClick={() => setRightSidebarTab("subagents")}
+              className={`flex-1 py-1 px-2 text-xs font-mono font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+                rightSidebarTab === "subagents"
+                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <span>Subagents</span>
+              {activeSubagentsCount > 0 ? (
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950/60 text-blue-300 font-bold animate-pulse border border-blue-700/60">
+                  {activeSubagentsCount}
+                </span>
+              ) : (
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#18181b] border border-[#27272a] text-zinc-400">
+                  {subagents.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-hidden">
+            {rightSidebarTab === "mcp" ? (
+              <div className="h-full flex flex-col [&>aside]:border-l-0 [&>aside]:w-full">
+                <McpSidebar mcpState={mcpState} />
+              </div>
+            ) : (
+              <SubagentSidebar activities={subagents} />
+            )}
+          </div>
+        </aside>
       </div>
 
       {/* Bottom Area: Collapsible Log Drawer */}

@@ -463,8 +463,9 @@ async function main() {
               encoding: 'utf-8',
               stdio: ['ignore', 'pipe', 'pipe']
             });
-            const normWt = path.normalize(worktreePath).toLowerCase();
-            if (wtList.toLowerCase().includes(normWt)) {
+            const normWt = path.normalize(worktreePath).toLowerCase().replace(/\\/g, '/');
+            const normList = wtList.toLowerCase().replace(/\\/g, '/');
+            if (normList.includes(normWt)) {
               reused = true;
             } else {
               throw new LoopError('STATE_CONFLICT', 'state', `Directory exists but is not a valid git worktree: ${worktreePath}`);

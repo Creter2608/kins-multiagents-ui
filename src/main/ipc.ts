@@ -7,6 +7,8 @@ import type { TelemetryService } from "./services/TelemetryService.js";
 import type { RollbackService } from "./services/RollbackService.js";
 import type { ProjectService } from "./services/ProjectService.js";
 import type { EvalHarnessService } from "./services/EvalHarnessService.js";
+import type { SubagentService } from "./services/SubagentService.js";
+import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -17,6 +19,7 @@ export interface ServiceContainer {
   telemetry: TelemetryService;
   rollback: RollbackService;
   evalHarness: EvalHarnessService;
+  subagents?: SubagentService | undefined;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -182,6 +185,21 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     })
   );
 
+  // Subagents
+  if (services.subagents) {
+    ipcMain.handle(SUBAGENT_IPC_CHANNELS.list, async () => {
+      return services.subagents!.list();
+    });
+
+    unsubs.push(
+      services.subagents.subscribe((activities) => {
+        if (!window.isDestroyed()) {
+          window.webContents.send(SUBAGENT_IPC_CHANNELS.changed, activities);
+        }
+      })
+    );
+  }
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
@@ -203,5 +221,6 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("telemetry:resetSession");
     ipcMain.removeHandler("eval:getSnapshot");
     ipcMain.removeHandler("eval:runBenchmark");
+    ipcMain.removeHandler(SUBAGENT_IPC_CHANNELS.list);
   };
 }

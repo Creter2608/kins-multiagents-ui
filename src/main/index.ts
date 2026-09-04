@@ -12,6 +12,8 @@ import { RollbackService } from "./services/RollbackService.js";
 import { TranscriptIngestionService } from "./services/TranscriptIngestionService.js";
 import { ProjectService } from "./services/ProjectService.js";
 import { EvalHarnessService } from "./services/EvalHarnessService.js";
+import { SubagentService } from "./services/SubagentService.js";
+import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,7 +34,8 @@ const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot);
 const evalService = new EvalHarnessService(projectRoot);
-const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService);
+const subagentService = new SubagentService();
+const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 let projectService: ProjectService | null = null;
 
 // Connect docker status updates to telemetry service
@@ -101,7 +104,8 @@ async function createWindow(): Promise<void> {
     logs: logService,
     telemetry: telemetryService,
     rollback: rollbackService,
-    evalHarness: evalService
+    evalHarness: evalService,
+    subagents: subagentService
   });
 
   // Push immediate snapshots as soon as renderer is ready
@@ -112,6 +116,7 @@ async function createWindow(): Promise<void> {
       mainWindow.webContents.send("logs:entries", logService.getSnapshot().entries);
       mainWindow.webContents.send("telemetry:snapshot", telemetryService.getSnapshot());
       mainWindow.webContents.send("eval:snapshot", evalService.getSnapshot());
+      mainWindow.webContents.send(SUBAGENT_IPC_CHANNELS.changed, subagentService.list());
     }
   });
 
