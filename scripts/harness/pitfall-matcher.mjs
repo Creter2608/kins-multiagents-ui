@@ -158,19 +158,30 @@ export function matchPitfalls(input, options = {}) {
       return a.id.localeCompare(b.id);
     });
 
-  const selected = ranked.slice(0, maxResults);
+  const header = '### ⚠️ Invariant Pitfall Guards (wiki/pitfalls.md)\n\n';
+  const headerTokens = Math.ceil(header.length / 4);
 
-  if (selected.length === 0) {
-    return { matches: [], markdown: '', tokenEstimate: 0 };
-  }
-
+  const selected = [];
   const lines = [
     '### ⚠️ Invariant Pitfall Guards (wiki/pitfalls.md)',
     ''
   ];
 
-  for (const m of selected) {
-    lines.push(`- **[${m.id}] ${m.name}**: ${m.invariant}`);
+  let currentTokens = headerTokens;
+  for (const m of ranked) {
+    if (selected.length >= maxResults) break;
+    const line = `- **[${m.id}] ${m.name}**: ${m.invariant}`;
+    const lineTokens = Math.ceil((line + '\n').length / 4);
+    if (selected.length > 0 && currentTokens + lineTokens > tokenBudget) {
+      break;
+    }
+    selected.push(m);
+    lines.push(line);
+    currentTokens += lineTokens;
+  }
+
+  if (selected.length === 0) {
+    return { matches: [], markdown: '', tokenEstimate: 0 };
   }
 
   const markdown = lines.join('\n');

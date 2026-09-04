@@ -54,6 +54,15 @@ test("pitfall-matcher: respects maxResults and produces compact markdown within 
   assert.ok(result.tokenEstimate <= 400);
 });
 
+test("pitfall-matcher: enforces strict tokenBudget cutoff when selecting items", () => {
+  const result = matchPitfalls("docker git checksum state regex log prompt commit", {
+    maxResults: 10,
+    tokenBudget: 60
+  });
+  assert.ok(result.matches.length <= 1, `Matches length should be <= 1 under tight budget, got ${result.matches.length}`);
+  assert.ok(result.tokenEstimate <= 60, `Token estimate should be <= 60, got ${result.tokenEstimate}`);
+});
+
 test("pitfall-matcher: handles irrelevant queries gracefully", () => {
   const result = matchPitfalls("completely unrelated query xyz123");
   assert.equal(result.matches.length, 0);
