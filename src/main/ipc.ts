@@ -58,8 +58,24 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return services.loop.getSnapshot();
   });
 
+  ipcMain.handle("loop:stepForward", async () => {
+    return services.loop.stepForward();
+  });
+
+  ipcMain.handle("loop:stepBack", async () => {
+    const res = await services.rollback.executeRollback();
+    if (!res.success) {
+      return services.loop.stepBack();
+    }
+    return res;
+  });
+
   ipcMain.handle("loop:rollback", async () => {
-    return await services.rollback.executeRollback();
+    const res = await services.rollback.executeRollback();
+    if (!res.success) {
+      return services.loop.stepBack();
+    }
+    return res;
   });
 
   ipcMain.handle("loop:reset", async () => {

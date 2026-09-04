@@ -1,5 +1,24 @@
 # Project Log
 
+## [2026-09-04] Release 2.1.0: Pipeline Test Results Display, MCP Tool Filter & Inspector Popup
+
+### Summary
+Delivered 3 key observability enhancements in Kins Multi-Agents Cockpit v2.1.0:
+1. Pinned test execution summary (Pass/Fail counts, last run timestamp, status badge) below Pipeline Phases in `PhaseTracker.tsx`.
+2. Added "Hide Native" toggle to filter out native tool calls in `McpSidebar.tsx` Recent Tool Calls feed.
+3. Added interactive accessible Tool Call Inspector modal dialog detailing execution metadata and indented JSON arguments payload.
+4. Bumped application version to `2.1.0` in `package.json`, `App.tsx` header, and verified across all tests.
+
+### Delivered Capabilities
+1. **Verification Test Summary Display**: Compact card pinned directly under pipeline phases showing status (`PASS`/`FAIL`/`IDLE`), passed/failed count, and last run timestamp derived from transcript test runner output (TAP, Jest, Vitest, pytest).
+2. **MCP Tool Call Filter**: "All Calls" vs "MCP Only" toggle button in Recent Tool Calls header filtering out entries from `serverName === "native"`.
+3. **Tool Call Inspector Dialog**: Clicking any tool call in the feed displays full metadata (server, tool, timestamp, duration, status, error) and JSON payload with keyboard navigation (`Escape`) and click-outside dismissal.
+4. **Version Bump 2.1.0**: Standardized package version, header identity badge, and unit test assertions.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 73/73 tests passed (Exit code 0)
+
 ## [2026-09-04] Full Release 2.0.0 Standardization & Canonical Autonomous Loop Upgrade
 
 ### Summary

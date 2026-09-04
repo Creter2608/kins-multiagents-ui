@@ -3,7 +3,9 @@ import * as path from "node:path";
 import type { TelemetryService } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
 import type { LoopStateService } from "./LoopStateService.js";
-import { type LoopPhase } from "../../shared/phases.js";
+import { LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
+
+import type { JsonValue, LoopTestSummary, LoopTestStatus } from "../../shared/contracts.js";
 
 export function isVerificationCommand(cmd: string): boolean {
   if (!cmd || typeof cmd !== "string") return false;
@@ -12,39 +14,149 @@ export function isVerificationCommand(cmd: string): boolean {
   return verifyPattern.test(lower);
 }
 
-export function detectPhaseFromTranscriptStep(step: unknown): LoopPhase | null {
-  if (!step || typeof step !== "object") return null;
-  const s = step as Record<string, unknown>;
+export function isIsolationCommand(cmd: string): boolean {
+  if (!cmd || typeof cmd !== "string") return false;
+  const lower = cmd.toLowerCase().trim();
+  const isolatePattern = /\b(git\s+worktree|docker\s+(inspect|ps|run|exec|compose)|devcontainer)\b/i;
+  return isolatePattern.test(lower);
+}
+
+export function isStackDetectionTarget(target: string): boolean {
+  if (!target || typeof target !== "string") return false;
+  const lower = target.toLowerCase().trim();
+  return /\b(package\.json|tsconfig\.json|requirements\.txt|cargo\.toml|go\.mod|pom\.xml|dockerfile|composer\.json)\b/i.test(lower);
+}
+
+export function parseVerificationOutput(text: string, exitCode?: number): LoopTestSummary | null {
+  if (!text && exitCode === undefined) return null;
+
+  const raw = typeof text === "string" ? text : "";
+  let passCount: number | null = null;
+  let failCount: number | null = null;
+
+  // 1. TAP format: # pass 4, # fail 0
+  const tapPassMatch = /#\s*pass\s+(\d+)/i.exec(raw);
+  const tapFailMatch = /#\s*fail\s+(\d+)/i.exec(raw);
+  if (tapPassMatch || tapFailMatch) {
+    passCount = tapPassMatch && tapPassMatch[1] ? parseInt(tapPassMatch[1], 10) : 0;
+    failCount = tapFailMatch && tapFailMatch[1] ? parseInt(tapFailMatch[1], 10) : 0;
+  }
+
+  // 2. Jest/Vitest/Pytest format:
+  // e.g., "Tests: 1 failed, 3 passed", "Tests 4 passed | 1 failed", "2 passed", "3 passed, 1 failed"
+  if (passCount === null && failCount === null) {
+    const passedMatch = /(\d+)\s+passed\b/i.exec(raw);
+    const failedMatch = /(\d+)\s+failed\b/i.exec(raw);
+
+    if (passedMatch || failedMatch) {
+      passCount = passedMatch && passedMatch[1] ? parseInt(passedMatch[1], 10) : 0;
+      failCount = failedMatch && failedMatch[1] ? parseInt(failedMatch[1], 10) : 0;
+    }
+  }
+
+  // If explicit counts were found, they take precedence over exitCode
+  if (passCount !== null && failCount !== null) {
+    const status: LoopTestStatus = failCount > 0 ? "fail" : passCount > 0 ? "pass" : "idle";
+    return {
+      status,
+      passCount,
+      failCount,
+      lastRunAt: new Date().toISOString()
+    };
+  }
+
+  // 3. Fallback based on exitCode if verification finished without explicit count output
+  if (exitCode !== undefined) {
+    if (exitCode === 0) {
+      return {
+        status: "pass",
+        passCount: 0,
+        failCount: 0,
+        lastRunAt: new Date().toISOString()
+      };
+    } else {
+      return {
+        status: "fail",
+        passCount: 0,
+        failCount: 1,
+        lastRunAt: new Date().toISOString()
+      };
+    }
+  }
+
+  return null;
+}
+
+export interface PhaseDetectionResult {
+  readonly phase: LoopPhase;
+  readonly evidence: string;
+}
+
+export function detectPhaseWithEvidenceFromTranscriptStep(step: unknown): PhaseDetectionResult | null {
+  if (!step) return null;
+
+  // Normalize string inputs if passed directly
+  let s: Record<string, unknown>;
+  if (typeof step === "string") {
+    s = { content: step };
+  } else if (typeof step === "object") {
+    s = step as Record<string, unknown>;
+  } else {
+    return null;
+  }
+
+  const candidates: PhaseDetectionResult[] = [];
 
   // 1. Check Tool Calls (Highest precedence)
   if (Array.isArray(s.tool_calls) && s.tool_calls.length > 0) {
     for (const tc of s.tool_calls) {
       if (!tc || typeof tc !== "object") continue;
       const call = tc as Record<string, unknown>;
-      const name = String(call.name || "");
+      const name = String(call.name || "").toLowerCase().trim();
       const args = call.args && typeof call.args === "object" ? (call.args as Record<string, unknown>) : {};
 
+      if (name === "ask_question") {
+        candidates.push({ phase: "SPEC_GATE", evidence: "tool: ask_question" });
+      }
+
+      if (name === "run_command") {
+        const cmd = String(args.CommandLine || args.command || "").trim();
+        if (isVerificationCommand(cmd)) {
+          candidates.push({ phase: "VERIFY", evidence: `cmd: ${cmd}` });
+        } else if (isIsolationCommand(cmd)) {
+          candidates.push({ phase: "ISOLATE", evidence: `cmd: ${cmd}` });
+        } else if (/\b(list_dir|find_by_name)\b/i.test(cmd) || isStackDetectionTarget(cmd)) {
+          candidates.push({ phase: "DETECT_STACKS", evidence: `cmd: ${cmd}` });
+        }
+      }
+
+      if (name === "list_dir" || name === "find_by_name") {
+        candidates.push({ phase: "DETECT_STACKS", evidence: `tool: ${name}` });
+      }
+
+      if (name === "view_file" || name === "read_resource") {
+        const targetPath = String(args.AbsolutePath || args.TargetFile || args.filePath || args.Uri || "").trim();
+        if (isStackDetectionTarget(targetPath)) {
+          candidates.push({ phase: "DETECT_STACKS", evidence: `inspect: ${path.basename(targetPath)}` });
+        }
+      }
+
       if (name === "craft_technical_prompt_with_gpt") {
-        return "PLAN";
+        candidates.push({ phase: "PLAN", evidence: "tool: craft_technical_prompt_with_gpt" });
       }
 
       if (name === "call_mcp_tool") {
-        const toolName = String(args.ToolName || args.tool_name || "").replace(/^"|"$/g, "");
-        const serverName = String(args.ServerName || args.server_name || "").replace(/^"|"$/g, "");
+        const toolName = String(args.ToolName || args.tool_name || "").replace(/^"|"$/g, "").trim();
+        const serverName = String(args.ServerName || args.server_name || "").replace(/^"|"$/g, "").trim();
         if (toolName === "craft_technical_prompt_with_gpt" || serverName === "gpt_architect") {
-          return "PLAN";
+          candidates.push({ phase: "PLAN", evidence: "mcp: gpt_architect" });
+        } else if (toolName.includes("codegraph") || serverName === "codegraph") {
+          candidates.push({ phase: "PLAN", evidence: "mcp: codegraph" });
         }
       }
 
       if (name === "write_to_file" || name === "replace_file_content") {
-        return "EXECUTE";
-      }
-
-      if (name === "run_command") {
-        const cmd = String(args.CommandLine || args.command || "");
-        if (isVerificationCommand(cmd)) {
-          return "VERIFY";
-        }
+        candidates.push({ phase: "EXECUTE", evidence: `tool: ${name}` });
       }
     }
   }
@@ -54,31 +166,59 @@ export function detectPhaseFromTranscriptStep(step: unknown): LoopPhase | null {
   const thinking = typeof s.thinking === "string" ? s.thinking : "";
   const combined = content + "\n" + thinking;
 
-  if (combined) {
+  if (combined.trim()) {
     const phaseMatch = /\[Phase:\s*(INITIALIZE|SPEC_GATE|ISOLATE|DETECT_STACKS|PLAN|EXECUTE|VERIFY|REALITY_CHECK|RELEASE_GATE|COMPLETE)\]/i.exec(combined);
     if (phaseMatch && phaseMatch[1]) {
-      return phaseMatch[1].toUpperCase() as LoopPhase;
+      const p = phaseMatch[1].toUpperCase() as LoopPhase;
+      candidates.push({ phase: p, evidence: `tag: [Phase: ${p}]` });
     }
 
     const templateMatch = /\[Template Applied\]:\s*Loaded\s+([^\s]+\.md)/i.exec(combined);
     if (templateMatch && templateMatch[1]) {
       const tName = templateMatch[1].toLowerCase();
-      if (tName.includes("writing-plans") || tName.includes("brainstorming") || tName.includes("spec-document")) {
-        return "PLAN";
+      if (tName.includes("spec-document")) {
+        candidates.push({ phase: "SPEC_GATE", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("using-git-worktrees")) {
+        candidates.push({ phase: "ISOLATE", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("writing-plans") || tName.includes("brainstorming")) {
+        candidates.push({ phase: "PLAN", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("implementer-prompt")) {
+        candidates.push({ phase: "EXECUTE", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("task-reviewer") || tName.includes("verification-before-completion")) {
+        candidates.push({ phase: "VERIFY", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("reality-checker")) {
+        candidates.push({ phase: "REALITY_CHECK", evidence: `template: ${templateMatch[1]}` });
       }
-      if (tName.includes("implementer-prompt")) {
-        return "EXECUTE";
-      }
-      if (tName.includes("task-reviewer") || tName.includes("verification-before-completion")) {
-        return "VERIFY";
-      }
-      if (tName.includes("reality-checker")) {
-        return "REALITY_CHECK";
-      }
+    }
+
+    // Direct plain-text keyword detection for early signals if not already covered
+    if (/\blist_dir\s+package\.json\b/i.test(combined)) {
+      candidates.push({ phase: "DETECT_STACKS", evidence: "list_dir package.json" });
     }
   }
 
-  return null;
+  // 3. Check Initial User Prompt
+  if ((s.source === "USER" || s.source === "USER_EXPLICIT") && s.step_index === 0) {
+    candidates.push({ phase: "INITIALIZE", evidence: "user: initial prompt" });
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // Assertion: Select the furthest credible phase in canonical order
+  // e.g. write_to_file + tsc -> VERIFY
+  candidates.sort((a, b) => {
+    const idxA = (LOOP_PHASES as readonly string[]).indexOf(a.phase);
+    const idxB = (LOOP_PHASES as readonly string[]).indexOf(b.phase);
+    return idxB - idxA;
+  });
+
+  return candidates[0] || null;
+}
+
+export function detectPhaseFromTranscriptStep(step: unknown): LoopPhase | null {
+  return detectPhaseWithEvidenceFromTranscriptStep(step)?.phase ?? null;
 }
 
 export interface ParsedGptTokenUsage {
@@ -252,12 +392,38 @@ export class TranscriptIngestionService {
 
         let serverName = "native";
         let toolName = String(tc.name || "unknown");
+        let args: JsonValue | undefined = undefined;
+
+        if (tc.args !== undefined) {
+          if (typeof tc.args === "string") {
+            try {
+              args = JSON.parse(tc.args) as JsonValue;
+            } catch {
+              args = tc.args;
+            }
+          } else {
+            args = tc.args as unknown as JsonValue;
+          }
+        }
 
         if (tc.name === "call_mcp_tool" && tc.args) {
           const rawServer = tc.args.ServerName || tc.args.server_name || "unknown";
           const rawTool = tc.args.ToolName || tc.args.tool_name || "unknown";
           serverName = String(rawServer).replace(/^"|"$/g, "");
           toolName = String(rawTool).replace(/^"|"$/g, "");
+
+          const innerArgs = tc.args.Arguments || tc.args.arguments || tc.args.args;
+          if (innerArgs !== undefined) {
+            if (typeof innerArgs === "string") {
+              try {
+                args = JSON.parse(innerArgs) as JsonValue;
+              } catch {
+                args = innerArgs;
+              }
+            } else {
+              args = innerArgs as unknown as JsonValue;
+            }
+          }
         }
 
         const callKey = stepIdx + ":" + i + ":" + serverName + ":" + toolName;
@@ -266,7 +432,8 @@ export class TranscriptIngestionService {
           this.mcpService.recordToolCall({
             serverName,
             toolName,
-            status: step.status === "ERROR" ? "error" : "success"
+            status: step.status === "ERROR" ? "error" : "success",
+            args
           });
         }
       }
@@ -332,9 +499,15 @@ export class TranscriptIngestionService {
     }
 
     // 4. Process Workflow Phase Detection & Auto-Transition
-    const detectedPhase = detectPhaseFromTranscriptStep(step);
-    if (detectedPhase && this.loopService) {
-      this.loopService.advanceToPhase(detectedPhase);
+    const detection = detectPhaseWithEvidenceFromTranscriptStep(step);
+    if (detection && this.loopService) {
+      this.loopService.advanceToPhase(detection.phase, detection.evidence);
+    }
+
+    // 5. Process Verification Test Results
+    const testResult = parseVerificationOutput(combinedText);
+    if (testResult && this.loopService) {
+      this.loopService.updateTestSummary(testResult);
     }
   }
 

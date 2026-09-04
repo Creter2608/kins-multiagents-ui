@@ -29,6 +29,8 @@ const cockpitApi: CockpitApi = {
   },
   loop: {
     getSnapshot: () => ipcRenderer.invoke("loop:getSnapshot"),
+    stepForward: () => ipcRenderer.invoke("loop:stepForward"),
+    stepBack: () => ipcRenderer.invoke("loop:stepBack"),
     rollback: () => ipcRenderer.invoke("loop:rollback"),
     reset: () => ipcRenderer.invoke("loop:reset"),
     onSnapshot: (listener: (state: LoopStateSnapshot) => void) => {

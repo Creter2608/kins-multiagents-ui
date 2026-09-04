@@ -105,7 +105,27 @@ export const App: React.FC = () => {
   const handleRollback = async () => {
     const api = window.cockpitApi;
     if (api) {
-      const res = await api.loop.rollback();
+      const res = await api.loop.stepBack();
+      if (!res.success) {
+        alert(res.message);
+      }
+    }
+  };
+
+  const handleStepForward = async () => {
+    const api = window.cockpitApi;
+    if (api) {
+      const res = await api.loop.stepForward();
+      if (!res.success) {
+        alert(res.message);
+      }
+    }
+  };
+
+  const handleReset = async () => {
+    const api = window.cockpitApi;
+    if (api) {
+      const res = await api.loop.reset();
       if (!res.success) {
         alert(res.message);
       }
@@ -122,7 +142,7 @@ export const App: React.FC = () => {
             KINS COCKPIT
           </span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-[#18181b] text-zinc-400 font-mono font-medium border border-[#27272a]">
-            v2.0.0
+            v2.1.0
           </span>
         </div>
 
@@ -141,7 +161,12 @@ export const App: React.FC = () => {
       {/* Main 3-Column Cockpit Workspace */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Autonomous Loop Tracker */}
-        <PhaseTracker loopState={loopState} onRollback={handleRollback} />
+        <PhaseTracker
+          loopState={loopState}
+          onRollback={handleRollback}
+          onStepForward={handleStepForward}
+          onReset={handleReset}
+        />
 
         {/* Center: Interactive Terminal Stage */}
         <TerminalStage />

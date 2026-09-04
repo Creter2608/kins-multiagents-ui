@@ -37,6 +37,9 @@ export interface TransitionRecord {
   readonly sequence: number;
   readonly from: PhaseId;
   readonly to: PhaseId;
+  readonly triggeredBy?: string | undefined;
+  readonly timestamp?: number | undefined;
+  readonly autoAdvanced?: boolean | undefined;
 }
 
 export type RunStatus = "ready" | "running" | "succeeded" | "failed" | "blocked";
@@ -117,7 +120,10 @@ export class LoopEngine {
     return currentDef.allowedNext.includes(to);
   }
 
-  transition(to: PhaseId): LoopState {
+  transition(
+    to: PhaseId,
+    metadata?: { triggeredBy?: string | undefined; timestamp?: number | undefined; autoAdvanced?: boolean | undefined }
+  ): LoopState {
     if (this.state.status === "succeeded" || this.state.status === "failed") {
       throw new LoopError(
         "TRANSITION_INVALID",
@@ -152,7 +158,10 @@ export class LoopEngine {
       {
         sequence: this.state.history.length + 1,
         from: this.state.currentPhase,
-        to
+        to,
+        triggeredBy: metadata?.triggeredBy,
+        timestamp: metadata?.timestamp ?? Date.now(),
+        autoAdvanced: metadata?.autoAdvanced
       }
     ];
 

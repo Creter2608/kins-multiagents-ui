@@ -19,6 +19,27 @@ export interface LoopBudgetSnapshot {
   readonly maxOperations: number;
 }
 
+export interface LoopHistoryEntry {
+  readonly sequence: number;
+  readonly from: string;
+  readonly to: string;
+  readonly triggeredBy?: string | undefined;
+  readonly timestamp?: number | undefined;
+  readonly autoAdvanced?: boolean | undefined;
+}
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | { readonly [key: string]: JsonValue } | readonly JsonValue[];
+
+export type LoopTestStatus = "idle" | "pass" | "fail";
+
+export interface LoopTestSummary {
+  readonly status: LoopTestStatus;
+  readonly passCount: number;
+  readonly failCount: number;
+  readonly lastRunAt: string | null;
+}
+
 export interface LoopStateSnapshot {
   readonly runId: string;
   readonly schemaVersion: number;
@@ -27,6 +48,8 @@ export interface LoopStateSnapshot {
   readonly usage: LoopUsageSnapshot;
   readonly budget: LoopBudgetSnapshot;
   readonly phases: readonly PhaseDisplayItem[];
+  readonly history?: readonly LoopHistoryEntry[] | undefined;
+  readonly testSummary?: LoopTestSummary | undefined;
   readonly lastError?: { readonly code: string; readonly message: string } | undefined;
   readonly syncError?: string | undefined;
   readonly lastUpdated: number;
@@ -50,6 +73,7 @@ export interface ToolCallRecord {
   readonly status: "success" | "error" | "running";
   readonly durationMs?: number | undefined;
   readonly error?: string | undefined;
+  readonly args?: JsonValue | undefined;
 }
 
 export interface McpSnapshot {
@@ -120,6 +144,12 @@ export interface LoopResetResult {
   readonly state?: LoopStateSnapshot | undefined;
 }
 
+export interface StepForwardResult {
+  readonly success: boolean;
+  readonly message: string;
+  readonly state?: LoopStateSnapshot | undefined;
+}
+
 export interface CockpitApi {
   readonly terminal: {
     readonly start: () => Promise<void>;
@@ -131,6 +161,8 @@ export interface CockpitApi {
   };
   readonly loop: {
     readonly getSnapshot: () => Promise<LoopStateSnapshot>;
+    readonly stepForward: () => Promise<StepForwardResult>;
+    readonly stepBack: () => Promise<RollbackResult>;
     readonly rollback: () => Promise<RollbackResult>;
     readonly reset: () => Promise<LoopResetResult>;
     readonly onSnapshot: (listener: (state: LoopStateSnapshot) => void) => Unsubscribe;

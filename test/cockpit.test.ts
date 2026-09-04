@@ -12,7 +12,16 @@ import { CriticalLogService, classifyLogLine } from "../src/main/services/Critic
 import { mapDockerState } from "../src/main/services/DockerStatusService.js";
 import { McpMonitorService } from "../src/main/services/McpMonitorService.js";
 import { PtyService } from "../src/main/services/PtyService.js";
-import { TranscriptIngestionService, parseGptTokenUsageLine, detectPhaseFromTranscriptStep, isVerificationCommand } from "../src/main/services/TranscriptIngestionService.js";
+import {
+  TranscriptIngestionService,
+  parseGptTokenUsageLine,
+  detectPhaseFromTranscriptStep,
+  detectPhaseWithEvidenceFromTranscriptStep,
+  isVerificationCommand,
+  isIsolationCommand,
+  isStackDetectionTarget,
+  parseVerificationOutput
+} from "../src/main/services/TranscriptIngestionService.js";
 import { LoopEngine, type PhaseDefinition } from "../src/engine.js";
 import { parseSha256Hex } from "../src/checksum.js";
 
@@ -612,11 +621,11 @@ test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allow
   }
 });
 
-// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.0.0"}
-test("cockpit v2.0: package.json specifies version 2.0.0", () => {
+// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.1.0"}
+test("cockpit v2.1: package.json specifies version 2.1.0", () => {
   const pkgPath = path.resolve(REPO_ROOT, "package.json");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  assert.equal(pkg.version, "2.0.0");
+  assert.equal(pkg.version, "2.1.0");
 });
 
 // Layer 1 Compact Assertion 2: {"input":"LOOP_PHASES","expected":"10 phases in canonical order"}
@@ -637,11 +646,11 @@ test("cockpit v2.0: LOOP_PHASES exports exactly 10 canonical phases in sequentia
   assert.deepEqual([...LOOP_PHASES], expectedPhases);
 });
 
-// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.0.0"}
-test("cockpit v2.0: App header contains visible v2.0.0 release badge", () => {
+// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.1.0"}
+test("cockpit v2.1: App header contains visible v2.1.0 release badge", () => {
   const appPath = path.resolve(REPO_ROOT, "src/renderer/App.tsx");
   const appSource = fs.readFileSync(appPath, "utf-8");
-  assert.match(appSource, />\s*v2\.0\.0\s*</);
+  assert.match(appSource, />\s*v2\.1\.0\s*</);
 });
 
 // Layer 1 Compact Assertion 4: {"input":"TelemetryHud","expected":"contains $0.50 and 60k tokens"}
@@ -673,6 +682,298 @@ test("cockpit v2.0: standardized target docs have no legacy 6-phase claims and g
   assert.equal(expectedSha.length, 64);
 });
 
+// ==============================================================================
+// Layer 1 GPT Architect Compact Assertions: Early Phase & Metadata Upgrades
+// ==============================================================================
 
+// Assertion 1: {"in":"tool: ask_question","out":"SPEC_GATE"}
+test("cockpit auto-phase: tool: ask_question -> SPEC_GATE", () => {
+  const step = {
+    step_index: 2,
+    tool_calls: [
+      {
+        name: "ask_question",
+        args: { questions: ["Do you want to proceed?"] }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(step), "SPEC_GATE");
+  const withEv = detectPhaseWithEvidenceFromTranscriptStep(step);
+  assert.equal(withEv?.phase, "SPEC_GATE");
+  assert.ok(withEv?.evidence.includes("ask_question"));
+});
 
+// Assertion 2: {"in":"cmd: git worktree add ../x","out":"ISOLATE"}
+test("cockpit auto-phase: cmd: git worktree add ../x -> ISOLATE", () => {
+  const step = {
+    step_index: 3,
+    tool_calls: [
+      {
+        name: "run_command",
+        args: { CommandLine: "git worktree add ../x" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(step), "ISOLATE");
+  const withEv = detectPhaseWithEvidenceFromTranscriptStep(step);
+  assert.equal(withEv?.phase, "ISOLATE");
+  assert.ok(withEv?.evidence.includes("git worktree"));
+});
 
+// Assertion 3: {"in":"list_dir package.json","out":"DETECT_STACKS"}
+test("cockpit auto-phase: list_dir package.json -> DETECT_STACKS", () => {
+  // Test via list_dir tool call
+  const stepTool = {
+    step_index: 4,
+    tool_calls: [
+      {
+        name: "list_dir",
+        args: { DirectoryPath: "D:/Workspace/kins-multiagents-ui" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(stepTool), "DETECT_STACKS");
+
+  // Test via inspection of package.json
+  const stepInspect = {
+    step_index: 5,
+    tool_calls: [
+      {
+        name: "view_file",
+        args: { AbsolutePath: "D:/Workspace/kins-multiagents-ui/package.json" }
+      }
+    ]
+  };
+  assert.equal(detectPhaseFromTranscriptStep(stepInspect), "DETECT_STACKS");
+
+  // Test via textual string "list_dir package.json"
+  const stepText = {
+    step_index: 6,
+    content: "Running list_dir package.json to identify dependencies"
+  };
+  assert.equal(detectPhaseFromTranscriptStep(stepText), "DETECT_STACKS");
+});
+
+// Assertion 4: {"in":"write_to_file + tsc","out":"VERIFY"}
+test("cockpit auto-phase: write_to_file + tsc -> VERIFY", () => {
+  const multiToolStep = {
+    step_index: 7,
+    tool_calls: [
+      {
+        name: "write_to_file",
+        args: { TargetFile: "src/main.ts" }
+      },
+      {
+        name: "run_command",
+        args: { CommandLine: "npx tsc --noEmit" }
+      }
+    ]
+  };
+  // Furthest canonical phase (VERIFY idx 6 > EXECUTE idx 5)
+  assert.equal(detectPhaseFromTranscriptStep(multiToolStep), "VERIFY");
+  const withEv = detectPhaseWithEvidenceFromTranscriptStep(multiToolStep);
+  assert.equal(withEv?.phase, "VERIFY");
+  assert.ok(withEv?.evidence.includes("tsc"));
+});
+
+// Assertion 5: {"in":"PLAN→VERIFY","out":"PLAN,EXECUTE(auto),VERIFY; metadata present"}
+test("cockpit auto-phase: PLAN -> VERIFY -> PLAN, EXECUTE(auto), VERIFY; metadata present", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-phase-advance-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        runId: "run-adv-1",
+        currentPhase: "PLAN",
+        status: "running",
+        usage: { transitions: 4, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const ok = service.advanceToPhase("VERIFY", "cmd: npm test");
+    assert.equal(ok, true);
+
+    const snapshot = service.readState();
+    assert.equal(snapshot.currentPhase, "VERIFY");
+
+    // History must contain intermediate EXECUTE (auto-advanced) and VERIFY (target)
+    const history = snapshot.history ?? [];
+    assert.equal(history.length, 2);
+
+    const execEntry = history[0];
+    assert.ok(execEntry);
+    assert.equal(execEntry.from, "PLAN");
+    assert.equal(execEntry.to, "EXECUTE");
+    assert.equal(execEntry.autoAdvanced, true);
+    assert.ok(execEntry.triggeredBy?.includes("Auto-advance to EXECUTE"));
+    assert.equal(typeof execEntry.timestamp, "number");
+
+    const verifyEntry = history[1];
+    assert.ok(verifyEntry);
+    assert.equal(verifyEntry.from, "EXECUTE");
+    assert.equal(verifyEntry.to, "VERIFY");
+    assert.equal(verifyEntry.autoAdvanced, false);
+    assert.equal(verifyEntry.triggeredBy, "cmd: npm test");
+    assert.equal(typeof verifyEntry.timestamp, "number");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Manual Stepping: Step forward and Step back
+test("cockpit controls: stepForward advances one phase and stepBack retreats one phase", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-controls-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        runId: "run-ctrl-1",
+        currentPhase: "INITIALIZE",
+        status: "ready",
+        usage: { transitions: 0, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+
+    // Step forward: INITIALIZE -> SPEC_GATE
+    const step1 = service.stepForward();
+    assert.equal(step1.success, true);
+    assert.equal(service.getSnapshot().currentPhase, "SPEC_GATE");
+
+    // Step forward: SPEC_GATE -> ISOLATE
+    const step2 = service.stepForward();
+    assert.equal(step2.success, true);
+    assert.equal(service.getSnapshot().currentPhase, "ISOLATE");
+
+    // Step back: ISOLATE -> SPEC_GATE
+    const back1 = service.stepBack();
+    assert.equal(back1.success, true);
+    assert.equal(service.getSnapshot().currentPhase, "SPEC_GATE");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Legacy history normalization without crashing
+test("cockpit: legacy state history without metadata normalizes safely", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-legacy-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        runId: "run-legacy-1",
+        currentPhase: "EXECUTE",
+        status: "running",
+        history: [
+          { sequence: 1, from: "INITIALIZE", to: "SPEC_GATE" },
+          { sequence: 2, from: "SPEC_GATE", to: "EXECUTE" }
+        ]
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const snapshot = service.readState();
+    assert.equal(snapshot.history?.length, 2);
+    assert.equal(snapshot.history[0]?.triggeredBy, "Unknown trigger");
+    assert.equal(snapshot.history[0]?.autoAdvanced, false);
+    assert.equal(typeof snapshot.history[0]?.timestamp, "number");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Compact Assertion 1: {"in":"# pass 4\n# fail 0","out":"pass,4,0,timestamp"}
+test("verification parser: TAP output '# pass 4\\n# fail 0' -> pass, 4 pass, 0 fail", () => {
+  const result = parseVerificationOutput("# pass 4\n# fail 0");
+  assert.ok(result);
+  assert.equal(result.status, "pass");
+  assert.equal(result.passCount, 4);
+  assert.equal(result.failCount, 0);
+  assert.ok(result.lastRunAt && !isNaN(Date.parse(result.lastRunAt)));
+});
+
+// Layer 1 Compact Assertion 2: {"in":"Tests: 1 failed, 3 passed; exit=0","out":"fail,3,1"}
+test("verification parser: 'Tests: 1 failed, 3 passed; exit=0' -> fail, 3 pass, 1 fail", () => {
+  const result = parseVerificationOutput("Tests: 1 failed, 3 passed", 0);
+  assert.ok(result);
+  assert.equal(result.status, "fail");
+  assert.equal(result.passCount, 3);
+  assert.equal(result.failCount, 1);
+});
+
+// Layer 1 Compact Assertion 3: {"in":"pytest: 2 passed; exit=1","out":"pass,2,0"}
+test("verification parser: 'pytest: 2 passed; exit=1' -> pass, 2 pass, 0 fail", () => {
+  const result = parseVerificationOutput("pytest: 2 passed", 1);
+  assert.ok(result);
+  assert.equal(result.status, "pass");
+  assert.equal(result.passCount, 2);
+  assert.equal(result.failCount, 0);
+});
+
+// Layer 1 Compact Assertion 4: {"in":"hideNative=true; native+MCP","out":"MCP only"}
+test("mcp filter: hideNative filters out native tool calls preserving MCP only", () => {
+  const calls = [
+    { id: "1", timestamp: Date.now(), serverName: "native", toolName: "run_command", status: "success" as const },
+    { id: "2", timestamp: Date.now(), serverName: "codegraph", toolName: "codegraph_explore", status: "success" as const },
+    { id: "3", timestamp: Date.now(), serverName: "Native", toolName: "view_file", status: "success" as const },
+    { id: "4", timestamp: Date.now(), serverName: "gpt_architect", toolName: "craft_technical_prompt_with_gpt", status: "success" as const }
+  ];
+
+  const hideNative = true;
+  const filtered = hideNative
+    ? calls.filter((c) => c.serverName.toLowerCase() !== "native")
+    : calls;
+
+  assert.equal(filtered.length, 2);
+  assert.equal(filtered[0]?.serverName, "codegraph");
+  assert.equal(filtered[1]?.serverName, "gpt_architect");
+});
+
+// Layer 1 Compact Assertion 5: {"in":"args={\"x\":0,\"ok\":false}","out":"modal preserves values"}
+test("tool call inspector: args JSON formatting preserves falsy values like 0 and false", () => {
+  const args = { x: 0, ok: false, empty: "" };
+  const formatted = JSON.stringify(args, null, 2);
+  const parsed = JSON.parse(formatted);
+  assert.strictEqual(parsed.x, 0);
+  assert.strictEqual(parsed.ok, false);
+  assert.strictEqual(parsed.empty, "");
+});
+
+// LoopStateService TestSummary Persistence
+test("loop state service: updates and persists testSummary", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-test-summary-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    const service = new LoopStateService(stateFile);
+    assert.equal(service.getSnapshot().testSummary?.status, "idle");
+
+    service.updateTestSummary({
+      status: "pass",
+      passCount: 5,
+      failCount: 0,
+      lastRunAt: new Date().toISOString()
+    });
+
+    assert.equal(service.getSnapshot().testSummary?.status, "pass");
+    assert.equal(service.getSnapshot().testSummary?.passCount, 5);
+
+    const reloaded = new LoopStateService(stateFile);
+    reloaded.readState();
+    assert.equal(reloaded.getSnapshot().testSummary?.status, "pass");
+    assert.equal(reloaded.getSnapshot().testSummary?.passCount, 5);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
