@@ -9,7 +9,9 @@ import {
   LoopCommandService,
   LoopPhaseConflictError,
   handleAgentLoopStatus,
-  handleAgentLoopTransition
+  handleAgentLoopTransition,
+  handleJsonRpcMessage,
+  MCP_TOOLS_LIST
 } from "../src/loop/index.js";
 import { parseSha256Hex } from "../src/checksum.js";
 import type { LoopState } from "../src/engine.js";
@@ -407,3 +409,85 @@ test("mcp-tools: handleAgentLoopTransition handles successful advance and phase 
 
   fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
 });
+
+test("mcp-server: handleJsonRpcMessage responds to initialize, tools/list, and tools/call", async () => {
+  const stateFile = makeTempStateFile();
+  const initial = {
+    ...createInitialState("mcp-rpc-001"),
+    currentPhase: "PLAN" as const,
+    status: "running" as const
+  };
+  fs.writeFileSync(stateFile, JSON.stringify(initial, null, 2), "utf-8");
+
+  const store = new JsonFileLoopStateStore(stateFile);
+  const service = new LoopCommandService(store);
+
+  // 1. initialize
+  const initRes = await handleJsonRpcMessage(
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+    service
+  );
+  assert.ok(initRes);
+  assert.equal(initRes.id, 1);
+  const initResult = initRes.result as Record<string, unknown>;
+  assert.equal(initResult.protocolVersion, "2024-11-05");
+  assert.ok(initResult.serverInfo);
+
+  // 2. tools/list
+  const listRes = await handleJsonRpcMessage(
+    { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    service
+  );
+  assert.ok(listRes);
+  const listResult = listRes.result as { tools: Array<{ name: string }> };
+  assert.ok(Array.isArray(listResult.tools));
+  const toolNames = listResult.tools.map((t) => t.name);
+  assert.ok(toolNames.includes("agent_loop_status"));
+  assert.ok(toolNames.includes("agent_loop_transition"));
+
+  // 3. tools/call: agent_loop_status
+  const callStatusRes = await handleJsonRpcMessage(
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "agent_loop_status", arguments: {} }
+    },
+    service
+  );
+  assert.ok(callStatusRes);
+  assert.equal(callStatusRes.id, 3);
+  const statusResult = callStatusRes.result as { content: Array<{ text: string }>; isError: boolean };
+  assert.equal(statusResult.isError, false);
+  const parsedStatus = JSON.parse(statusResult.content[0]?.text || "{}");
+  assert.equal(parsedStatus.ok, true);
+  assert.equal(parsedStatus.state.runId, "mcp-rpc-001");
+
+  // 4. tools/call: agent_loop_transition
+  const callTransRes = await handleJsonRpcMessage(
+    {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "agent_loop_transition",
+        arguments: {
+          runId: "mcp-rpc-001",
+          expectedPhase: "PLAN",
+          action: "advance"
+        }
+      }
+    },
+    service
+  );
+  assert.ok(callTransRes);
+  assert.equal(callTransRes.id, 4);
+  const transResult = callTransRes.result as { content: Array<{ text: string }>; isError: boolean };
+  assert.equal(transResult.isError, false);
+  const parsedTrans = JSON.parse(transResult.content[0]?.text || "{}");
+  assert.equal(parsedTrans.ok, true);
+  assert.equal(parsedTrans.state.currentPhase, "EXECUTE");
+
+  fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
+});
+

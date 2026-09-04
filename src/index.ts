@@ -20,3 +20,10 @@ export async function validateWorkspace(
   );
   return evaluateGoldenAssertions(document);
 }
+
+import { startMcpStdioServer, isMainModule } from "./loop/index.js";
+
+if (isMainModule(import.meta.url)) {
+  startMcpStdioServer();
+}
+
