@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.5.0](https://img.shields.io/badge/Release-v2.5.0-emerald.svg)](package.json)
-[![Tests: 236 passing](https://img.shields.io/badge/Tests-236%20passing-brightgreen.svg)](package.json)
+[![Release: v2.5.1](https://img.shields.io/badge/Release-v2.5.1-emerald.svg)](package.json)
+[![Tests: 243 passing](https://img.shields.io/badge/Tests-243%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
