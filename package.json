@@ -17,6 +17,7 @@
     "test": "npm run build:node && node --test --test-concurrency=1 dist/test/*.test.js",
     "test:ai": "node scripts/ai-exec.mjs npm test",
     "typecheck:ai": "node scripts/ai-exec.mjs npm run typecheck",
+    "preflight": "node scripts/preflight.mjs",
     "app:dev": "vite",
     "app:start": "node node_modules/electron/cli.js dist/src/main/index.js",
     "build:docker": "docker exec kins_autonomous_sandbox npm run build",

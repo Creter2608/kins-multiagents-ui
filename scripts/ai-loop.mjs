@@ -67,6 +67,7 @@ Commands:
   retry [count]            Consume retries from the retry budget (default: 1)
   fail <code> <message>    Mark run as failed with code and explanation
   isolate --task <id>      Create or reuse an isolated Git worktree sandbox for a task
+  pitfalls [query]         Extract matching invariant pitfall guards from wiki/pitfalls.md
   verify                   Validate workspace assertions against .eval/golden_assertions.json
 
 Options:
@@ -531,6 +532,22 @@ async function main() {
           process.stdout.write(JSON.stringify(result, null, 2) + '\n');
         } else {
           process.stdout.write(`[ai-loop] ${reused ? 'Reused' : 'Isolated'} task '${taskId}' in worktree: ${worktreePath} (Phase: ${wtState.currentPhase})\n`);
+        }
+        break;
+      }
+
+      case 'pitfalls': {
+        const { matchPitfalls } = await import('./harness/pitfall-matcher.mjs');
+        const query = cmdArgs.join(' ') || '';
+        const matchResult = matchPitfalls(query);
+        if (jsonOutput) {
+          process.stdout.write(JSON.stringify(matchResult, null, 2) + '\n');
+        } else {
+          if (matchResult.matches.length === 0) {
+            process.stdout.write('[ai-loop] No specific pitfall triggers matched.\n');
+          } else {
+            process.stdout.write(matchResult.markdown + '\n');
+          }
         }
         break;
       }

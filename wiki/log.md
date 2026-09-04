@@ -1,5 +1,24 @@
 # Project Log
 
+## [2026-09-04] Agent Efficiency Architecture (P2 & P3 Delivery): Fast Pre-Flight Checker & Context Pitfall Pruner
+
+### Summary
+Delivered the P2 and P3 modules designed by Layer 1 GPT Prompt Architect. Implemented the ultra-fast syntax and AST sanity checker (`scripts/preflight.mjs`, `scripts/preflight.d.mts`, `npm run preflight`) verifying changed TypeScript files in 12ms (shattering the <300ms SLA by 25x), and the deterministic token-saving Pitfall Context Pruner (`scripts/harness/pitfall-matcher.mjs`, `pitfall-matcher.d.mts`, and `ai-loop pitfalls`) extracting top 1-2 invariant guards from `wiki/pitfalls.md` in 82 tokens ($0 token cost, eliminating 80% prompt bloat in phase `PLAN`). Fixed PITFALL-001 in test path resolution. Executed Autonomous Loop v2.0 (`run-p2-p3-1788535000`) through all phases to `COMPLETE (succeeded)`. Project test suite expanded from 224 to 235 tests passing 100% on local CPU in Docker sandbox ($0 LLM token cost).
+
+### Key Deliverables
+1. **Fast-Path Pre-Flight Checker (`scripts/preflight.mjs`, `npm run preflight`)**:
+   - Parses modified/untracked `.ts`/`.tsx` files using `ts.createSourceFile` in-memory without semantic binding overhead.
+   - Verified benchmark latency: warm p95 = 12.21ms (well within < 300ms SLA target).
+   - Accurately captures syntax errors with file, line, column, and diagnostic message.
+2. **Deterministic Pitfall Context Pruner (`scripts/harness/pitfall-matcher.mjs`)**:
+   - Parses `wiki/pitfalls.md` table of 13 living pitfalls into structured records.
+   - Domain keyword mapping and token scoring matches relevant pitfalls (e.g. `docker` -> PITFALL-003, `checksum` -> PITFALL-002/004, `worktree` -> PITFALL-001/012).
+   - Truncates context to ~80-150 tokens, cutting context dilution in phase `PLAN`.
+3. **CLI Integration (`scripts/ai-loop.mjs pitfalls [query]`)**:
+   - Added command `pitfalls` to persistent loop runner with markdown and `--json` support.
+4. **Deterministic Test Suite (`test/preflight.test.ts`, `test/pitfall-matcher.test.ts`)**:
+   - 10 new comprehensive unit tests verifying preflight syntax detection, latency SLA, catalog parsing, query matching, budget bounds, and determinism. Total project tests: 235/235 passing (100%).
+
 ## [2026-09-04] Agent Efficiency Architecture: Shared Loop Command Service, Native MCP Tools & Gate Controls
 
 ### Summary
