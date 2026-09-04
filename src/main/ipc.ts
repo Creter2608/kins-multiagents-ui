@@ -1,12 +1,14 @@
-import { ipcMain, type BrowserWindow } from "electron";
+import { ipcMain, dialog, type BrowserWindow } from "electron";
 import type { PtyService } from "./services/PtyService.js";
 import type { LoopStateService } from "./services/LoopStateService.js";
 import type { McpMonitorService } from "./services/McpMonitorService.js";
 import type { CriticalLogService } from "./services/CriticalLogService.js";
 import type { TelemetryService } from "./services/TelemetryService.js";
 import type { RollbackService } from "./services/RollbackService.js";
+import type { ProjectService } from "./services/ProjectService.js";
 
 export interface ServiceContainer {
+  project: ProjectService;
   pty: PtyService;
   loop: LoopStateService;
   mcp: McpMonitorService;
@@ -16,6 +18,24 @@ export interface ServiceContainer {
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
+  // Project
+  ipcMain.handle("project:get-state", async () => {
+    return services.project.getState();
+  });
+
+  ipcMain.handle("project:switch", async (_event, projectPath: string) => {
+    return await services.project.switchProject(projectPath);
+  });
+
+  ipcMain.handle("project:open-folder", async () => {
+    const res = await dialog.showOpenDialog(window, {
+      properties: ["openDirectory"]
+    });
+    if (res.canceled || res.filePaths.length === 0 || !res.filePaths[0]) {
+      return null;
+    }
+    return await services.project.switchProject(res.filePaths[0]);
+  });
   // Terminal
   ipcMain.handle("terminal:start", async () => {
     services.pty.start();
@@ -108,6 +128,11 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return services.logs.getSnapshot();
   });
 
+  ipcMain.handle("logs:clear", async () => {
+    services.logs.clearLogs();
+    return { success: true };
+  });
+
   unsubs.push(
     services.logs.subscribe((entries) => {
       if (!window.isDestroyed()) {
@@ -138,6 +163,9 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     for (const unsub of unsubs) {
       unsub();
     }
+    ipcMain.removeHandler("project:get-state");
+    ipcMain.removeHandler("project:switch");
+    ipcMain.removeHandler("project:open-folder");
     ipcMain.removeHandler("terminal:start");
     ipcMain.removeAllListeners("terminal:write");
     ipcMain.removeAllListeners("terminal:resize");
@@ -147,6 +175,7 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("loop:reset");
     ipcMain.removeHandler("mcp:getSnapshot");
     ipcMain.removeHandler("logs:getSnapshot");
+    ipcMain.removeHandler("logs:clear");
     ipcMain.removeHandler("telemetry:getSnapshot");
     ipcMain.removeHandler("telemetry:resetSession");
   };

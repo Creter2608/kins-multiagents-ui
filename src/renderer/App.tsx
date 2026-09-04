@@ -11,6 +11,7 @@ import { TerminalStage } from "./components/TerminalStage.js";
 import { McpSidebar } from "./components/McpSidebar.js";
 import { CriticalLogDrawer } from "./components/CriticalLogDrawer.js";
 import { TelemetryHud } from "./components/TelemetryHud.js";
+import { ProjectSelector } from "./components/ProjectSelector.js";
 
 const DEFAULT_LOOP_STATE: LoopStateSnapshot = {
   runId: "init",
@@ -142,8 +143,9 @@ export const App: React.FC = () => {
             KINS COCKPIT
           </span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-[#18181b] text-zinc-400 font-mono font-medium border border-[#27272a]">
-            v2.1.0
+            v2.2.0
           </span>
+          <ProjectSelector />
         </div>
 
         <div className="flex items-center space-x-2.5">

@@ -19,8 +19,13 @@ export function sanitizeLogLine(line: string): string | null {
     return null;
   }
 
-  // Detect Google glog diagnostic boilerplate: "ERROR: logging before google.Init: [IWEF]\d{4}..."
-  const glogMatch = /^ERROR:\s*logging before google\.Init:\s*([IWEF]\d{4})\b/i.exec(trimmed);
+  // Detect Antigravity tool-call / command-echo envelopes and quoted source code
+  if (/(?:^run_command:\s*|^Executing tool\s+\w+|catch\s*\(\s*error\s*\)|git\s+grep\s+ERROR)/i.test(trimmed)) {
+    return null;
+  }
+
+  // Detect Google glog diagnostic boilerplate: wrapped ("ERROR: logging before google.Init: [IWEF]...") or plain ([IWEF]\d{4}...)
+  const glogMatch = /^(?:ERROR:\s*logging before google\.Init:\s*)?([IWEF]\d{4})\b/i.exec(trimmed);
   if (glogMatch && glogMatch[1]) {
     const marker = glogMatch[1].toUpperCase();
     if (marker.startsWith("I")) {
@@ -34,10 +39,7 @@ export function sanitizeLogLine(line: string): string | null {
     if (/admin controls not applicable/i.test(trimmed) || /skipping empty or temp file/i.test(trimmed)) {
       return null;
     }
-    if (marker.startsWith("W")) {
-      return trimmed;
-    }
-    if (marker.startsWith("E") || marker.startsWith("F")) {
+    if (marker.startsWith("W") || marker.startsWith("E") || marker.startsWith("F")) {
       return trimmed;
     }
   }
@@ -58,10 +60,13 @@ export function classifyLogLine(line: string): { severity: LogSeverity; source: 
 
   const source: CriticalLogEntry["source"] = sanitized.includes("[ai-loop]") ? "ai-loop" : "cli";
 
-  // Check glog marker
-  const glogMatch = /^ERROR:\s*logging before google\.Init:\s*([IWEF]\d{4})\b/i.exec(sanitized);
+  // 1. Check structured Google glog marker
+  const glogMatch = /^(?:ERROR:\s*logging before google\.Init:\s*)?([IWEF]\d{4})\b/i.exec(sanitized);
   if (glogMatch && glogMatch[1]) {
     const marker = glogMatch[1].toUpperCase();
+    if (marker.startsWith("I")) {
+      return null;
+    }
     if (marker.startsWith("W")) {
       return { severity: "WARNING", source };
     }
@@ -70,22 +75,33 @@ export function classifyLogLine(line: string): { severity: LogSeverity; source: 
     }
   }
 
-  // Strip prefix if present without the [IWEF] marker so it doesn't falsely trigger the generic ERROR matcher
+  // 2. Strip prefix if present without the [IWEF] marker so it doesn't falsely trigger the generic ERROR matcher
   const cleanLine = sanitized.replace(/^ERROR:\s*logging before google\.Init:\s*/i, "");
 
-  // Regex patterns for authentic errors from cli.log or AI Loop (avoiding quoted commands)
-  if (/\b(FATAL|panic|UncaughtException|AssertionError)\b/i.test(cleanLine) || /\[ai-loop ERROR\]/i.test(cleanLine)) {
+  // 3. High-confidence authentic errors from cli.log or AI Loop
+  if (
+    /\b(FATAL|panic|UncaughtException|AssertionError)\b/i.test(cleanLine) ||
+    /\[ai-loop ERROR\]/i.test(cleanLine) ||
+    /^npm ERR!/i.test(cleanLine) ||
+    /^(?:\[ERROR\]|ERROR:)/i.test(cleanLine)
+  ) {
     return { severity: "ERROR", source };
   }
-  if (/\b(ERROR|E\d{4}|Exception)\b/.test(cleanLine) || /Failed to/i.test(cleanLine)) {
+
+  // 4. Structured Error patterns with word boundary
+  if (/\b(ERROR|E\d{4})\b/.test(cleanLine)) {
     // Ensure this is not just an informational line that mentions error
     if (!/Starting language server|Language server listening/i.test(cleanLine)) {
       return { severity: "ERROR", source };
     }
   }
-  if (/\b(WARNING|W\d{4})\b/.test(cleanLine)) {
+
+  // 5. Warnings
+  if (/\b(WARNING|W\d{4})\b/.test(cleanLine) || /^(?:\[WARN(?:ING)?\]|WARN(?:ING)?:)/i.test(cleanLine)) {
     return { severity: "WARNING", source };
   }
+
+  // 6. Milestones
   if (/\b(Transitioned to|Phase|Verified|COMPLETE|SPEC_GATE|VERIFY)\b/i.test(cleanLine)) {
     return { severity: "MILESTONE", source: "ai-loop" };
   }
@@ -207,7 +223,24 @@ export class CriticalLogService {
     }
   }
 
+  clearLogs(): void {
+    this.entries = [];
+    for (const listener of this.listeners) {
+      listener(this.entries);
+    }
+  }
+
   start(): void {
+    // If starting fresh on an existing log file, tail from EOF so past sessions don't flood the drawer
+    if (this.lastOffset === 0 && fs.existsSync(this.logFilePath)) {
+      try {
+        const stat = fs.statSync(this.logFilePath);
+        this.lastOffset = stat.size;
+      } catch {
+        // Fallback to offset 0
+      }
+    }
+
     this.processFile();
 
     const dir = path.dirname(this.logFilePath);

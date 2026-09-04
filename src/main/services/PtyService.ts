@@ -135,6 +135,14 @@ export class PtyService {
     });
   }
 
+  async setProjectRoot(projectPath: string): Promise<void> {
+    if (this.isDisposed) {
+      throw new Error("Cannot set project root on disposed PtyService");
+    }
+    this.projectRoot = path.resolve(projectPath);
+    await this.restartSession();
+  }
+
   restart(): Promise<void> {
     return this.restartSession();
   }

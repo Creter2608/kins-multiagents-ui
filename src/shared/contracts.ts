@@ -150,7 +150,22 @@ export interface StepForwardResult {
   readonly state?: LoopStateSnapshot | undefined;
 }
 
+export interface ProjectInfo {
+  readonly name: string;
+  readonly path: string;
+}
+
+export interface ProjectState {
+  readonly currentProject: ProjectInfo;
+  readonly recentProjects: readonly ProjectInfo[];
+}
+
 export interface CockpitApi {
+  readonly project: {
+    readonly getState: () => Promise<ProjectState>;
+    readonly switchProject: (projectPath: string) => Promise<ProjectState>;
+    readonly openProjectFolder: () => Promise<ProjectState | null>;
+  };
   readonly terminal: {
     readonly start: () => Promise<void>;
     readonly write: (data: string) => void;
@@ -174,6 +189,7 @@ export interface CockpitApi {
   readonly logs: {
     readonly getSnapshot: () => Promise<CriticalLogSnapshot>;
     readonly onEntries: (listener: (entries: readonly CriticalLogEntry[]) => void) => Unsubscribe;
+    readonly clear: () => Promise<{ success: boolean }>;
   };
   readonly telemetry: {
     readonly getSnapshot: () => Promise<TelemetrySnapshot>;

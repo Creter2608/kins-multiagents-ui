@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI (Cockpit)
 
-[![Release: v2.1.0](https://img.shields.io/badge/Release-v2.1.0-emerald.svg)](package.json)
-[![Tests: 81 passing](https://img.shields.io/badge/Tests-81%20passing-brightgreen.svg)](test/cockpit.test.ts)
+[![Release: v2.2.0](https://img.shields.io/badge/Release-v2.2.0-emerald.svg)](package.json)
+[![Tests: 109 passing](https://img.shields.io/badge/Tests-109%20passing-brightgreen.svg)](test/cockpit.test.ts)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -9,7 +9,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8.svg)](https://tailwindcss.com/)
 [![Docker Sandbox](https://img.shields.io/badge/Docker-Sandboxed-2496ed.svg)](https://www.docker.com/)
 
-**Kin's Multi-Agents UI** is a desktop mission-control cockpit designed for autonomous AI pair programming (Google Antigravity CLI, Claude Code, Cursor, Windsurf). It combines an interactive ConPTY terminal with live telemetry tracking, 10-phase autonomous loop progression, test verification summaries, MCP server monitoring, and Docker sandbox isolation.
+**Kin's Multi-Agents UI** is a desktop mission-control cockpit designed for autonomous AI pair programming (Google Antigravity CLI, Claude Code, Cursor, Windsurf). It combines an interactive ConPTY terminal with live telemetry tracking, multi-project workspace switching, 10-phase autonomous loop orchestration, test verification summaries, MCP server monitoring, and Docker sandbox isolation.
 
 Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github.com/Creter2608/kins-multiagents-ui)**
 
@@ -18,6 +18,7 @@ Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github
 ## ⚡ Core Features & Architecture
 
 ### 1. Interactive Mission-Control Cockpit
+- **Multi-Project Workspace Switcher**: Top navbar dropdown (`ProjectSelector` + `ProjectService`) providing seamless workspace switching across local codebases. Automatically updates working directories, re-anchors PTY shell sessions, re-points transcript ingestion and critical log services, and remembers recent projects.
 - **ConPTY Terminal Integration**: Full raw ANSI terminal powered by `@xterm/xterm` and `node-pty`, preserving interactive CLI prompts, bash sequences, and colors.
 - **Restful Command Prompt Dark Aesthetic**: Tailored `#000000`/`#0c0c0c` console dark theme with soft zinc typography and emerald status indicators to prevent eye strain during extended autonomous sessions.
 - **Pinned Verification Test Summary**: Compact status card pinned directly below the pipeline phases in `PhaseTracker`. Displays test run status (`PASS`, `FAIL`, `IDLE`), passed/failed test counts, timestamp of last run, and collapsible error excerpts extracted from test runners (TAP, Jest, Vitest, pytest).
@@ -103,7 +104,7 @@ npm install
 
 All verification commands are CPU-bound ($0 LLM token spend):
 
-- **Run Full Deterministic Test Suite (81+ tests)**:
+- **Run Full Deterministic Test Suite (109+ tests)**:
   ```bash
   npm test
   ```

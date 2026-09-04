@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import type { CriticalLogEntry } from "../../shared/contracts.js";
-import { ChevronUp, ChevronDown, AlertTriangle, AlertOctagon, Flag, Copy, Check, Search } from "lucide-react";
+import { ChevronUp, ChevronDown, AlertTriangle, AlertOctagon, Flag, Copy, Check, Search, Trash2 } from "lucide-react";
 
 interface CriticalLogDrawerProps {
   readonly logs: readonly CriticalLogEntry[];
@@ -12,6 +12,12 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
+
+  const handleClearLogs = async () => {
+    if (window.cockpitApi?.logs.clear) {
+      await window.cockpitApi.logs.clear();
+    }
+  };
 
   const errorCount = useMemo(
     () => logs.filter((l) => l.severity === "ERROR").length,
@@ -117,16 +123,33 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
               ))}
             </div>
 
-            {/* Search Input */}
-            <div className="relative w-52">
-              <Search className="w-3 h-3 text-slate-500 absolute left-2 top-2" />
-              <input
-                type="text"
-                placeholder="Search log messages..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#121212] border border-[#262626] rounded pl-7 pr-2 py-0.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#404040] font-mono"
-              />
+            {/* Search Input & Clear Button */}
+            <div className="flex items-center space-x-2">
+              <div className="relative w-52">
+                <Search className="w-3 h-3 text-slate-500 absolute left-2 top-2" />
+                <input
+                  type="text"
+                  placeholder="Search log messages..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-[#121212] border border-[#262626] rounded pl-7 pr-2 py-0.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#404040] font-mono"
+                />
+              </div>
+
+              <button
+                onClick={handleClearLogs}
+                disabled={logs.length === 0}
+                title="Clear in-memory session logs"
+                aria-label="Clear in-memory session logs"
+                className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center space-x-1.5 transition-colors border ${
+                  logs.length === 0
+                    ? "border-transparent text-zinc-600 cursor-not-allowed"
+                    : "border-[#27272a] bg-[#141414] text-zinc-300 hover:text-zinc-100 hover:border-zinc-500"
+                }`}
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Clear</span>
+              </button>
             </div>
           </div>
 

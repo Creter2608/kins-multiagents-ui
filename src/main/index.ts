@@ -10,6 +10,7 @@ import { TelemetryService } from "./services/TelemetryService.js";
 import { DockerStatusService } from "./services/DockerStatusService.js";
 import { RollbackService } from "./services/RollbackService.js";
 import { TranscriptIngestionService } from "./services/TranscriptIngestionService.js";
+import { ProjectService } from "./services/ProjectService.js";
 import { registerIpcHandlers } from "./ipc.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,13 +31,28 @@ const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot);
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService);
+let projectService: ProjectService | null = null;
 
 // Connect docker status updates to telemetry service
 dockerService.subscribe((status) => {
   telemetryService.updateDockerStatus(status);
 });
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
+  if (!projectService) {
+    projectService = new ProjectService(
+      path.join(app.getPath("userData"), "recent-projects.json"),
+      projectRoot,
+      {
+        ptyService,
+        loopStateService: loopService,
+        mcpMonitorService: mcpService,
+        rollbackService
+      }
+    );
+    await projectService.initialize();
+  }
+
   const preloadPath = path.resolve(__dirname, "../preload/index.cjs");
   if (!fs.existsSync(preloadPath)) {
     console.error(`[CRITICAL] Preload artifact missing at: ${preloadPath}`);
@@ -75,6 +91,7 @@ function createWindow(): void {
   transcriptService.start();
 
   teardownIpc = registerIpcHandlers(mainWindow, {
+    project: projectService!,
     pty: ptyService,
     loop: loopService,
     mcp: mcpService,

@@ -44,3 +44,25 @@ export function computePhaseStatuses(currentPhase: string): readonly PhaseDispla
     return { phase, status };
   });
 }
+
+/**
+ * Returns the next canonical phase in sequence, clamping at COMPLETE.
+ */
+export function nextLoopPhase(current: LoopPhase): LoopPhase {
+  const idx = LOOP_PHASES.indexOf(current);
+  if (idx === -1 || idx >= LOOP_PHASES.length - 1) {
+    return current;
+  }
+  return LOOP_PHASES[idx + 1]!;
+}
+
+/**
+ * Returns the previous canonical phase in sequence, clamping at INITIALIZE.
+ */
+export function previousLoopPhase(current: LoopPhase): LoopPhase {
+  const idx = LOOP_PHASES.indexOf(current);
+  if (idx <= 0) {
+    return current;
+  }
+  return LOOP_PHASES[idx - 1]!;
+}

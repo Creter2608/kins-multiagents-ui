@@ -29,6 +29,11 @@ export class McpMonitorService {
     };
   }
 
+  async setProjectRoot(projectPath: string): Promise<void> {
+    this.projectRoot = path.resolve(projectPath);
+    this.refresh();
+  }
+
   refresh(): McpSnapshot {
     const discovered: McpServerInfo[] = [];
 

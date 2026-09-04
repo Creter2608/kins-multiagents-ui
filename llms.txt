@@ -19,7 +19,7 @@
 - `npm run app:dev`: Start Vite UI development server.
 - `npm run app:start`: Launch Electron desktop cockpit.
 - `npm run build`: Full production build (tsc + preload bundling + Vite UI).
-- `npm test`: Clean, build, and execute deterministic test suite (55 tests).
+- `npm test`: Clean, build, and execute deterministic test suite (109 tests).
 - `npm run typecheck`: Strict TypeScript type checking without emitting files.
 - `node scripts/ai-loop.mjs verify`: Validate workspace assertions against golden SHA-256.
 - `docker exec kins_autonomous_sandbox npm test`: Isolated test execution inside container sandbox.

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { computePhaseStatuses, LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
+import { computePhaseStatuses, LOOP_PHASES, nextLoopPhase, previousLoopPhase, type LoopPhase } from "../../shared/phases.js";
 import type {
   LoopStateSnapshot,
   LoopResetResult,
@@ -18,6 +18,11 @@ export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> 
   }
   return parsed as Partial<LoopStateSnapshot>;
 }
+
+export type PhaseTransitionReason =
+  | "forward"
+  | "verify-test-failure"
+  | "reality-check-remediation";
 
 export class LoopStateService {
   private stateFilePath: string;
@@ -239,7 +244,11 @@ export class LoopStateService {
     }
   }
 
-  advanceToPhase(targetPhase: LoopPhase, evidence?: string): boolean {
+  advanceToPhase(
+    targetPhase: LoopPhase,
+    evidence?: string,
+    reason: PhaseTransitionReason = "forward"
+  ): boolean {
     const current = this.readState();
 
     const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
@@ -249,36 +258,55 @@ export class LoopStateService {
       return false;
     }
 
-    // Auto-cycle reset: If we are at or past VERIFY (or COMPLETE/succeeded) and receive an upstream phase
-    // (or an explicit INITIALIZE), automatically reset the loop for the new cycle!
-    if (targetIdx < currentIdx || targetPhase === "INITIALIZE") {
+    // 1. Same phase: no-op, retain state and transition count
+    if (targetPhase === current.currentPhase) {
+      return true;
+    }
+
+    // 2. Explicit loop reset to INITIALIZE (e.g. user requested new loop)
+    if (targetPhase === "INITIALIZE") {
+      this.resetLoop(`run-${Date.now()}`);
+      return true;
+    }
+
+    // 3. Backward transitions (targetIdx < currentIdx)
+    if (targetIdx < currentIdx) {
+      // (a) VERIFY -> EXECUTE on test failure
       if (
-        currentIdx >= 6 ||
-        current.status === "succeeded" ||
-        targetPhase === "INITIALIZE"
+        current.currentPhase === "VERIFY" &&
+        targetPhase === "EXECUTE" &&
+        reason === "verify-test-failure"
       ) {
-        this.resetLoop(`run-${Date.now()}`);
-        if (targetPhase === "INITIALIZE") {
-          return true;
-        }
-        return this.advanceToPhase(targetPhase, evidence);
+        return this.transitionPhase("EXECUTE", {
+          triggeredBy: evidence || "Test failure retry",
+          autoAdvanced: false,
+          timestamp: Date.now()
+        });
       }
+
+      // (b) REALITY_CHECK -> EXECUTE on remediation
+      if (
+        current.currentPhase === "REALITY_CHECK" &&
+        targetPhase === "EXECUTE" &&
+        reason === "reality-check-remediation"
+      ) {
+        return this.transitionPhase("EXECUTE", {
+          triggeredBy: evidence || "Reality check remediation",
+          autoAdvanced: false,
+          timestamp: Date.now()
+        });
+      }
+
+      // Invariant: Backward requests without explicit valid loopback reasons are rejected without mutation
       return false;
     }
 
+    // 4. If current status is terminal, cannot advance forward unless reset
     if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
-      if (current.status === "succeeded") {
-        this.resetLoop(`run-${Date.now()}`);
-        return this.advanceToPhase(targetPhase, evidence);
-      }
       return false;
     }
 
-    // Do not regress to an earlier or equal phase
-    if (targetIdx <= currentIdx) {
-      return false;
-    }
-
+    // 5. Forward transitions (targetIdx > currentIdx)
     // Sequentially advance through intermediate phases with metadata
     for (let i = currentIdx + 1; i <= targetIdx; i++) {
       const nextPhase = LOOP_PHASES[i];
@@ -336,6 +364,13 @@ export class LoopStateService {
 
       const nextStatus: LoopStateSnapshot["status"] = to === "COMPLETE" ? "succeeded" : "running";
 
+      // If transition is a backward retry to EXECUTE, increment retries
+      const isRetry =
+        (current.currentPhase === "VERIFY" || current.currentPhase === "REALITY_CHECK") &&
+        to === "EXECUTE";
+      const currentRetries = Number(stateData.usage?.retries) || current.usage.retries;
+      const nextRetries = isRetry ? currentRetries + 1 : currentRetries;
+
       const updatedState = {
         schemaVersion: 1,
         runId: stateData.runId || current.runId,
@@ -344,10 +379,11 @@ export class LoopStateService {
         budget: stateData.budget || current.budget,
         usage: {
           transitions: nextTransitions,
-          retries: stateData.usage?.retries ?? current.usage.retries,
+          retries: nextRetries,
           operations: stateData.usage?.operations ?? current.usage.operations
         },
-        history
+        history,
+        testSummary: stateData.testSummary || current.testSummary
       };
 
       const dir = path.dirname(this.stateFilePath);
@@ -371,13 +407,10 @@ export class LoopStateService {
     if (current.status === "succeeded" || current.status === "failed" || current.status === "blocked") {
       return { success: false, message: `Cannot step forward while in terminal status '${current.status}'` };
     }
-    const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
-    if (currentIdx === -1 || currentIdx >= LOOP_PHASES.length - 1) {
+    const currentPhase = current.currentPhase as LoopPhase;
+    const nextPhase = nextLoopPhase(currentPhase);
+    if (nextPhase === currentPhase) {
       return { success: false, message: `Already at final canonical phase ${current.currentPhase}` };
-    }
-    const nextPhase = LOOP_PHASES[currentIdx + 1];
-    if (!nextPhase) {
-      return { success: false, message: "No next phase available" };
     }
     const ok = this.transitionPhase(nextPhase, {
       triggeredBy: "Manual step forward",
@@ -392,17 +425,13 @@ export class LoopStateService {
 
   stepBack(): RollbackResult {
     const current = this.readState();
-    const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
-    if (currentIdx <= 0) {
+    const currentPhase = current.currentPhase as LoopPhase;
+    const prevPhase = previousLoopPhase(currentPhase);
+    if (prevPhase === currentPhase) {
       return {
         success: false,
         message: `Cannot step back from initial phase ${current.currentPhase}`
       };
-    }
-
-    const prevPhase = LOOP_PHASES[currentIdx - 1];
-    if (!prevPhase) {
-      return { success: false, message: "No prior phase available" };
     }
 
     const ok = this.transitionPhase(prevPhase, {
@@ -424,6 +453,51 @@ export class LoopStateService {
       success: false,
       message: `Failed to step back to ${prevPhase}`
     };
+  }
+
+  async setProjectRoot(projectPath: string): Promise<void> {
+    this.stateFilePath = path.join(path.resolve(projectPath), ".ai", "state.json");
+
+    if (!fs.existsSync(this.stateFilePath)) {
+      const initialPhase = LOOP_PHASES[0];
+      this.lastValidSnapshot = {
+        runId: "init",
+        schemaVersion: 1,
+        currentPhase: initialPhase,
+        status: "ready",
+        usage: { transitions: 0, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        phases: computePhaseStatuses(initialPhase),
+        history: [],
+        testSummary: {
+          status: "idle",
+          passCount: 0,
+          failCount: 0,
+          lastRunAt: null
+        },
+        lastUpdated: Date.now()
+      };
+    }
+
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+      const dir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      try {
+        this.watcher = fs.watch(dir, (_event, filename) => {
+          if (filename && filename.includes("state.json")) {
+            this.readState();
+          }
+        });
+      } catch {
+        // Fallback to polling
+      }
+    }
+
+    this.readState();
   }
 
   start(): void {

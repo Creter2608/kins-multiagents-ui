@@ -622,11 +622,11 @@ test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allow
   }
 });
 
-// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.1.0"}
-test("cockpit v2.1: package.json specifies version 2.1.0", () => {
+// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.2.0"}
+test("cockpit v2.2: package.json specifies version 2.2.0", () => {
   const pkgPath = path.resolve(REPO_ROOT, "package.json");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  assert.equal(pkg.version, "2.1.0");
+  assert.equal(pkg.version, "2.2.0");
 });
 
 // Layer 1 Compact Assertion 2: {"input":"LOOP_PHASES","expected":"10 phases in canonical order"}
@@ -647,11 +647,11 @@ test("cockpit v2.0: LOOP_PHASES exports exactly 10 canonical phases in sequentia
   assert.deepEqual([...LOOP_PHASES], expectedPhases);
 });
 
-// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.1.0"}
-test("cockpit v2.1: App header contains visible v2.1.0 release badge", () => {
+// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.2.0"}
+test("cockpit v2.2: App header contains visible v2.2.0 release badge", () => {
   const appPath = path.resolve(REPO_ROOT, "src/renderer/App.tsx");
   const appSource = fs.readFileSync(appPath, "utf-8");
-  assert.match(appSource, />\s*v2\.1\.0\s*</);
+  assert.match(appSource, />\s*v2\.2\.0\s*</);
 });
 
 // Layer 1 Compact Assertion 4: {"input":"TelemetryHud","expected":"contains $0.50 and 60k tokens"}
@@ -1051,17 +1051,17 @@ test("loop auto-cycle: auto-resets loop and testSummary when advancing to upstre
     service.readState();
     assert.equal(service.getSnapshot().currentPhase, "VERIFY");
     assert.equal(service.getSnapshot().testSummary?.passCount, 25);
+    const initialTransitions = service.getSnapshot().usage.transitions;
 
-    // Starting a new task with PLAN resets the loop and test results automatically
+    // Upstream inspection tools (like PLAN from codegraph) from VERIFY are rejected as observational noise
     const ok = service.advanceToPhase("PLAN", "mcp: gpt_architect");
-    assert.equal(ok, true);
+    assert.equal(ok, false);
 
     const snapshot = service.readState();
-    assert.equal(snapshot.currentPhase, "PLAN");
-    assert.notEqual(snapshot.runId, "run-old-123");
-    assert.equal(snapshot.testSummary?.status, "idle");
-    assert.equal(snapshot.testSummary?.passCount, 0);
-    assert.equal(snapshot.testSummary?.failCount, 0);
+    assert.equal(snapshot.currentPhase, "VERIFY");
+    assert.equal(snapshot.runId, "run-old-123");
+    assert.equal(snapshot.testSummary?.passCount, 25);
+    assert.equal(snapshot.usage.transitions, initialTransitions);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -1115,6 +1115,397 @@ test("transcript ingestion: detects 'chạy loop mới' as INITIALIZE phase", ()
   assert.ok(detection);
   assert.equal(detection?.phase, "INITIALIZE");
   assert.equal(detection?.evidence, "user: new loop requested");
+});
+
+test("transcript ingestion: detects 'bắt đầu loop mới' as INITIALIZE phase", () => {
+  const step = {
+    step_index: 11,
+    source: "USER_EXPLICIT",
+    type: "USER_INPUT",
+    content: "Fix lại cái pipeline đi, sao hoàn thành xong việc mà nó vẫn hiển thị ở bước 6 nhỉ, bắt đầu loop mới"
+  };
+  const detection = detectPhaseWithEvidenceFromTranscriptStep(step);
+  assert.ok(detection);
+  assert.equal(detection?.phase, "INITIALIZE");
+  assert.equal(detection?.evidence, "user: new loop requested");
+});
+
+test("transcript ingestion: detects completion keywords as COMPLETE phase", () => {
+  const step = {
+    step_index: 12,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    content: "Tính năng đã được hiện thực hoàn chỉnh và đã hoàn thành vượt qua toàn bộ các bài kiểm thử tự động."
+  };
+  const detection = detectPhaseWithEvidenceFromTranscriptStep(step);
+  assert.ok(detection);
+  assert.equal(detection?.phase, "COMPLETE");
+  assert.equal(detection?.evidence, "completion reported");
+});
+
+test("transcript ingestion: passing test results auto-advance loop to REALITY_CHECK", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-verify-pass-"));
+  const stateFile = path.join(tempDir, "state.json");
+  const sessionPath = path.join(tempDir, "transcript.jsonl");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-test-pass",
+        currentPhase: "VERIFY",
+        status: "running",
+        usage: { transitions: 6, retries: 0, operations: 0 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const loopService = new LoopStateService(stateFile);
+    const telemetry = new TelemetryService();
+    const mcp = new McpMonitorService();
+
+    const ingestion = new TranscriptIngestionService(telemetry, mcp, loopService, sessionPath);
+    ingestion.processLine(
+      JSON.stringify({
+        step_index: 5,
+        source: "MODEL",
+        content: "# tests 86\n# pass 86\n# fail 0"
+      })
+    );
+
+    const snapshot = loopService.getSnapshot();
+    assert.equal(snapshot.currentPhase, "REALITY_CHECK");
+    assert.equal(snapshot.testSummary?.status, "pass");
+    assert.equal(snapshot.testSummary?.passCount, 86);
+    assert.equal(snapshot.testSummary?.failCount, 0);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 1: {"in":"VERIFY + codegraph/list_dir","out":"VERIFY; same run/count"}
+test("transcript ingestion: inspection tools during VERIFY do not rewind phase or change run/transitions", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-verify-inspect-"));
+  const stateFile = path.join(tempDir, "state.json");
+  const sessionPath = path.join(tempDir, "transcript.jsonl");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-inspect-stable",
+        currentPhase: "VERIFY",
+        status: "running",
+        usage: { transitions: 6, retries: 0, operations: 10 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const loopService = new LoopStateService(stateFile);
+    const telemetry = new TelemetryService();
+    const mcp = new McpMonitorService();
+    const ingestion = new TranscriptIngestionService(telemetry, mcp, loopService, sessionPath);
+
+    // Ingest step with codegraph call (which detects PLAN)
+    ingestion.processLine(
+      JSON.stringify({
+        step_index: 20,
+        source: "MODEL",
+        tool_calls: [{ name: "call_mcp_tool", args: { ServerName: "codegraph", ToolName: "codegraph_explore" } }]
+      })
+    );
+
+    // Ingest step with list_dir call (which detects DETECT_STACKS)
+    ingestion.processLine(
+      JSON.stringify({
+        step_index: 21,
+        source: "MODEL",
+        tool_calls: [{ name: "list_dir", args: { DirectoryPath: "/workspace" } }]
+      })
+    );
+
+    // Ingest step with view_file call (which detects PLAN)
+    ingestion.processLine(
+      JSON.stringify({
+        step_index: 22,
+        source: "MODEL",
+        tool_calls: [{ name: "view_file", args: { AbsolutePath: "/workspace/src/index.ts" } }]
+      })
+    );
+
+    const snapshot = loopService.getSnapshot();
+    assert.equal(snapshot.currentPhase, "VERIFY");
+    assert.equal(snapshot.runId, "run-inspect-stable");
+    assert.equal(snapshot.usage.transitions, 6);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 2: {"in":"VERIFY -> PLAN (forward reason)","out":"rejected; no mutation"}
+test("loop transitions: backward advanceToPhase without explicit loopback reason is rejected without mutation", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-reject-backward-"));
+  const stateFile = path.join(tempDir, "state.json");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-reject-1",
+        currentPhase: "VERIFY",
+        status: "running",
+        usage: { transitions: 6, retries: 0, operations: 5 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const ok = service.advanceToPhase("PLAN", "codegraph call");
+    assert.equal(ok, false);
+
+    const snapshot = service.getSnapshot();
+    assert.equal(snapshot.currentPhase, "VERIFY");
+    assert.equal(snapshot.runId, "run-reject-1");
+    assert.equal(snapshot.usage.transitions, 6);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 3: {"in":"VERIFY -> EXECUTE (test failure)","out":"accepted; count +1"}
+test("loop transitions: VERIFY -> EXECUTE with verify-test-failure is accepted with transition and retry increment", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-loopback-verify-"));
+  const stateFile = path.join(tempDir, "state.json");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-retry-1",
+        currentPhase: "VERIFY",
+        status: "running",
+        usage: { transitions: 6, retries: 0, operations: 5 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const ok = service.advanceToPhase("EXECUTE", "test failure detected", "verify-test-failure");
+    assert.equal(ok, true);
+
+    const snapshot = service.getSnapshot();
+    assert.equal(snapshot.currentPhase, "EXECUTE");
+    assert.equal(snapshot.runId, "run-retry-1");
+    assert.equal(snapshot.usage.transitions, 7);
+    assert.equal(snapshot.usage.retries, 1);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 4: {"in":"REALITY_CHECK -> EXECUTE (remediation)","out":"accepted; count +1"}
+test("loop transitions: REALITY_CHECK -> EXECUTE with reality-check-remediation is accepted with count +1", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-loopback-reality-"));
+  const stateFile = path.join(tempDir, "state.json");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-remediation-1",
+        currentPhase: "REALITY_CHECK",
+        status: "running",
+        usage: { transitions: 7, retries: 0, operations: 12 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const ok = service.advanceToPhase("EXECUTE", "audit finding remediation", "reality-check-remediation");
+    assert.equal(ok, true);
+
+    const snapshot = service.getSnapshot();
+    assert.equal(snapshot.currentPhase, "EXECUTE");
+    assert.equal(snapshot.runId, "run-remediation-1");
+    assert.equal(snapshot.usage.transitions, 8);
+    assert.equal(snapshot.usage.retries, 1);
+
+    // Mismatched reason (verify-test-failure from REALITY_CHECK) is rejected
+    const mismatched = service.advanceToPhase("PLAN", "invalid", "verify-test-failure");
+    assert.equal(mismatched, false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Assertion 5: {"in":"explicit new loop","out":"INITIALIZE; new run; count 0"}
+test("loop transitions: explicit new loop resets to INITIALIZE with fresh runId and transitions=0", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-explicit-reset-"));
+  const stateFile = path.join(tempDir, "state.json");
+
+  try {
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run-finished-999",
+        currentPhase: "COMPLETE",
+        status: "succeeded",
+        usage: { transitions: 14, retries: 1, operations: 30 },
+        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+        history: []
+      }),
+      "utf-8"
+    );
+
+    const service = new LoopStateService(stateFile);
+    const resetRes = service.resetLoop();
+    assert.equal(resetRes.success, true);
+
+    const snapshot = service.getSnapshot();
+    assert.equal(snapshot.currentPhase, "INITIALIZE");
+    assert.notEqual(snapshot.runId, "run-finished-999");
+    assert.equal(snapshot.usage.transitions, 0);
+    assert.equal(snapshot.usage.retries, 0);
+    assert.equal(snapshot.status, "ready");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Layer 1 Prompt Cache Hit Assertions
+test("cache hit: Input: 100 (Cached: 80) | Output: 5 | Total: 105 -> parsed correctly with clamped miss", () => {
+  const line = "GPT Token Usage: Input: 100 (Cached: 80) | Output: 5 | Total: 105";
+  const parsed = parseGptTokenUsageLine(line);
+  assert.ok(parsed);
+  assert.equal(parsed.inputTokens, 100);
+  assert.equal(parsed.cachedTokens, 80);
+  assert.equal(parsed.missTokens, 20);
+  assert.equal(parsed.outputTokens, 5);
+  assert.equal(parsed.totalTokens, 105);
+
+  const hitPct = calculateCacheHitPercentage(parsed.cachedTokens, parsed.missTokens);
+  assert.equal(hitPct, 80);
+});
+
+test("cache hit: clamped bounds when cached exceeds input", () => {
+  const line = "GPT Token Usage: Input: 100 (Cached: 150) | Output: 10 | Total: 110";
+  const parsed = parseGptTokenUsageLine(line);
+  assert.ok(parsed);
+  assert.equal(parsed.inputTokens, 100);
+  assert.equal(parsed.cachedTokens, 100); // clamped to input
+  assert.equal(parsed.missTokens, 0);
+
+  const hitPct = calculateCacheHitPercentage(parsed.cachedTokens, parsed.missTokens);
+  assert.equal(hitPct, 100);
+});
+
+test("cache hit: calculateCacheHitPercentage edge cases", () => {
+  assert.equal(calculateCacheHitPercentage(80, 20), 80);
+  assert.equal(calculateCacheHitPercentage(100, 0), 100);
+  assert.equal(calculateCacheHitPercentage(0, 100), 0);
+  assert.equal(calculateCacheHitPercentage(0, 0), null);
+  assert.equal(calculateCacheHitPercentage(null, 50), null);
+  assert.equal(calculateCacheHitPercentage(50, null), null);
+});
+
+// ==============================================================================
+// Layer 1 Compact Assertions: CriticalLogService & False-Positive Prevention
+// [
+//   {"in":"E0904 ... ERROR: database unavailable","out":"one ERROR entry"},
+//   {"in":"I0904 ... Failed to find optional config","out":"no entry"},
+//   {"in":"run_command: git grep ERROR; catch (error)","out":"no entry"},
+//   {"in":"start with old ERROR already in cli.log","out":"empty session snapshot"},
+//   {"in":"clear populated logs; append new ERROR","out":"empty, then one new ERROR"}
+// ]
+// ==============================================================================
+
+test("critical log: E0904 authentic error produces one ERROR entry", () => {
+  const res = classifyLogLine("E0904 01:23:45.678901 123 service.go:88] ERROR: database unavailable");
+  assert.ok(res);
+  assert.equal(res.severity, "ERROR");
+  assert.equal(res.source, "cli");
+});
+
+test("critical log: I0904 INFO record with 'Failed to' produces no entry (false positive suppressed)", () => {
+  const res = classifyLogLine("I0904 01:23:45.678901 123 service.go:88] Failed to find optional config, using default");
+  assert.equal(res, null);
+});
+
+test("critical log: tool command echoes containing ERROR/error produce no entry (echo suppressed)", () => {
+  assert.equal(classifyLogLine("run_command: git grep ERROR; catch (error)"), null);
+  assert.equal(classifyLogLine("Executing tool run_command with CommandLine: npm test && catch (error)"), null);
+});
+
+test("critical log: service start() with pre-existing cli.log starts at EOF without stale errors", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-log-eof-"));
+  const logFile = path.join(tempDir, "cli.log");
+  try {
+    fs.writeFileSync(logFile, "E0904 01:00:00.000000 100 service.go:10] Old stale error from days ago\n", "utf-8");
+    const service = new CriticalLogService(logFile);
+    service.start();
+    try {
+      const snap = service.getSnapshot();
+      assert.equal(snap.entries.length, 0, "Pre-existing log file content must not populate fresh session");
+    } finally {
+      service.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("critical log: clear populated logs produces empty snapshot, subsequent new error detected exactly once", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-log-clear-"));
+  const logFile = path.join(tempDir, "cli.log");
+  try {
+    fs.writeFileSync(logFile, "", "utf-8");
+    const service = new CriticalLogService(logFile);
+
+    // Add manual entry to simulate populated logs
+    service.addManualEntry({
+      severity: "ERROR",
+      source: "cli",
+      message: "Temporary error before clear"
+    });
+    assert.equal(service.getSnapshot().entries.length, 1);
+
+    // Clear logs
+    let notifiedEntries: readonly any[] = [];
+    const unsub = service.subscribe((entries) => {
+      notifiedEntries = entries;
+    });
+
+    service.clearLogs();
+    assert.equal(service.getSnapshot().entries.length, 0);
+    assert.equal(notifiedEntries.length, 0);
+
+    // Now append new authentic error to file and process
+    fs.appendFileSync(logFile, "E0904 02:00:00.000000 200 worker.go:50] Fresh error after clear\n", "utf-8");
+    const newEntries = service.processFile();
+    assert.equal(newEntries.length, 1);
+    assert.equal(service.getSnapshot().entries.length, 1);
+    assert.ok(service.getSnapshot().entries[0]?.message.includes("Fresh error after clear"));
+
+    unsub();
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 

@@ -164,8 +164,9 @@ export const PhaseTracker: React.FC<PhaseTrackerProps> = ({
           <span className="text-[10px] text-zinc-600 font-normal">Click to inspect</span>
         </div>
         {phases.map((item, idx) => {
-          const isCurrent = item.status === "current";
-          const isCompleted = item.status === "completed";
+          const isCompleteTerminal = item.phase === "COMPLETE" && (loopState.status === "succeeded" || displayPhase === "COMPLETE");
+          const isCompleted = item.status === "completed" || isCompleteTerminal;
+          const isCurrent = item.status === "current" && !isCompleteTerminal;
           const isSelected = selectedPhase === item.phase;
 
           // Check if auto-advanced

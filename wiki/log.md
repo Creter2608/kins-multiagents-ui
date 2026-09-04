@@ -1,6 +1,103 @@
 # Project Log
 
-## [2026-09-04] Auto-Reset for New Loop Cycles & Test Results
+## [2026-09-04] Prompt Cache Dilution Diagnosis & Multi-Zone Message Architecture
+
+### Summary
+Diagnosed the root cause of the ~6% cache hit rate reported by Cockpit telemetry following the 1,024-token static prefix fix, verified actual ~83% prefix hit efficiency on lean contexts, and hardened `gpt_architect` with isolated multi-zone message formatting (`build_cacheable_context`, `build_architect_messages`).
+
+### Root Cause Analysis: The 6% "Dilution" Paradox
+OpenAI Prompt Caching strictly matches contiguous prefix blocks starting from token 0.
+1. **Cache Functioned Correctly**: The invariant `STATIC_SYSTEM_PROMPT` (~1,250 tokens) successfully triggered OpenAI's cache (yielding ~1,200–1,787 cached tokens).
+2. **Context Dilution**: When CodeGraph context dumped 18,000+ tokens of dynamic code files into `craft_technical_prompt_with_gpt`, total input ballooned to ~20,000 tokens.
+3. **Mathematical Ratio**: `cachedTokens / totalTokens = 1,200 / 20,000 = 6%`.
+   A fixed 1,250-token prefix can never mathematically achieve an 80% cache hit rate when 18,000+ tokens of dynamic, per-task code are appended.
+4. **Empirical Proof**: In our subsequent targeted call with pruned context:
+   `📊 [GPT Token Usage]: Input: 2163 (Cached: 1787) | Output: Blueprint: 2351 | Thinking: 1536 | Total: 6050`
+   The cache hit rate was **82.6%** (1,787 / 2,163), proving prefix caching functions optimally when input context is kept lean.
+
+### Delivered Capabilities
+1. **Multi-Zone Message Architecture (`gpt_architect/server.py`)**:
+   - Extracted `build_cacheable_context` and `build_architect_messages`.
+   - Message 0: `system` -> `STATIC_SYSTEM_PROMPT` (Platform invariant, $\ge 1,024$ tokens).
+   - Message 1: `user` -> Stable context (Superpowers framework template + tech stack guidelines).
+   - Message 2: `user` -> Dynamic tail (`cg_context` and `task`).
+   - Guarantees `messages[0]` and `messages[1]` remain byte-identical across sequential turns.
+2. **CodeGraph Pruning Policy**:
+   - Enforced surgical symbol extraction (types, signatures, call paths) rather than dumping full file bodies, keeping dynamic context within 300–800 tokens to maintain 75%–85% cache hit rates.
+3. **Deterministic Python & TypeScript Verification**:
+   - Verified prefix assertions in Python (`m1[0] == m2[0]`, `m1[1] == m2[1]`, `m1[2] != m2[2]`).
+   - Ran complete 109/109 unit tests in Docker sandbox.
+
+### Verification Evidence (CPU $0)
+- Empirical OpenAI prompt cache hit in Layer 1 call: 1,787 / 2,163 = 82.6% hit rate
+- `python -m py_compile C:\Users\Kin\.gemini\mcp_servers\gpt_architect\server.py`: Clean compilation
+- `docker exec kins_autonomous_sandbox npm test`: 109/109 tests passed (0 failures)
+
+## [2026-09-04] Prompt Cache Optimization & Invariant Static Head Protocol
+
+### Summary
+Resolved the 0% prompt cache hit rate in the 2-Tier Multi-Agent Pipeline (`gpt_architect`) and hardened Cockpit telemetry accounting to ensure reliable, high cache hit rates ($\ge 80\%$) and accurate metrics display.
+
+### Root Cause Analysis
+OpenAI Prompt Caching strictly requires a static prefix $\ge 1,024$ tokens. The previous `gpt_architect/server.py` implementation had an inline system prompt of only ~579 words (~750 tokens). Because the static prefix fell below OpenAI's 1,024-token activation threshold, OpenAI treated each call as a complete cache miss (`cached_tokens: 0`). Dynamic context (task descriptions and codegraph symbols) placed before/inside the prompt caused jitter, preventing prefix caching across iterations.
+
+### Delivered Capabilities
+1. **Invariant Static Head ($\ge 1,024$ tokens)**:
+   - Extracted and single-sourced `STATIC_SYSTEM_PROMPT` in `C:\Users\Kin\.gemini\mcp_servers\gpt_architect\server.py` spanning ~1,250 tokens.
+   - Encapsulated full Autonomous Loop v2.0 pillars, Karpathy behavioral invariants, systematic debugging taxonomy, Superpowers template frameworks, and compact test assertion schema in the invariant prefix.
+   - Replaced duplicate inline definitions in `craft_technical_prompt_with_gpt` with `STATIC_SYSTEM_PROMPT`.
+2. **Deterministic Context Ordering**:
+   - Re-ordered `user_content` in `gpt_architect` to position static template and tech-stack rules before dynamic codebase context and user tasks, maximizing prefix continuity.
+3. **Hardened Cockpit Cache Telemetry & Parser**:
+   - Clamped `cachedTokens` in `TranscriptIngestionService.ts` (`parseGptTokenUsageLine`) such that `cachedTokens = Math.min(inputTokens, Math.max(0, rawCached))` and `missTokens = Math.max(0, inputTokens - cachedTokens)`, eliminating negative misses and accounting drift.
+   - Verified that `calculateCacheHitPercentage` returns clean, rounded percentages (`(hit / total) * 100`) and handles zero/null edge cases gracefully without `NaN`.
+4. **Deterministic Unit Test Assertions**:
+   - Added unit test cases to `test/cockpit.test.ts` covering normal parsing, bounds clamping, and cache hit percentage edge cases. Total test suite passing: 104/104 tests.
+
+### Verification Evidence (CPU $0)
+- `docker exec kins_autonomous_sandbox npm test`: 104/104 passed (0 failures)
+- `STATIC_SYSTEM_PROMPT` token count: ~1,250 tokens ($\ge 1,024$ threshold verified)
+- `docker exec kins_autonomous_sandbox npm run build`: Main, preload, and Vite UI compiled cleanly
+
+## [2026-09-04] Pipeline Phases Stabilization & Monotonic Budget Transitions Accounting
+
+### Summary
+Fixed the critical defect where pipeline phases and transitions counter erratically jumped up and down during execution, ballooning toward `maxTransitions: 25` and corrupting state mid-run.
+
+### Delivered Capabilities
+1. **Forward-Only Transcript Ingestion**: Guarded `TranscriptIngestionService` against spurious backward transitions. Read/inspection tools (`codegraph_explore`, `list_dir`, `view_file`) called during `EXECUTE` or `VERIFY` are treated as observational noise and cannot rewind or auto-reset the workflow.
+2. **Elimination of Implicit Mid-Run Resets**: Removed the legacy code in `LoopStateService.advanceToPhase` that auto-reset the loop whenever an upstream phase was observed. A new run can only be created via explicit user turns or new-loop commands.
+3. **Explicit Loopback Authorization**: Replaced untyped backward transitions with `PhaseTransitionReason`:
+   - `VERIFY -> EXECUTE` is strictly accepted only with reason `"verify-test-failure"` (e.g. failing test runner output).
+   - `REALITY_CHECK -> EXECUTE` is strictly accepted only with reason `"reality-check-remediation"` (e.g. audit finding remediation).
+   - Any other backward transition attempt without explicit justification is rejected without mutation.
+4. **Monotonic Budget Transitions Accounting**: Each committed phase transition increments `transitions` counter by exactly 1. Stale evidence, same-phase calls, and rejected requests consume 0 transitions. Normal loop execution comfortably finishes well within the 25 transition ceiling.
+5. **Adversarial Test Suite (5 Compact Assertions)**: Extended `test/cockpit.test.ts` to 101 tests, proving zero rewind from inspection tools, rejection of unauthorized backward transitions, proper loopback accounting (+1 transition, +1 retry), and clean explicit reset.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json`: 0 errors
+- `npm test`: 101/101 tests passed (0 failures)
+- `npm run build`: Clean production build across Main, Preload, and Vite UI
+- `git diff --check`: 0 whitespace errors
+
+## [2026-09-04] Canonical Loop Phase Contract & Clamped Transition Helpers
+
+### Summary
+Established a single canonical Autonomous Loop phase contract (`src/shared/loopPhases.ts` and `src/shared/phases.ts`) with pure clamped transition helpers (`nextLoopPhase`, `previousLoopPhase`), adopted them in `LoopStateService.ts`, and implemented full regression test coverage.
+
+### Delivered Capabilities
+1. **Single Source of Phase Truth**: Exported `LOOP_PHASES`, `LoopPhase`, and pure transition helpers from `src/shared/loopPhases.ts` and `src/shared/phases.ts` guaranteeing exact 10-phase sequence alignment without separate, diverging array definitions.
+2. **Boundary Clamping Helpers**:
+   - `nextLoopPhase(current)`: Advances sequentially through the canonical pipeline and clamps at `COMPLETE`.
+   - `previousLoopPhase(current)`: Retreats sequentially through the canonical pipeline and clamps at `INITIALIZE`.
+3. **LoopStateService Integration**: Refactored `stepForward()` and `stepBack()` to utilize `nextLoopPhase` and `previousLoopPhase`, enforcing safe boundary clamping and safe rollback from intermediate phases while preventing illegal state corruption from terminal phases.
+4. **Deterministic Unit & Integration Test Suite**: Created `test/loopPhases.test.ts` covering all Layer 1 compact assertions (10 unique phases, interior transitions, boundary clamps, full bidirectional traversal, and `LoopStateService` boundary behaviors).
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json`: 0 errors
+- `npm test`: 96/96 tests passed (0 failures)
+- `npm run build`: Clean production build across Main, Preload, and Renderer UI
+- `git diff --check`: Clean formatting, 0 whitespace errors
 
 ### Summary
 Implemented seamless, automatic state and test results reset whenever a new loop or user request is initiated, eliminating the need to restart the application between tasks.
@@ -190,4 +287,31 @@ Implemented 5 key architectural and UI enhancements:
 - `docker exec kins_autonomous_sandbox npm run build`: 1852 modules built in 30.95s (Exit code 0)
 - `docker exec kins_autonomous_sandbox node scripts/ai-loop.mjs verify`: 2/2 golden assertions verified against SHA-256 (Exit code 0)
 
+## [2026-09-04] Critical Logs & Events Overhaul: False-Positive/Phantom Error Elimination & Session Scoping
 
+### Summary & Diagnosis ("Lỗi thật hay lỗi ảo?")
+A comprehensive Layer 1 & Layer 2 architectural investigation confirmed that the persistent critical error notifications in the UI were **overwhelmingly phantom errors (lỗi ảo) and stale historical leakages**, caused by three root factors:
+1. **Glog INFO Misclassification**: Google glog lines starting with `I\d{4}` (INFO severity) containing words like `Failed to find optional config...` or `Exception` were not recognized as structured INFO and fell into the generic regex, falsely flagging them as critical system `ERROR`s.
+2. **Tool Invocation & Echo Pollution**: CLI tool calls (e.g. `run_command` running `git grep ERROR` or TypeScript scripts with `catch (error)`) logged invocation envelopes to `cli.log`, which triggered broad regex keyword matching.
+3. **Stale Historical Errors on Startup (Offset 0)**: `CriticalLogService` previously read `cli.log` from byte offset 0 on application startup, replaying days/weeks of terminated session logs into the drawer header (`Latest: ...`, `XX ERRORS`).
+4. **Lack of Log Reset Control**: The UI provided no button to clear logs or reset session error banners.
+
+### Delivered Changes
+- `src/main/services/CriticalLogService.ts`:
+  - Enforced structured glog priority: `I\d{4}` lines are strictly suppressed (`null`), regardless of error keywords in message payload.
+  - Suppressed Antigravity tool-call/command echoes (`run_command:`, `Executing tool`, `catch (error)`, `git grep ERROR`).
+  - Required high-confidence error markers (`FATAL`, `panic`, `[ai-loop ERROR]`, `npm ERR!`, `ERROR:`, `E\d{4}`) before assigning `ERROR` severity.
+  - Initialized `lastOffset` to existing file size at `start()`, tailing from EOF for fresh sessions while maintaining rotation/truncation detection.
+  - Added `clearLogs()` to reset in-memory logs and notify subscribers with empty array without modifying disk files.
+- `src/shared/contracts.ts`: Added `clear: () => Promise<{ success: boolean }>` to `CockpitApi.logs`.
+- `src/main/ipc.ts`: Registered and cleaned up `logs:clear` IPC handler invoking `services.logs.clearLogs()`.
+- `src/preload/index.ts` & `dist/src/preload/index.cjs`: Exposed `clear` method in context bridge.
+- `src/renderer/components/CriticalLogDrawer.tsx`: Added an accessible, styled Command Prompt "Clear" button in the drawer toolbar beside search; disabled when empty.
+- `test/cockpit.test.ts`: Added 5 Layer 1 compact assertion tests.
+
+### Deterministic Verification Evidence (CPU $0)
+- `node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit`: 0 errors (Exit code 0)
+- `node node_modules/typescript/bin/tsc -p tsconfig.json`: Compiled cleanly to `dist/`
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 109/109 tests passed (Exit code 0)
+- `node scripts/ai-loop.mjs verify`: 2/2 golden assertions verified against SHA-256 (Exit code 0)
+- Autonomous Loop run `run-1788493133730` completed all 10 canonical phases to `COMPLETE`.

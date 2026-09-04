@@ -13,6 +13,10 @@ export class RollbackService {
     this.projectRoot = projectRoot;
   }
 
+  async setProjectRoot(projectPath: string): Promise<void> {
+    this.projectRoot = path.resolve(projectPath);
+  }
+
   async executeRollback(): Promise<RollbackResult> {
     if (this.inProgress) {
       return {

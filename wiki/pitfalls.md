@@ -16,6 +16,9 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-006** | In-memory loop state loss across process termination | `STATE_INVALID` | Process exit loses current loop phase and counters | Persist state atomically to `.ai/state.json` via `scripts/ai-loop.mjs` |
 | **PITFALL-007** | Infinite unguided retry loops without root-cause hypothesis | `BUDGET_EXHAUSTED` | Exhausting retry quota with blind code mutations | Enforce hard cap `verificationRetry <= 1` + require root-cause hypothesis |
 | **PITFALL-008** | Cross-platform CRLF vs LF line ending hash divergence | `INTEGRITY_MISMATCH` | Checksum mismatch in CI (Ubuntu) vs local (Windows) | Enforce `.gitattributes` (`eol=lf`) and canonical LF SHA-256 anchors |
+| **PITFALL-009** | Broad keyword classification & startup offset zero in log tailing | `STATE_INVALID` | False-positive critical alarms from INFO/echoes & stale logs | Enforce structured severity priority, suppress tool echoes, tail from EOF |
+| **PITFALL-010** | Context dilution & sub-threshold cache miss in Multi-Agent prompt caching | `BUDGET_EXHAUSTED` | Cache hit 0% or ~6% despite static prefix | Enforce $\ge 1,024$ invariant prefix, Multi-Zone layout, and CodeGraph pruning |
+
 
 ---
 
@@ -99,6 +102,33 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 - **Mandatory Invariant:**
   - Standardize repository line endings by committing `.gitattributes` containing `* text=auto eol=lf` and `.eval/* text eol=lf`.
   - All golden trust anchors (`.eval/*.sha256`) and test assertion constants MUST be calculated strictly against canonical LF line endings.
+
+---
+
+### PITFALL-009: Broad Keyword Classification & Startup Offset Zero in Log Tailing
+- **Context:** Real-time log stream processing (`cli.log`) feeding critical error banners (`CriticalLogDrawer`).
+- **Observed Failure:** The UI persistently flashed red critical error banners (`X ERRORS`, `Latest: ...`) upon application launch and during routine operations, despite no actual system failure.
+- **Root Cause:**
+  1. Unanchored keyword matching (`/Failed to/i`, `/Exception/`) promoted benign Google glog INFO lines (`I0904 ... Failed to find optional cache`) and tool execution command echoes (`run_command: git grep ERROR; catch (error)`) to critical `ERROR` severity.
+  2. Starting log tailing from byte offset 0 replayed historical errors from terminated sessions into the new session snapshot.
+- **Mandatory Invariant:**
+  - Structured severity prefixes (`I\d{4}` for INFO, `W\d{4}` for WARNING, `E\d{4}` for ERROR) strictly outrank body keywords. Glog INFO lines MUST NEVER be classified as errors.
+  - Suppress tool invocation and command echo envelopes before message classification.
+  - Tail existing log files from EOF at service startup, and provide an explicit non-destructive `clearLogs()` operation.
+
+---
+
+### PITFALL-010: Context Dilution & Sub-Threshold Cache Miss in Multi-Agent Prompt Caching
+- **Context:** OpenAI Prompt Caching in Layer 1 Prompt Architect (`gpt_architect`).
+- **Observed Failure:** Telemetry HUD reporting 0% or ~6% cache hit percentage despite having an invariant static system prompt.
+- **Root Cause:**
+  1. *Sub-Threshold Invariant Prefix*: Prompt caching in modern LLMs (e.g. OpenAI GPT-4o, GPT-5 series) strictly requires a contiguous static prefix $\ge 1,024$ tokens. Shorter system prompts (~750 tokens) are never cached (0% hit rate).
+  2. *Context Dilution Paradox*: Even with a valid 1,250-token static prefix, appending 18,000+ unpruned dynamic CodeGraph tokens balloons total input to ~20,000 tokens. The mathematical ratio `cached / total` collapses to $1,200 / 20,000 = 6\%$.
+  3. *Immediate Prefix Divergence*: Mixing dynamic elements (`task`, random timestamps, variable codebase paths) before stable templates breaks prefix continuity across turns.
+- **Mandatory Invariant:**
+  - Enforce `STATIC_SYSTEM_PROMPT` $\ge 1,024$ tokens with zero volatile metadata (no timestamps, run IDs, or counters).
+  - Adopt **Multi-Zone Message Architecture**: Message 0 (`system` invariant platform head), Message 1 (`user` stable repository/template context), Message 2 (`user` dynamic task & pruned context).
+  - Enforce surgical **CodeGraph Context Pruning**: Transmit only symbol signatures, interfaces, and call paths (300–800 tokens max) to keep total input around ~2,000–2,500 tokens and maintain an $80\%+$ cache hit rate.
 
 ---
 

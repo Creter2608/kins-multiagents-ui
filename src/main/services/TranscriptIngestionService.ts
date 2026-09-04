@@ -188,6 +188,8 @@ export function detectPhaseWithEvidenceFromTranscriptStep(step: unknown): PhaseD
         candidates.push({ phase: "VERIFY", evidence: `template: ${templateMatch[1]}` });
       } else if (tName.includes("reality-checker")) {
         candidates.push({ phase: "REALITY_CHECK", evidence: `template: ${templateMatch[1]}` });
+      } else if (tName.includes("finishing-a-development-branch") || tName.includes("release")) {
+        candidates.push({ phase: "RELEASE_GATE", evidence: `template: ${templateMatch[1]}` });
       }
     }
 
@@ -195,16 +197,41 @@ export function detectPhaseWithEvidenceFromTranscriptStep(step: unknown): PhaseD
     if (/\blist_dir\s+package\.json\b/i.test(combined)) {
       candidates.push({ phase: "DETECT_STACKS", evidence: "list_dir package.json" });
     }
+
+    // Completion, release, and reality check detection from text ONLY for model/assistant output
+    const isModelStep = s.source === "MODEL" || s.type === "PLANNER_RESPONSE";
+    if (isModelStep) {
+      if (
+        /\b(hoàn thành|đã hoàn thành|hoàn tất|task completed|work is complete|successfully implemented|all tests passed|release complete|pipeline complete)\b/i.test(combined) ||
+        /\[Phase:\s*COMPLETE\]/i.test(combined)
+      ) {
+        candidates.push({ phase: "COMPLETE", evidence: "completion reported" });
+      } else if (
+        /\b(release gate|ready for release|chờ nghiệm thu|sign-off|human sign-off)\b/i.test(combined) ||
+        /\[Phase:\s*RELEASE_GATE\]/i.test(combined)
+      ) {
+        candidates.push({ phase: "RELEASE_GATE", evidence: "release gate reported" });
+      } else if (
+        /\b(reality check|reality audit|kiểm tra thực tế|pre-completion audit)\b/i.test(combined) ||
+        /\[Phase:\s*REALITY_CHECK\]/i.test(combined)
+      ) {
+        candidates.push({ phase: "REALITY_CHECK", evidence: "reality check reported" });
+      }
+    }
   }
 
-  // 3. Check User Prompt & Loop Reset Intent
+  // 3. Check User Prompt & Loop Reset Intent (Absolute highest precedence)
   if (s.source === "USER" || s.source === "USER_EXPLICIT" || s.type === "USER_INPUT") {
     const text = typeof s.content === "string" ? s.content : "";
-    if (s.step_index === 0 || /\b(loop\s*mới|new\s*loop|start\s*loop|chạy\s*loop)\b/i.test(text)) {
-      candidates.push({
+    if (
+      s.step_index === 0 ||
+      /\b(loop\s*m[oóớơ>a-z]*|new\s*loop|start\s*loop|chạy\s*loop|bắt\s*đầu\s*loop|reset\s*loop)\b/i.test(text) ||
+      (/\bloop\b/i.test(text) && /\b(m[oóớơ>a-z]*|new|start|chạy|bắt\s*đầu|reset)\b/i.test(text))
+    ) {
+      return {
         phase: "INITIALIZE",
         evidence: s.step_index === 0 ? "user: initial prompt" : "user: new loop requested"
-      });
+      };
     }
   }
 
@@ -245,7 +272,8 @@ export function parseGptTokenUsageLine(text: string): ParsedGptTokenUsage | null
   const parseNum = (str?: string) => (str ? parseInt(str.replace(/,/g, ""), 10) : 0);
 
   const inputTokens = parseNum(match[1]);
-  const cachedTokens = parseNum(match[2]);
+  const rawCached = parseNum(match[2]);
+  const cachedTokens = Math.min(inputTokens, Math.max(0, rawCached));
   const blueprint = parseNum(match[3]);
   const thinking = parseNum(match[4]);
   const rawOutput = parseNum(match[5]);
@@ -392,7 +420,9 @@ export class TranscriptIngestionService {
       if (this.loopService) {
         const current = this.loopService.getSnapshot();
         const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
-        const isExplicitNewLoop = /\b(loop\s*mới|new\s*loop|start\s*loop|chạy\s*loop)\b/i.test(userContent);
+        const isExplicitNewLoop =
+          /\b(loop\s*m[oóớơ>a-z]*|new\s*loop|start\s*loop|chạy\s*loop|bắt\s*đầu\s*loop|reset\s*loop)\b/i.test(userContent) ||
+          (/\bloop\b/i.test(userContent) && /\b(m[oóớơ>a-z]*|new|start|chạy|bắt\s*đầu|reset)\b/i.test(userContent));
         // Automatically reset loop if user submits a new prompt after previous run reached VERIFY or later,
         // or if status succeeded, or if user explicitly requested a new loop
         if (isExplicitNewLoop || (stepIdx > 0 && (currentIdx >= 6 || current.status === "succeeded"))) {
@@ -518,13 +548,39 @@ export class TranscriptIngestionService {
     // 4. Process Workflow Phase Detection & Auto-Transition
     const detection = detectPhaseWithEvidenceFromTranscriptStep(step);
     if (detection && this.loopService) {
-      this.loopService.advanceToPhase(detection.phase, detection.evidence);
+      const current = this.loopService.getSnapshot();
+      const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
+      const targetIdx = LOOP_PHASES.indexOf(detection.phase);
+      // Invariant: Transcript evidence is forward-only.
+      // Casual inspections (list_dir, view_file, codegraph) during EXECUTE or VERIFY
+      // must NOT attempt to rewind the active workflow.
+      if (targetIdx > currentIdx || detection.phase === "INITIALIZE") {
+        this.loopService.advanceToPhase(detection.phase, detection.evidence);
+      }
     }
 
     // 5. Process Verification Test Results
     const testResult = parseVerificationOutput(combinedText);
     if (testResult && this.loopService) {
       this.loopService.updateTestSummary(testResult);
+      if (testResult.status === "pass" && testResult.failCount === 0) {
+        const current = this.loopService.getSnapshot();
+        const currentIdx = LOOP_PHASES.indexOf(current.currentPhase as LoopPhase);
+        const verifyIdx = LOOP_PHASES.indexOf("VERIFY");
+        if (currentIdx <= verifyIdx) {
+          this.loopService.advanceToPhase("REALITY_CHECK", `Tests passed (${testResult.passCount} passed, 0 failed)`);
+        }
+      } else if (testResult.status === "fail" && testResult.failCount > 0) {
+        // Explicit loopback to EXECUTE on test failure
+        const current = this.loopService.getSnapshot();
+        if (current.currentPhase === "VERIFY" && current.usage.retries < current.budget.maxRetries) {
+          this.loopService.advanceToPhase(
+            "EXECUTE",
+            `Test failure detected (${testResult.failCount} failed)`,
+            "verify-test-failure"
+          );
+        }
+      }
     }
   }
 

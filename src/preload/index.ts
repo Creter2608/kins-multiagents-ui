@@ -11,6 +11,11 @@ import type {
 } from "../shared/contracts.js";
 
 const cockpitApi: CockpitApi = {
+  project: {
+    getState: () => ipcRenderer.invoke("project:get-state"),
+    switchProject: (projectPath: string) => ipcRenderer.invoke("project:switch", projectPath),
+    openProjectFolder: () => ipcRenderer.invoke("project:open-folder")
+  },
   terminal: {
     start: () => ipcRenderer.invoke("terminal:start"),
     write: (data: string) => ipcRenderer.send("terminal:write", data),
@@ -49,6 +54,7 @@ const cockpitApi: CockpitApi = {
   },
   logs: {
     getSnapshot: () => ipcRenderer.invoke("logs:getSnapshot"),
+    clear: () => ipcRenderer.invoke("logs:clear"),
     onEntries: (listener: (entries: readonly CriticalLogEntry[]) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, entries: readonly CriticalLogEntry[]) => listener(entries);
       ipcRenderer.on("logs:entries", handler);
