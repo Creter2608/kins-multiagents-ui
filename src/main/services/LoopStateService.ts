@@ -7,9 +7,12 @@ import type {
   LoopHistoryEntry,
   RollbackResult,
   StepForwardResult,
+  GateDecisionInput,
+  GateDecisionResult,
   LoopTestSummary,
   LoopTestStatus
 } from "../../shared/contracts.js";
+import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
   const parsed = JSON.parse(content);
@@ -240,6 +243,44 @@ export class LoopStateService {
       return {
         success: false,
         message: `Failed to reset loop: ${err instanceof Error ? err.message : String(err)}`
+      };
+    }
+  }
+
+  async decideGate(input: GateDecisionInput): Promise<GateDecisionResult> {
+    if (!input || typeof input !== "object") {
+      return { success: false, message: "Invalid input payload" };
+    }
+    if (input.expectedPhase !== "SPEC_GATE" && input.expectedPhase !== "RELEASE_GATE") {
+      return { success: false, message: `Invalid gate phase: '${input.expectedPhase}'` };
+    }
+    if (input.decision !== "approve" && input.decision !== "reject") {
+      return { success: false, message: `Invalid decision: '${input.decision}'. Must be 'approve' or 'reject'` };
+    }
+    if (input.decision === "reject" && (!input.reason || !input.reason.trim())) {
+      return { success: false, message: "Rejection requires a non-blank reason" };
+    }
+
+    try {
+      const store = new JsonFileLoopStateStore(this.stateFilePath);
+      const commandService = new LoopCommandService(store);
+      await commandService.transition({
+        runId: input.runId,
+        expectedPhase: input.expectedPhase,
+        action: input.decision,
+        reason: input.reason,
+        actor: "human"
+      });
+      const updated = this.readState();
+      return {
+        success: true,
+        message: `Gate ${input.expectedPhase} ${input.decision}d successfully`,
+        state: updated
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : String(err)
       };
     }
   }

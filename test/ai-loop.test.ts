@@ -178,3 +178,52 @@ test("ai-loop: rollback --code restores tracked edits while preserving untracked
     fs.rmSync(tempGitDir, { recursive: true, force: true });
   }
 });
+
+test("ai-loop: isolate Assertion 5 - rejects path traversal or invalid task ID", () => {
+  const res1 = runAiLoop(["isolate", "--task", "../escape"]);
+  assert.equal(res1.status, 1);
+  assert.ok(res1.stderr.includes("CONFIG_INVALID"));
+  assert.ok(!fs.existsSync(path.resolve(REPO_ROOT, ".worktrees", "..", "escape")));
+
+  const res2 = runAiLoop(["isolate", "--task", "INVALID/NAME"]);
+  assert.equal(res2.status, 1);
+  assert.ok(res2.stderr.includes("CONFIG_INVALID"));
+});
+
+test("ai-loop: isolate Assertion 4 - creates worktree and reuses on repeat invocation", () => {
+  const taskId = `smoke-test-${Date.now()}`;
+  const wtPath = path.resolve(REPO_ROOT, ".worktrees", taskId);
+  const branchName = `task/${taskId}`;
+
+  try {
+    // First invocation: creates worktree
+    const res1 = runAiLoop(["isolate", "--task", taskId, "--json"]);
+    assert.equal(res1.status, 0, `isolate 1 failed: ${res1.stderr}`);
+    const out1 = JSON.parse(res1.stdout);
+    assert.equal(out1.reused, false);
+    assert.equal(out1.taskId, taskId);
+    assert.equal(out1.branch, branchName);
+    assert.equal(out1.currentPhase, "ISOLATE");
+    assert.ok(fs.existsSync(wtPath));
+
+    // Second invocation: reuses worktree
+    const res2 = runAiLoop(["isolate", "--task", taskId, "--json"]);
+    assert.equal(res2.status, 0, `isolate 2 failed: ${res2.stderr}`);
+    const out2 = JSON.parse(res2.stdout);
+    assert.equal(out2.reused, true);
+    assert.equal(out2.taskId, taskId);
+    assert.equal(out2.branch, branchName);
+    assert.equal(out2.runId, out1.runId);
+  } finally {
+    // Cleanup worktree and branch
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", wtPath], { cwd: REPO_ROOT, stdio: "ignore" });
+    } catch {}
+    try {
+      execFileSync("git", ["branch", "-D", branchName], { cwd: REPO_ROOT, stdio: "ignore" });
+    } catch {}
+    if (fs.existsSync(wtPath)) {
+      fs.rmSync(wtPath, { recursive: true, force: true });
+    }
+  }
+});

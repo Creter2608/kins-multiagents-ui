@@ -2,6 +2,7 @@ export * from "./errors.js";
 export * from "./checksum.js";
 export * from "./golden.js";
 export * from "./engine.js";
+export * from "./loop/index.js";
 
 import { loadVerifiedGoldenAssertions, evaluateGoldenAssertions, type GoldenAssertionResult } from "./golden.js";
 

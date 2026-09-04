@@ -39,6 +39,7 @@ const cockpitApi: CockpitApi = {
     stepBack: () => ipcRenderer.invoke("loop:stepBack"),
     rollback: () => ipcRenderer.invoke("loop:rollback"),
     reset: () => ipcRenderer.invoke("loop:reset"),
+    decideGate: (input) => ipcRenderer.invoke("loop:decideGate", input),
     onSnapshot: (listener: (state: LoopStateSnapshot) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: LoopStateSnapshot) => listener(state);
       ipcRenderer.on("loop:snapshot", handler);

@@ -1,5 +1,29 @@
 # Project Log
 
+## [2026-09-04] Agent Efficiency Architecture: Shared Loop Command Service, Native MCP Tools & Gate Controls
+
+### Summary
+Delivered the P0 & P1 modules designed by Layer 1 GPT Prompt Architect to eliminate agent command-path fragmentation and terminal round-trip latency. Implemented the unified, lock-protected state store abstraction (`src/loop/LoopStateStore.ts`), the single authoritative transition service with optimistic concurrency (`src/loop/LoopCommandService.ts`), typed MCP tool handlers (`src/loop/mcp-tools.ts`), one-shot idempotent worktree and sandbox scaffolding (`scripts/ai-loop.mjs isolate --task <id>`), and Interactive Human-in-the-Loop Gate decision IPC handlers (`src/main/services/LoopStateService.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/contracts.ts`). All 5 compact test assertions proposed by Layer 1 verified deterministically. Project test suite expanded from 210 to 224 tests passing 100% on local CPU in Docker sandbox ($0 LLM token cost).
+
+### Key Deliverables
+1. **Unified Loop State Store (`src/loop/LoopStateStore.ts`)**:
+   - `JsonFileLoopStateStore` with exclusive `FileLock` (`.ai/state.json.lock`) and atomic temporary write-rename persistence.
+   - Enforces security invariant preventing state file placement inside protected `.eval/`.
+2. **Authoritative Loop Command Service (`src/loop/LoopCommandService.ts`)**:
+   - Optimistic concurrency control via `expectedPhase` check against active phase (`LoopPhaseConflictError` on stale repeat calls).
+   - Enforces gate rules: `approve` and `reject` allowed strictly at `SPEC_GATE` and `RELEASE_GATE`; `reject` requires non-blank reason and sets `BLOCKED`.
+   - Delegates canonical state evolution and budget accounting to `LoopEngine`.
+3. **Native MCP Agent Loop Tools (`src/loop/mcp-tools.ts`)**:
+   - `handleAgentLoopStatus`: Structured state query with optional run-ID validation.
+   - `handleAgentLoopTransition`: Zero-terminal-roundtrip phase transitions returning structured results (`ok: true/false`, `code: PHASE_CONFLICT`, etc.).
+4. **One-Shot Worktree Scaffolder (`scripts/ai-loop.mjs isolate --task <id>`)**:
+   - Validates task ID pattern `^[a-z0-9][a-z0-9._-]{0,63}$` and rejects path traversal (`../escape`).
+   - Idempotently creates or reuses `.worktrees/<task-id>` with branch `task/<task-id>` and initializes `.ai/state.json`.
+5. **Interactive Gate Decision IPC (`LoopStateService.decideGate`, `loop:decideGate`)**:
+   - Main process, preload bridge, and contract extensions enabling 1-click Human-in-the-Loop gate approvals/rejections from Cockpit UI.
+6. **Deterministic Test Suite (`test/loop-command-service.test.ts`, `test/ai-loop.test.ts`)**:
+   - 14 comprehensive unit and integration tests verifying all 5 compact test assertions, lock conflicts, phase conflicts, gate approvals/rejections, and worktree reuse idempotency. Total project tests: 224/224 passing (100%).
+
 ## [2026-09-04] Stage 7 Delivery: Hybrid LLM-as-a-Judge & Continuous CI/CD PR Gates
 
 ### Summary

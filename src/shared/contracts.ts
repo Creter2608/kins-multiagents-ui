@@ -151,6 +151,19 @@ export interface StepForwardResult {
   readonly state?: LoopStateSnapshot | undefined;
 }
 
+export interface GateDecisionInput {
+  readonly runId: string;
+  readonly expectedPhase: "SPEC_GATE" | "RELEASE_GATE";
+  readonly decision: "approve" | "reject";
+  readonly reason?: string | undefined;
+}
+
+export interface GateDecisionResult {
+  readonly success: boolean;
+  readonly message: string;
+  readonly state?: LoopStateSnapshot | undefined;
+}
+
 export interface ProjectInfo {
   readonly name: string;
   readonly path: string;
@@ -181,6 +194,7 @@ export interface CockpitApi {
     readonly stepBack: () => Promise<RollbackResult>;
     readonly rollback: () => Promise<RollbackResult>;
     readonly reset: () => Promise<LoopResetResult>;
+    readonly decideGate?: (input: GateDecisionInput) => Promise<GateDecisionResult>;
     readonly onSnapshot: (listener: (state: LoopStateSnapshot) => void) => Unsubscribe;
   };
   readonly mcp: {

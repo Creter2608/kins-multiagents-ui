@@ -104,6 +104,10 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return await services.loop.resetLoop();
   });
 
+  ipcMain.handle("loop:decideGate", async (_event, input) => {
+    return await services.loop.decideGate(input);
+  });
+
   unsubs.push(
     services.loop.subscribe((snapshot) => {
       if (!window.isDestroyed()) {
