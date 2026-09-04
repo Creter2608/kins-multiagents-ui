@@ -122,7 +122,7 @@ export const App: React.FC = () => {
             KINS COCKPIT
           </span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-[#18181b] text-zinc-400 font-mono font-medium border border-[#27272a]">
-            v1.0.0
+            v2.0.0
           </span>
         </div>
 

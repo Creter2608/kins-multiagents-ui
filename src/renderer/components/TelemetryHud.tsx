@@ -44,6 +44,18 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
     metrics.estimatedCostUsd !== null &&
     metrics.estimatedCostUsd >= telemetry.budgetLimitUsd;
 
+  const totalTokens =
+    metrics.gpt.inputTokens +
+    metrics.gpt.outputTokens +
+    metrics.gemini.inputTokens +
+    metrics.gemini.outputTokens;
+  const isApproachingCeiling =
+    (metrics.estimatedCostUsd !== null && metrics.estimatedCostUsd >= 0.40) ||
+    totalTokens >= 50_000;
+  const isCeilingExceeded =
+    (metrics.estimatedCostUsd !== null && metrics.estimatedCostUsd >= 0.50) ||
+    totalTokens >= 60_000;
+
   const gptTotalInput = metrics.gpt.inputTokens;
   const gptCachedInput = Math.min(gptTotalInput, metrics.gpt.cachedInputTokens);
   const cacheHitPct =
@@ -148,6 +160,23 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
           <span className="text-zinc-500 text-[11px]">
             / ${telemetry.budgetLimitUsd.toFixed(2)}
           </span>
+        </div>
+
+        {/* Telemetry Budget Ceiling Warning */}
+        <div
+          className={`flex items-center space-x-1.5 px-2 py-0.5 rounded border text-[11px] font-mono ${
+            isCeilingExceeded
+              ? "bg-rose-950/40 text-rose-300 border-rose-800/60 font-bold animate-pulse"
+              : isApproachingCeiling
+              ? "bg-amber-950/30 text-amber-300 border-amber-800/50 font-semibold"
+              : "bg-[#141414] text-zinc-400 border-[#27272a]"
+          }`}
+          title="Canonical hard execution limits: $0.50 USD and 60k tokens"
+        >
+          <span className="text-zinc-500 font-medium">Ceiling:</span>
+          <span className="text-zinc-300 font-semibold">$0.50</span>
+          <span className="text-zinc-600">/</span>
+          <span className="text-zinc-300 font-semibold">60k tokens</span>
         </div>
 
         {/* Docker Sandbox Status */}

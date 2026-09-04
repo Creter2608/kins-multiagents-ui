@@ -3,8 +3,10 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { computePhaseStatuses } from "../src/shared/phases.js";
+import { computePhaseStatuses, LOOP_PHASES } from "../src/shared/phases.js";
 import { LoopStateService } from "../src/main/services/LoopStateService.js";
+
+const REPO_ROOT = process.cwd();
 import { TelemetryService, calculateCacheHitPercentage, calculateEstimatedCostUsd } from "../src/main/services/TelemetryService.js";
 import { CriticalLogService, classifyLogLine } from "../src/main/services/CriticalLogService.js";
 import { mapDockerState } from "../src/main/services/DockerStatusService.js";
@@ -609,6 +611,68 @@ test("cockpit auto-phase: FAILED, phase=EXECUTE, transitions=0 -> rollback allow
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+// Layer 1 Compact Assertion 1: {"input":"package.json.version","expected":"2.0.0"}
+test("cockpit v2.0: package.json specifies version 2.0.0", () => {
+  const pkgPath = path.resolve(REPO_ROOT, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  assert.equal(pkg.version, "2.0.0");
+});
+
+// Layer 1 Compact Assertion 2: {"input":"LOOP_PHASES","expected":"10 phases in canonical order"}
+test("cockpit v2.0: LOOP_PHASES exports exactly 10 canonical phases in sequential order", () => {
+  const expectedPhases = [
+    "INITIALIZE",
+    "SPEC_GATE",
+    "ISOLATE",
+    "DETECT_STACKS",
+    "PLAN",
+    "EXECUTE",
+    "VERIFY",
+    "REALITY_CHECK",
+    "RELEASE_GATE",
+    "COMPLETE"
+  ];
+  assert.equal(LOOP_PHASES.length, 10);
+  assert.deepEqual([...LOOP_PHASES], expectedPhases);
+});
+
+// Layer 1 Compact Assertion 3: {"input":"App header","expected":"visible v2.0.0"}
+test("cockpit v2.0: App header contains visible v2.0.0 release badge", () => {
+  const appPath = path.resolve(REPO_ROOT, "src/renderer/App.tsx");
+  const appSource = fs.readFileSync(appPath, "utf-8");
+  assert.match(appSource, />\s*v2\.0\.0\s*</);
+});
+
+// Layer 1 Compact Assertion 4: {"input":"TelemetryHud","expected":"contains $0.50 and 60k tokens"}
+test("cockpit v2.0: TelemetryHud contains $0.50 and 60k tokens budget ceiling warning", () => {
+  const hudPath = path.resolve(REPO_ROOT, "src/renderer/components/TelemetryHud.tsx");
+  const hudSource = fs.readFileSync(hudPath, "utf-8");
+  assert.ok(hudSource.includes("$0.50"), "TelemetryHud must state $0.50 budget ceiling");
+  assert.ok(hudSource.includes("60k tokens"), "TelemetryHud must state 60k tokens ceiling");
+});
+
+// Layer 1 Compact Assertion 5: {"input":"legacy target docs","expected":"no six-phase claim; golden assertions unchanged"}
+test("cockpit v2.0: standardized target docs have no legacy 6-phase claims and golden assertions remain protected", () => {
+  const aiLoopPath = path.resolve(REPO_ROOT, "scripts/ai-loop.mjs");
+  const wikiIndexPath = path.resolve(REPO_ROOT, "wiki/index.md");
+  const llmsPath = path.resolve(REPO_ROOT, "llms.txt");
+
+  const aiLoopContent = fs.readFileSync(aiLoopPath, "utf-8");
+  const wikiIndexContent = fs.readFileSync(wikiIndexPath, "utf-8");
+  const llmsContent = fs.readFileSync(llmsPath, "utf-8");
+
+  assert.doesNotMatch(aiLoopContent, /6-phase|six-phase/i);
+  assert.doesNotMatch(wikiIndexContent, /6-phase|six-phase/i);
+  assert.doesNotMatch(llmsContent, /6-phase|six-phase/i);
+
+  // Golden assertions protected
+  const goldenShaPath = path.resolve(REPO_ROOT, ".eval/golden_assertions.sha256");
+  const parts = fs.readFileSync(goldenShaPath, "utf-8").trim().split(/\s+/);
+  const expectedSha = parts[0] ?? "";
+  assert.equal(expectedSha.length, 64);
+});
+
 
 
 

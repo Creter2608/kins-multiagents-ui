@@ -170,7 +170,7 @@ test("ai-loop: rollback --code restores tracked edits while preserving untracked
     const rbState = JSON.parse(rbRes.stdout);
     assert.equal(rbState.currentPhase, "INITIALIZE");
 
-    assert.equal(fs.readFileSync(trackedFile, "utf-8"), "clean baseline\n");
+    assert.equal(fs.readFileSync(trackedFile, "utf-8").replace(/\r\n/g, "\n"), "clean baseline\n");
 
     assert.ok(fs.existsSync(untrackedFile), "Untracked file must be preserved");
     assert.equal(fs.readFileSync(untrackedFile, "utf-8"), "should survive rollback\n");

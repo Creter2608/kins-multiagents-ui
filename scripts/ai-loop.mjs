@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * scripts/ai-loop.mjs
- * Deterministic, persistent runner for the 6-phase Autonomous Loop.
+ * Deterministic, persistent runner for the 10-phase Canonical Autonomous Loop v2.0.
  * Enforces atomic state persistence, file locking, budget ceilings, and golden verification.
  */
 
