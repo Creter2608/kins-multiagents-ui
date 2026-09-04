@@ -6,6 +6,7 @@ import type { CriticalLogService } from "./services/CriticalLogService.js";
 import type { TelemetryService } from "./services/TelemetryService.js";
 import type { RollbackService } from "./services/RollbackService.js";
 import type { ProjectService } from "./services/ProjectService.js";
+import type { EvalHarnessService } from "./services/EvalHarnessService.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -15,6 +16,7 @@ export interface ServiceContainer {
   logs: CriticalLogService;
   telemetry: TelemetryService;
   rollback: RollbackService;
+  evalHarness: EvalHarnessService;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -159,6 +161,23 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     })
   );
 
+  // Eval Harness
+  ipcMain.handle("eval:getSnapshot", async () => {
+    return services.evalHarness.getSnapshot();
+  });
+
+  ipcMain.handle("eval:runBenchmark", async () => {
+    return await services.evalHarness.runBenchmark();
+  });
+
+  unsubs.push(
+    services.evalHarness.onSnapshot((snapshot) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send("eval:snapshot", snapshot);
+      }
+    })
+  );
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
@@ -178,5 +197,7 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("logs:clear");
     ipcMain.removeHandler("telemetry:getSnapshot");
     ipcMain.removeHandler("telemetry:resetSession");
+    ipcMain.removeHandler("eval:getSnapshot");
+    ipcMain.removeHandler("eval:runBenchmark");
   };
 }

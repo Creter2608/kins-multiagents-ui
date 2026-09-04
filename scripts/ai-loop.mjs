@@ -10,6 +10,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import {
+  getSandboxConfig,
+  spawnEphemeralSandbox,
+  teardownEphemeralSandbox
+} from './harness/sandbox.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,7 +129,16 @@ function atomicSaveState(stateFile, state) {
   const tmpFile = `${stateFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   const serialized = JSON.stringify(state, null, 2) + '\n';
   fs.writeFileSync(tmpFile, serialized, 'utf-8');
-  fs.renameSync(tmpFile, stateFile);
+  try {
+    fs.renameSync(tmpFile, stateFile);
+  } catch (err) {
+    if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+      fs.copyFileSync(tmpFile, stateFile);
+      try { fs.unlinkSync(tmpFile); } catch {}
+    } else {
+      throw err;
+    }
+  }
 }
 
 function loadState(stateFile) {
@@ -216,6 +230,11 @@ async function main() {
           const opts = getEngineOptions(runIdArg, goldenShaArg);
           const engine = new LoopEngine(opts);
           const snapshot = engine.snapshot();
+          snapshot.sandbox = {
+            config: getSandboxConfig(snapshot.runId),
+            instance: null,
+            teardown: null
+          };
           atomicSaveState(stateFilePath, snapshot);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(snapshot, null, 2) + '\n');
@@ -257,6 +276,47 @@ async function main() {
           const opts = getEngineOptions(savedState.runId, savedState.goldenSha256);
           const engine = new LoopEngine(opts, savedState);
           const nextState = engine.transition(targetPhase);
+
+          // Preserve or initialize sandbox state
+          nextState.sandbox = savedState.sandbox || {
+            config: getSandboxConfig(savedState.runId),
+            instance: null,
+            teardown: null
+          };
+
+          // On transition to ISOLATE, spawn ephemeral sandbox if not already spawned
+          if (nextState.currentPhase === 'ISOLATE' && !nextState.sandbox.instance) {
+            try {
+              const inst = await spawnEphemeralSandbox(nextState.sandbox.config);
+              nextState.sandbox.instance = {
+                runId: inst.runId,
+                containerName: inst.containerName,
+                containerId: inst.containerId,
+                status: inst.status,
+                mode: inst.mode,
+                workspacePath: inst.workspacePath,
+                ownedPaths: [...inst.ownedPaths]
+              };
+              nextState.sandbox.teardown = null;
+            } catch (spawnErr) {
+              process.stderr.write(`[ai-loop WARN] Sandbox spawn in ISOLATE: ${spawnErr.message}\n`);
+            }
+          }
+
+          // On terminal transition (COMPLETE or FAILED), perform idempotent teardown
+          if ((nextState.currentPhase === 'COMPLETE' || nextState.currentPhase === 'FAILED') && nextState.sandbox.instance && !nextState.sandbox.teardown) {
+            try {
+              const tdResult = await teardownEphemeralSandbox(nextState.sandbox.instance);
+              nextState.sandbox.teardown = tdResult;
+            } catch (tdErr) {
+              process.stderr.write(`[ai-loop WARN] Sandbox teardown on terminal phase: ${tdErr.message}\n`);
+            }
+          }
+
+          if (savedState.testSummary) {
+            nextState.testSummary = savedState.testSummary;
+          }
+
           atomicSaveState(stateFilePath, nextState);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(nextState, null, 2) + '\n');
@@ -300,6 +360,11 @@ async function main() {
             }
           }
 
+          nextState.sandbox = savedState.sandbox || null;
+          if (savedState.testSummary) {
+            nextState.testSummary = savedState.testSummary;
+          }
+
           atomicSaveState(stateFilePath, nextState);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(nextState, null, 2) + '\n');
@@ -320,6 +385,12 @@ async function main() {
           const opts = getEngineOptions(savedState.runId, savedState.goldenSha256);
           const engine = new LoopEngine(opts, savedState);
           const nextState = engine.consumeRetry(count);
+
+          nextState.sandbox = savedState.sandbox || null;
+          if (savedState.testSummary) {
+            nextState.testSummary = savedState.testSummary;
+          }
+
           atomicSaveState(stateFilePath, nextState);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(nextState, null, 2) + '\n');
@@ -344,6 +415,21 @@ async function main() {
           const opts = getEngineOptions(savedState.runId, savedState.goldenSha256);
           const engine = new LoopEngine(opts, savedState);
           const nextState = engine.fail(code, message);
+
+          nextState.sandbox = savedState.sandbox || null;
+          if (nextState.sandbox?.instance && !nextState.sandbox.teardown) {
+            try {
+              const tdResult = await teardownEphemeralSandbox(nextState.sandbox.instance);
+              nextState.sandbox.teardown = tdResult;
+            } catch (tdErr) {
+              process.stderr.write(`[ai-loop WARN] Sandbox teardown on fail: ${tdErr.message}\n`);
+            }
+          }
+
+          if (savedState.testSummary) {
+            nextState.testSummary = savedState.testSummary;
+          }
+
           atomicSaveState(stateFilePath, nextState);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(nextState, null, 2) + '\n');

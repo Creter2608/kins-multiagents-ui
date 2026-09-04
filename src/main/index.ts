@@ -11,6 +11,7 @@ import { DockerStatusService } from "./services/DockerStatusService.js";
 import { RollbackService } from "./services/RollbackService.js";
 import { TranscriptIngestionService } from "./services/TranscriptIngestionService.js";
 import { ProjectService } from "./services/ProjectService.js";
+import { EvalHarnessService } from "./services/EvalHarnessService.js";
 import { registerIpcHandlers } from "./ipc.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +31,7 @@ const logService = new CriticalLogService();
 const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot);
+const evalService = new EvalHarnessService(projectRoot);
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService);
 let projectService: ProjectService | null = null;
 
@@ -89,6 +91,7 @@ async function createWindow(): Promise<void> {
   logService.start();
   dockerService.start();
   transcriptService.start();
+  void evalService.start();
 
   teardownIpc = registerIpcHandlers(mainWindow, {
     project: projectService!,
@@ -97,7 +100,8 @@ async function createWindow(): Promise<void> {
     mcp: mcpService,
     logs: logService,
     telemetry: telemetryService,
-    rollback: rollbackService
+    rollback: rollbackService,
+    evalHarness: evalService
   });
 
   // Push immediate snapshots as soon as renderer is ready
@@ -107,6 +111,7 @@ async function createWindow(): Promise<void> {
       mainWindow.webContents.send("mcp:snapshot", mcpService.getSnapshot());
       mainWindow.webContents.send("logs:entries", logService.getSnapshot().entries);
       mainWindow.webContents.send("telemetry:snapshot", telemetryService.getSnapshot());
+      mainWindow.webContents.send("eval:snapshot", evalService.getSnapshot());
     }
   });
 
@@ -160,4 +165,5 @@ app.on("before-quit", () => {
   dockerService.dispose();
   telemetryService.dispose();
   transcriptService.dispose();
+  void evalService.dispose();
 });

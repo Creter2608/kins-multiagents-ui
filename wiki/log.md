@@ -1,5 +1,201 @@
 # Project Log
 
+## [2026-09-04] Release v2.3.0: Enterprise Fleet Architecture (ADR-005 Full Delivery) & Eval HUD
+
+### Summary
+Released version 2.3.0 delivering all 5 phases of ADR-005 (Enterprise Fleet Roadmap & Deep Evaluation Harness Architecture), integrating the Evaluation Benchmark Harness into KINS Cockpit, Anti-Gaming verification, ephemeral sandboxing, AST-level concurrent worktree merging, and refined three-state scoreboard UI handling. Deterministic test suite expanded from 109 to 155 tests passing 100%.
+
+### Key Deliverables in v2.3.0
+1. **Deep Evaluation Benchmark Harness (`scripts/harness/runner.mjs`)**: F2P (Fail-to-Pass) and P2P (Pass-to-Pass) dual-zone test isolation executed in hermetic detached Git worktrees with deterministic Pass@1, Pass@k, and SSI scoring.
+2. **Anti-Gaming & Tampering Detection (`scripts/harness/anti-gaming.mjs`)**: AST and git diff inspection guarding against forbidden file edits, assertion commenting, deletion, swallowing, and mock evasion.
+3. **Cockpit Eval HUD & Scoreboard (`src/renderer/components/EvalScoreboard.tsx`, `src/main/services/EvalHarnessService.ts`)**: Real-time evaluation dashboard with live status indicators, metric cards, tab switching preserving active terminal sessions, and refined empty-task state handling (`NO TASKS FOUND`).
+4. **Ephemeral Sandboxing Lifecycle (`scripts/harness/sandbox.mjs`, `src/main/services/SandboxLifecycleService.ts`)**: Dynamic Docker microVM container lifecycle per `runId` with isolated fallback and automated teardown on loop completion.
+5. **AST-Level Concurrent Worktree Merging (`scripts/harness/ast-merger.mjs`)**: Semantic 3-way AST merge resolving disjoint imports, interfaces, and functions across parallel agent branches without text merge conflicts.
+6. **Deterministic Verification Evidence**: 155/155 unit and integration tests passing at $0 LLM token cost on local CPU.
+
+## [2026-09-04] Fix: Eliminate False-Positive Anti-Gaming Violations in Eval Benchmark
+
+### Summary
+Resolved false-positive `SPECIFICATION INTEGRITY VIOLATION` disqualifications during benchmark runs (`EvalHarnessService.ts` and `scripts/harness/runner.mjs`). Ground truth base commit resolution now defaults deterministically to `HEAD` (or an explicit `customBaseCommit`) rather than arbitrary `HEAD~1`, preventing release commit assertions from being flagged as uncommitted tampering. Added empty task handling in `runner.mjs`, cleared stale report cache, added 3 unit tests, and documented `PITFALL-013`.
+
+### Delivered Capabilities
+1. **Deterministic Working-Tree Baseline (`src/main/services/EvalHarnessService.ts`)**:
+   - `runBenchmark` and `executeBenchmark` accept an optional `customBaseCommit` and default to `HEAD`.
+   - Clears stale `.ai/reports/eval-report.json` before runner execution.
+2. **Graceful Zero-Task Benchmark Handling (`scripts/harness/runner.mjs`)**:
+   - When `.eval/harness/tasks` is absent or empty, writes a schema-valid empty report (`passed: true`, 0 violations) and exits 0 instead of crashing.
+3. **Comprehensive Test Coverage (`test/eval-ui-service.test.ts`, `test/eval-harness.test.ts`)**:
+   - Added unit test verifying default `--base HEAD` resolution and stale report clearing.
+   - Added unit test verifying `customBaseCommit` override.
+   - Added unit test verifying empty task directory handling.
+4. **Living Knowledge Compounding (`wiki/pitfalls.md`)**:
+   - Registered `PITFALL-013` documenting the failure mode, root cause, and mandatory invariants.
+
+## [2026-09-04] Phase 5 Delivery: AST-Level Concurrent Worktree Merging
+
+### Summary
+Delivered Phase 5 of ADR-005: implemented a 3-way AST-level code and worktree merge engine (`scripts/harness/ast-merger.mjs` and `scripts/harness/ast-merger.d.mts`), CLI interface, and a deterministic unit and integration test suite (`test/ast-merger.test.ts`). Total project test suite expanded from 143 to 152 deterministic tests passing 100%. All 5 phases of ADR-005 are now fully delivered and verified.
+
+### Delivered Capabilities
+1. **Zero-New-Dependency 3-Way AST Engine (`scripts/harness/ast-merger.mjs`, `scripts/harness/ast-merger.d.mts`)**:
+   - `mergeSource3Way`: Parses base, current, and incoming code with TypeScript compiler API (`ts.createSourceFile`).
+   - **Semantic Import Merging**: Set-union deduplication of named specifiers for identical module specifiers (e.g., `import { X, A }` + `import { X, B }` $\rightarrow$ `import { X, A, B }`), clean handling of type-only imports, default bindings, and namespace bindings without syntax corruption or git conflict markers.
+   - **Interface & Type Member Merging**: Performs member-level 3-way merging on disjoint interface properties (`x: string` + `y: number` $\rightarrow$ combined `x: string; y: number;`), while properly flagging incompatible property types as semantic conflicts.
+   - **Function & Declaration Merging**: Disjoint top-level functions and classes added by different agents are cleanly interleaved; identical edits are deduplicated; genuine concurrent modifications to the same function body produce exact conflict markers (`<<<<<<< CURRENT`, `=======`, `>>>>>>> INCOMING`).
+   - `mergeFiles3Way`: File-level 3-way merge on disk supporting all source extensions (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) with conservative binary fallback.
+   - `mergeWorktrees3Way`: Multi-file recursive worktree merger across directories with clean addition/deletion handling and strict protection preventing writing into `.eval/`.
+2. **Deterministic CLI Boundary**:
+   - `node scripts/harness/ast-merger.mjs <base-dir> <current-dir> <incoming-dir> [--output <out-dir>] [--json]`
+   - Exit 0 for clean merge, 1 for conflicts, 2 for invalid arguments.
+3. **Hermetic Test Suite (`test/ast-merger.test.ts`)**:
+   - 9 deterministic unit and worktree tests covering all 5 compact test assertions:
+     - Disjoint named import merging
+     - Disjoint function additions (`foo` and `bar`)
+     - Disjoint interface property additions
+     - Identical edit deduplication
+     - Standard conflict markers on conflicting function bodies
+     - Conflicting property type detection
+     - File-level merge on disk
+     - Full worktree directory merging with additions and deletions
+     - Protected `.eval/` target directory rejection
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json --noEmit`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 152/152 tests passed (0 failures)
+- `node scripts/ai-loop.mjs verify`: 2/2 golden assertions verified against SHA-256
+- Protected Zone Integrity: `.eval/` strictly read-only and untampered
+- Autonomous Loop Lifecycle: `run-phase5-ast-merger` transitioned through all canonical phases to `COMPLETE` with status `succeeded`.
+
+## [2026-09-04] Phase 4 Delivery: Ephemeral Docker Sandboxing & MicroVM Lifecycle
+
+### Summary
+Delivered Phase 4 of ADR-005: implemented a zero-dependency ephemeral sandboxing and container lifecycle module (`scripts/harness/sandbox.mjs` and `scripts/harness/sandbox.d.mts`), hooked into `scripts/ai-loop.mjs` (spawn on `ISOLATE`, clean teardown on `COMPLETE`/`FAILED`), introduced `SandboxLifecycleService` in `src/main/services/`, extended `DockerSandboxStatus` with `"Fallback"`, and added a hermetic unit and integration test suite (`test/sandbox-lifecycle.test.ts`). Total project test suite expanded from 132 to 143 deterministic tests passing 100%.
+
+### Delivered Capabilities
+1. **Zero-Dependency Sandbox Engine (`scripts/harness/sandbox.mjs`, `scripts/harness/sandbox.d.mts`)**:
+   - `sanitizeRunId`: Deterministic run ID sanitization (`[a-zA-Z0-9_-]`, max 48 characters, fallback to `"run"`).
+   - `getSandboxConfig`: Deterministic defaults (image `node:22-bookworm-slim`, 4g RAM, 2.0 CPUs, 128 PIDs, 300s timeout, network `"none"`, workdir `"/workspace"`), input validation, control-character injection prevention.
+   - `buildDockerRunArgs`: Deterministic argument generation with sorted mounts (target then source) and sorted environment keys.
+   - `isDockerAvailable`: Bounded availability probe checking Docker daemon version.
+   - `spawnEphemeralSandbox`: Sub-second container spin-up with `--rm` and ownership labels, or isolated temporary process fallback under `os.tmpdir()` when Docker is unavailable.
+   - `execInSandbox`: Executes commands with 32 KiB stream capping (`ai-exec` style), node path normalization across host and container, and bounded timeout enforcement.
+   - `teardownEphemeralSandbox`: Idempotent container removal (`docker rm -f`) and safe cleanup restricted strictly to owned temporary directories beneath `os.tmpdir()`.
+2. **Autonomous Loop Lifecycle Integration (`scripts/ai-loop.mjs`)**:
+   - On `init`: Initializes `sandbox: { config, instance: null, teardown: null }`.
+   - On `transition ISOLATE`: Spawns ephemeral sandbox if no active instance exists.
+   - On terminal transition (`COMPLETE` or `FAILED`): Automatically invokes `teardownEphemeralSandbox` to guarantee zero dangling containers or dirty volumes across runs.
+3. **Cockpit Backend Integration (`src/main/services/SandboxLifecycleService.ts`, `src/shared/contracts.ts`)**:
+   - Added `SandboxLifecycleService` to observe active sandbox status from `.ai/state.json` (`Active`, `Fallback`, `Stopped`, `Missing`, `Unavailable`).
+   - Extended `DockerSandboxStatus` union with `"Fallback"`.
+4. **Hermetic Test Suite (`test/sandbox-lifecycle.test.ts`)**:
+   - 11 deterministic tests covering token sanitization, config validation, sorted Docker run arguments, probe execution, process fallback exit codes, 32 KiB buffer capping, timeout termination, live Docker execution, idempotent teardown, security boundary enforcement, and service state observation.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json --noEmit`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 143/143 tests passed (0 failures)
+- `node scripts/ai-loop.mjs verify`: 2/2 golden assertions verified against SHA-256
+- Protected Zone Integrity: `.eval/` strictly read-only and untampered
+- Autonomous Loop Lifecycle: `run-phase4-ephemeral-docker` transitioned through all canonical phases to `COMPLETE` with status `succeeded`.
+
+## [2026-09-04] Phase 3 Delivery: Cockpit Eval HUD & Evaluation Scoreboard
+
+### Summary
+Delivered Phase 3 of ADR-005: integrated the Evaluation Harness directly into the KINS Cockpit Electron & React interface. Implemented the backend service (`EvalHarnessService`), IPC contracts and channels, preload API bridge, a dark console-aesthetic Scoreboard UI component (`EvalScoreboard`), seamless tab switching preserving terminal sessions, and a comprehensive test suite (`test/eval-ui-service.test.ts`). Total project test suite expanded from 124 to 132 deterministic tests passing 100%.
+
+### Delivered Capabilities
+1. **EvalHarnessService (`src/main/services/EvalHarnessService.ts`)**:
+   - Manages reading, schema validation, and debounced file watching (`fs.watch`) of `.ai/reports/eval-report.json`.
+   - Anti-crash / resilience: on malformed JSON or corrupted writes, flags status as `malformed`, logs the error, but preserves the prior valid report in memory. Recovers automatically to `ready` once valid JSON is written.
+   - Concurrency control: `runBenchmark()` executes the harness runner (`scripts/harness/runner.mjs`) asynchronously while deduplicating in-flight calls via an internal promise lock.
+   - Lifecycle cleanup: clean resource disposal (`dispose()`) closing watchers and timers.
+2. **IPC & Preload Integration (`src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/contracts.ts`)**:
+   - Added `eval:getSnapshot`, `eval:runBenchmark`, and `eval:snapshot` push events.
+   - Exposed typed `window.cockpitApi.eval` bridge to renderer.
+3. **Cockpit UI & EvalScoreboard (`src/renderer/components/EvalScoreboard.tsx`, `src/renderer/App.tsx`)**:
+   - Terminal / Eval HUD tab switcher in Cockpit top navigation bar with live status indicators.
+   - Preserves live terminal session and scrollback by toggling display via CSS `hidden` rather than unmounting components.
+   - Comprehensive Scoreboard view: Pass@1, Pass@k, SSI KPI cards, task breakdown table (`f2p`/`p2p` badge, base vs current execution status), anti-gaming violation banners with red alert callouts, and manual Run Benchmark action.
+4. **Deterministic Unit Test Suite (`test/eval-ui-service.test.ts`)**:
+   - 8 unit tests verifying idle startup, valid report loading, malformed JSON recovery, schema validation rejection, subscriber push notifications, benchmark execution, missing runner handling, and concurrent benchmark deduplication.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json --noEmit`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 132/132 tests passed (0 failures)
+- Protected Zone Integrity: `.eval/` strictly read-only and untampered
+- Autonomous Loop Lifecycle: Successfully transitioned through all 10 canonical phases to `COMPLETE` with status `succeeded`.
+
+## [2026-09-04] Phase 2 Delivery: Anti-Gaming & Tampering Detection Engine (`scripts/harness/anti-gaming.mjs`)
+
+### Summary
+Delivered Phase 2 of ADR-005: an autonomous Anti-Gaming and Tampering Detection Engine (`scripts/harness/anti-gaming.mjs`), type contracts (`src/shared/harness.ts`, `scripts/harness/anti-gaming.d.mts`), deep integration into `scripts/harness/runner.mjs`, and a hermetic Git test suite (`test/anti-gaming.test.ts`). Total project test suite expanded from 116 to 124 deterministic tests passing 100%.
+
+### Delivered Capabilities
+1. **Zero-Dependency Anti-Gaming Engine (`scripts/harness/anti-gaming.mjs`)**:
+   - Compares tracked workspace against `baseCommit` via `git diff --name-status -z` and `git diff -U0`.
+   - **Forbidden Path Protection (`FORBIDDEN_FILE_MODIFIED`)**: Disqualifies submissions attempting to alter `.eval/`, `.github/`, test configurations (`jest.config.*`, `vitest.config.*`, etc.), or modifying `pretest`, `test`, `posttest` scripts in `package.json`.
+   - **Assertion Commenting Heuristic (`ASSERTION_COMMENTED_OUT`)**: Disqualifies additions commenting out `assert.*`, `expect(...)`, or `assertThat(...)` inside test files.
+   - **Assertion Removal Heuristic (`ASSERTION_REMOVED`)**: Flags deletions of active assertion statements in test suites.
+   - **Assertion Swallowing Detection (`ASSERTION_SWALLOWED`)**: Detects assertions wrapped inside newly added empty `try { ... } catch {}` blocks.
+   - **Mock Evasion Heuristic (`MOCK_EVASION`)**: Scans verification and harness code to flag short-circuiting returns (`return true`, `{ clean: true }`, `{ passed: true }`).
+   - Deterministic sorting by path, line number, and violation code.
+2. **Harness Integration (`scripts/harness/runner.mjs`)**:
+   - `runEvaluation` executes `validateGitDiffIntegrity` before any benchmark task starts.
+   - If violations exist: immediately returns a disqualified report with `metrics: { passAt1: 0, passAtK: 0, ssi: 0 }` and populates `violations`, zero task commands executed.
+   - CLI boundary sets exit code `2` on anti-gaming disqualification.
+3. **Hermetic Test Suite (`test/anti-gaming.test.ts`)**:
+   - 8 deterministic tests in disposable temporary Git repositories verifying clean passes, path disqualifications, assertion commenting/removal/swallowing, and mock evasion.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json --noEmit`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 124/124 tests passed (0 failures)
+- Protected Zone Integrity: `git diff --name-only -- .eval` produces 0 modifications (strictly read-only)
+- Autonomous Loop Lifecycle: `run-phase2-antigaming` successfully transitioned through all 10 canonical phases to `COMPLETE` with status `succeeded`.
+
+
+## [2026-09-04] Phase 1 Delivery: Deep Evaluation Harness Core (`kins-eval-harness`)
+
+### Summary
+Implemented Phase 1 of ADR-005: a zero-dependency, hermetic Evaluation Benchmark Harness Runner (`scripts/harness/runner.mjs`) alongside comprehensive type definitions (`src/shared/harness.ts`, `scripts/harness/runner.d.mts`) and a deterministic integration test suite (`test/eval-harness.test.ts`). Total project test suite increased from 109 to 116 tests with 100% pass rate.
+
+### Delivered Capabilities
+1. **Zero-Dependency Evaluation Runner (`scripts/harness/runner.mjs`)**:
+   - Zero external npm dependencies; uses standard Node.js libraries (`node:child_process`, `node:crypto`, `node:fs`, `node:os`, `node:path`).
+   - Automatically establishes a detached temporary Git worktree for base commit evaluation, executing commands against both base and current workspace without mutating git history.
+   - Dual-zone test contracts: validates `f2p` (Fail-to-Pass: fails on base, passes on current) and `p2p` (Pass-to-Pass: passes on both).
+   - Computes deterministic metrics: Pass@1, Pass@k, SSI (Semantic Stability Index).
+   - Enforces SHA-256 hidden assertion integrity checks via `crypto.timingSafeEqual` before running any tasks.
+   - Generates deterministic, byte-identical JSON reports (`.ai/reports/eval-report.json`) written atomically.
+2. **Resilient Loop State Persistence (`scripts/ai-loop.mjs`)**:
+   - Hardened `saveState` against Windows `EPERM`/`EBUSY` file locking with `copyFileSync` fallback.
+3. **Integration Test Suite (`test/eval-harness.test.ts`)**:
+   - Implemented 7 new deterministic unit and hermetic git integration tests.
+   - Validated all 5 compact test assertions from Layer 1 GPT blueprint:
+     - F2P fail->pass & P2P pass->pass -> Pass@1=1, SSI=1, exit 0
+     - F2P fail->fail -> Pass@1=0, exit 1
+     - P2P pass->fail -> SSI=0, exit 1
+     - Hidden assertion hash mismatch -> throws tampering error, exit 2
+     - Two equivalent runs produce byte-identical reports.
+   - Adhered strictly to PITFALL-001 by anchoring dynamic ESM imports via `process.cwd()`.
+
+### Verification Evidence (CPU $0)
+- `tsc -p tsconfig.json --noEmit`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 116/116 tests passed (0 failures)
+- Autonomous Loop Lifecycle: Successfully walked from `INITIALIZE` through `COMPLETE` (11 transitions, 1 retry, state `succeeded`).
+
+
+## [2026-09-04] ADR-005: Enterprise Fleet Roadmap & Deep Evaluation Harness Architecture
+
+### Summary
+Formalized the Enterprise Multi-Agent Fleet Roadmap in `wiki/decisions/ADR-005-enterprise-fleet-roadmap-and-eval-harness.md`, establishing detailed architectural specifications for three critical enterprise pillars with primary focus on a hermetic Evaluation Benchmark Harness (`kins-eval-harness`), alongside Ephemeral Sandboxing and AST-Level Concurrent Worktree Merging.
+
+### Core Strategic Focus: Deep Evaluation Harness
+1. **The Core Invariant**: Transitioning from passive SHA-256 smoke tests to an empirical, deterministic evaluation harness ("If you cannot measure it deterministically, you are still vibe-coding").
+2. **Fail-to-Pass (F2P) & Pass-to-Pass (P2P) Protocol**: Modeled after SWE-bench standards, strictly isolating public regression tests from withheld evaluation suites to prevent data contamination and reward hacking.
+3. **Anti-Gaming & Tampering Heuristics**: AST diff inspection rejecting assertion relaxation, mock injections, or forbidden file alterations.
+4. **Deterministic Metrics Portfolio**: Tracking empirical Pass@1, budget-bounded Pass@k, Semantic Stability Index (SSI), and dollar spend per successful resolution ($/fix).
+5. **Cockpit Integration**: Native Eval Matrix view with live scorecards and multi-model benchmark leaderboards.
+
+
 ## [2026-09-04] Prompt Cache Dilution Diagnosis & Multi-Zone Message Architecture
 
 ### Summary

@@ -7,7 +7,8 @@ import type {
   CriticalLogSnapshot,
   CriticalLogEntry,
   TelemetrySnapshot,
-  RollbackResult
+  RollbackResult,
+  EvalHarnessSnapshot
 } from "../shared/contracts.js";
 
 const cockpitApi: CockpitApi = {
@@ -68,6 +69,15 @@ const cockpitApi: CockpitApi = {
       const handler = (_event: Electron.IpcRendererEvent, state: TelemetrySnapshot) => listener(state);
       ipcRenderer.on("telemetry:snapshot", handler);
       return () => ipcRenderer.removeListener("telemetry:snapshot", handler);
+    }
+  },
+  eval: {
+    getSnapshot: () => ipcRenderer.invoke("eval:getSnapshot"),
+    runBenchmark: () => ipcRenderer.invoke("eval:runBenchmark"),
+    onSnapshot: (listener: (state: EvalHarnessSnapshot) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: EvalHarnessSnapshot) => listener(state);
+      ipcRenderer.on("eval:snapshot", handler);
+      return () => ipcRenderer.removeListener("eval:snapshot", handler);
     }
   }
 };

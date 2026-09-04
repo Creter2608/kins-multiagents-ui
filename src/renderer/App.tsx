@@ -3,7 +3,8 @@ import type {
   LoopStateSnapshot,
   McpSnapshot,
   CriticalLogEntry,
-  TelemetrySnapshot
+  TelemetrySnapshot,
+  EvalHarnessSnapshot
 } from "../shared/contracts.js";
 import { LOOP_PHASES, computePhaseStatuses } from "../shared/phases.js";
 import { PhaseTracker } from "./components/PhaseTracker.js";
@@ -12,6 +13,7 @@ import { McpSidebar } from "./components/McpSidebar.js";
 import { CriticalLogDrawer } from "./components/CriticalLogDrawer.js";
 import { TelemetryHud } from "./components/TelemetryHud.js";
 import { ProjectSelector } from "./components/ProjectSelector.js";
+import { EvalScoreboard } from "./components/EvalScoreboard.js";
 
 const DEFAULT_LOOP_STATE: LoopStateSnapshot = {
   runId: "init",
@@ -50,11 +52,20 @@ const DEFAULT_TELEMETRY: TelemetrySnapshot = {
   allTime: DEFAULT_METRICS
 };
 
+const DEFAULT_EVAL_STATE: EvalHarnessSnapshot = {
+  status: "idle",
+  report: null,
+  updatedAt: null,
+  error: null
+};
+
 export const App: React.FC = () => {
   const [loopState, setLoopState] = useState<LoopStateSnapshot>(DEFAULT_LOOP_STATE);
   const [mcpState, setMcpState] = useState<McpSnapshot>(DEFAULT_MCP_STATE);
   const [logs, setLogs] = useState<readonly CriticalLogEntry[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(DEFAULT_TELEMETRY);
+  const [evalSnapshot, setEvalSnapshot] = useState<EvalHarnessSnapshot>(DEFAULT_EVAL_STATE);
+  const [activeTab, setActiveTab] = useState<"terminal" | "eval">("terminal");
 
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(true);
 
@@ -80,6 +91,9 @@ export const App: React.FC = () => {
     const unsubTelemetry = api.telemetry.onSnapshot((state) => {
       setTelemetry(state);
     });
+    const unsubEval = api.eval?.onSnapshot?.((state) => {
+      setEvalSnapshot(state);
+    });
 
     // 2. Fetch initial snapshots independently so one failure does not block the rest
     void api.loop.getSnapshot().then(setLoopState).catch((err) => {
@@ -94,12 +108,18 @@ export const App: React.FC = () => {
     void api.telemetry.getSnapshot().then(setTelemetry).catch((err) => {
       console.error("[Cockpit] Failed to fetch telemetry snapshot:", err);
     });
+    void api.eval?.getSnapshot?.().then((snap) => {
+      if (snap) setEvalSnapshot(snap);
+    }).catch((err) => {
+      console.error("[Cockpit] Failed to fetch eval snapshot:", err);
+    });
 
     return () => {
       unsubLoop();
       unsubMcp();
       unsubLogs();
       unsubTelemetry();
+      unsubEval?.();
     };
   }, []);
 
@@ -133,6 +153,18 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRunBenchmark = async () => {
+    const api = window.cockpitApi;
+    if (api?.eval) {
+      try {
+        const snap = await api.eval.runBenchmark();
+        setEvalSnapshot(snap);
+      } catch (err: unknown) {
+        console.error("[Cockpit] Benchmark run failed:", err);
+      }
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-[#000000] text-[#e2e8f0] overflow-hidden">
       {/* Top Cockpit Bar */}
@@ -146,6 +178,36 @@ export const App: React.FC = () => {
             v2.2.0
           </span>
           <ProjectSelector />
+
+          {/* Navigation Tabs */}
+          <div className="flex items-center bg-[#141414] rounded p-0.5 border border-[#27272a] ml-2">
+            <button
+              onClick={() => setActiveTab("terminal")}
+              className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-colors ${
+                activeTab === "terminal"
+                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Terminal
+            </button>
+            <button
+              onClick={() => setActiveTab("eval")}
+              className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-colors flex items-center gap-1.5 ${
+                activeTab === "eval"
+                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <span>Eval HUD</span>
+              {evalSnapshot.status === "running" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              )}
+              {evalSnapshot.status === "malformed" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center space-x-2.5">
@@ -170,8 +232,13 @@ export const App: React.FC = () => {
           onReset={handleReset}
         />
 
-        {/* Center: Interactive Terminal Stage */}
-        <TerminalStage />
+        {/* Center: Interactive Terminal Stage & Eval Scoreboard */}
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "terminal" ? "" : "hidden"}`}>
+          <TerminalStage />
+        </div>
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "eval" ? "" : "hidden"}`}>
+          <EvalScoreboard snapshot={evalSnapshot} onRunBenchmark={handleRunBenchmark} />
+        </div>
 
         {/* Right: MCP Servers & Tool Activity */}
         <McpSidebar mcpState={mcpState} />

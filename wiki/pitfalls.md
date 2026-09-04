@@ -18,6 +18,9 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-008** | Cross-platform CRLF vs LF line ending hash divergence | `INTEGRITY_MISMATCH` | Checksum mismatch in CI (Ubuntu) vs local (Windows) | Enforce `.gitattributes` (`eol=lf`) and canonical LF SHA-256 anchors |
 | **PITFALL-009** | Broad keyword classification & startup offset zero in log tailing | `STATE_INVALID` | False-positive critical alarms from INFO/echoes & stale logs | Enforce structured severity priority, suppress tool echoes, tail from EOF |
 | **PITFALL-010** | Context dilution & sub-threshold cache miss in Multi-Agent prompt caching | `BUDGET_EXHAUSTED` | Cache hit 0% or ~6% despite static prefix | Enforce $\ge 1,024$ invariant prefix, Multi-Zone layout, and CodeGraph pruning |
+| **PITFALL-011** | Root-word inflection mismatch in heuristic path filters (`verify` vs `verifier`) | `SEMANTIC_CODE` | False-negative mock/anti-gaming detection; verifier.js bypassed | Use morphological root-stems (`/(?:verif\|validat\|eval)/i`) instead of whole-word base forms |
+| **PITFALL-012** | Terminal session destruction via conditional React unmounting | `STATE_INVALID` | Switching Cockpit tabs kills running PTY and clears terminal history | Keep terminal mounted and toggle view visibility via CSS `hidden` |
+| **PITFALL-013** | Arbitrary `HEAD~1` base commit in evaluation harness triggering false-positive anti-gaming disqualification | `INTEGRITY_MISMATCH` | Benchmark run fails with `SPECIFICATION INTEGRITY VIOLATION` on release commits | Default `baseCommit` to `HEAD` (or explicit customBaseCommit), never hardcoded `HEAD~1` |
 
 
 ---
@@ -129,6 +132,53 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   - Enforce `STATIC_SYSTEM_PROMPT` $\ge 1,024$ tokens with zero volatile metadata (no timestamps, run IDs, or counters).
   - Adopt **Multi-Zone Message Architecture**: Message 0 (`system` invariant platform head), Message 1 (`user` stable repository/template context), Message 2 (`user` dynamic task & pruned context).
   - Enforce surgical **CodeGraph Context Pruning**: Transmit only symbol signatures, interfaces, and call paths (300–800 tokens max) to keep total input around ~2,000–2,500 tokens and maintain an $80\%+$ cache hit rate.
+
+---
+
+### PITFALL-011: Root-Word Inflection Mismatch in Path Heuristics (`verify` vs `verifier`)
+- **Context:** Scanning file paths for verification and harness infrastructure in security/anti-gaming heuristics (`scripts/harness/anti-gaming.mjs`).
+- **Observed Failure:** Test case injecting mock evasion into `src/verifier.js` was unexpectedly marked clean (`result.clean: true`), burning a verification retry.
+- **Root Cause:**
+  - English morphological inflections often replace vowels or suffixes (e.g., base verb `verify` ends in `y`, but noun `verifier`, adjective `verifying`, and nominalization `verification` replace `y` with `i`).
+  - The path regex `/(?:verify|validate|evaluation|integrity|harness)/i` strictly looked for the full word `verify`, completely bypassing `src/verifier.js` (`isVerifierFile` evaluated to `false`).
+- **Mandatory Invariant:**
+  - Semantic path classification heuristics targeting domains **MUST** match common morphological root-stems rather than full inflected base forms:
+    `const HARNESS_OR_VERIFIER_PATH_REGEX = /(?:verif|validat|eval|integrity|harness)/i;`
+  - Always verify with explicit tests exercising inflected forms (`verifier.js`, `validator.ts`, `evaluator.mjs`).
+
+---
+
+### PITFALL-012: Terminal Session Destruction via Conditional React Unmounting
+- **Context:** Implementing multi-tab views (e.g., Terminal Stage vs Eval Scoreboard) in Electron/React desktop cockpits.
+- **Observed Failure:** Switching tabs to inspect evaluation metrics or test scoreboards terminates the running CLI session, aborts interactive commands, and wipes the terminal history and scrollback buffer upon returning to the Terminal tab.
+- **Root Cause:**
+  - Standard conditional rendering (`{activeTab === 'terminal' ? <TerminalStage /> : <EvalScoreboard />}`) completely unmounts the `<TerminalStage />` component tree.
+  - The component's `useEffect` cleanup hook immediately triggers, calling `terminal.dispose()` and disconnecting the underlying `node-pty` IPC stream.
+- **Mandatory Invariant:**
+  - Stateful interactive components (PTY terminal, active media streams, complex editors) **MUST NEVER** be conditionally mounted/unmounted during tab or view transitions.
+  - Always render both components into the DOM simultaneously and toggle their visibility via CSS (e.g., Tailwind's `hidden` class or inline `display: none`):
+    ```tsx
+    <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "terminal" ? "" : "hidden"}`}>
+      <TerminalStage />
+    </div>
+    <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "eval" ? "" : "hidden"}`}>
+      <EvalScoreboard snapshot={evalSnapshot} onRunBenchmark={handleRunBenchmark} />
+    </div>
+    ```
+
+---
+
+### PITFALL-013: Arbitrary `HEAD~1` Base Commit in Evaluation Harness Triggering False-Positive Anti-Gaming Disqualification
+- **Context:** Resolving baseline commit (`baseCommit`) for SWE-bench style evaluation harness and anti-gaming diff verification (`scripts/harness/anti-gaming.mjs`).
+- **Observed Failure:** Clicking "Run Benchmark" or triggering evaluation disqualifies the run with `SPECIFICATION INTEGRITY VIOLATION`, falsely claiming active test assertions were removed in `test/cockpit.test.ts`.
+- **Root Cause:**
+  - `EvalHarnessService.executeBenchmark` hardcoded `baseCommit` resolution to `git rev-parse HEAD~1`.
+  - When `HEAD` is a release commit that legitimately updated version numbers or assertion logic, diffing against `HEAD~1` includes the entire release commit in the anti-gaming diff.
+  - The anti-gaming engine flags deleted assertion lines (`- assert...`) from the previous version as unauthorized agent tampering.
+- **Mandatory Invariant:**
+  - In working tree evaluation, always default `baseCommit` to `HEAD` (or an explicit task/target branch anchor), so that only uncommitted active agent changes are subjected to anti-gaming inspection.
+  - Clear/reset `.ai/reports/eval-report.json` before runner launch to prevent exposing stale disqualified reports.
+  - When no benchmark tasks are found in `.eval/harness/tasks`, emit a schema-valid empty report with `passed: true` rather than crashing.
 
 ---
 

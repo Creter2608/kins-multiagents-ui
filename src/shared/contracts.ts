@@ -1,4 +1,5 @@
 import type { LoopPhase, PhaseDisplayItem } from "./phases.js";
+import type { EvaluationReport } from "./harness.js";
 
 export type Unsubscribe = () => void;
 
@@ -98,7 +99,7 @@ export interface CriticalLogSnapshot {
   readonly lastUpdated: number;
 }
 
-export type DockerSandboxStatus = "Active" | "Stopped" | "Missing" | "Unavailable";
+export type DockerSandboxStatus = "Active" | "Stopped" | "Missing" | "Unavailable" | "Fallback";
 
 export interface ProviderTokenUsage {
   readonly inputTokens: number;
@@ -196,4 +197,24 @@ export interface CockpitApi {
     readonly onSnapshot: (listener: (state: TelemetrySnapshot) => void) => Unsubscribe;
     readonly resetSession: () => Promise<{ success: boolean }>;
   };
+  readonly eval: {
+    readonly getSnapshot: () => Promise<EvalHarnessSnapshot>;
+    readonly onSnapshot: (listener: (snapshot: EvalHarnessSnapshot) => void) => Unsubscribe;
+    readonly runBenchmark: () => Promise<EvalHarnessSnapshot>;
+  };
 }
+
+export type EvalHarnessStatus =
+  | "idle"
+  | "ready"
+  | "running"
+  | "malformed"
+  | "failed";
+
+export interface EvalHarnessSnapshot {
+  readonly status: EvalHarnessStatus;
+  readonly report: EvaluationReport | null;
+  readonly updatedAt: string | null;
+  readonly error: string | null;
+}
+

@@ -16,6 +16,7 @@ Welcome to the living project knowledge base, structured according to Andrej Kar
 - [ADR-002: Multi-IDE Thin Adapters, Persistent Loop Runner & Project Scaffolding](decisions/ADR-002-multi-ide-and-persistent-loop.md) - Universal adapters, persistent LoopEngine runner, and deterministic scaffolding.
 - [ADR-003: Desktop Cockpit Architecture for Antigravity CLI](decisions/ADR-003-desktop-cockpit-architecture.md) - Mission-control desktop UI, ConPTY terminal, telemetry HUD, and log tailing.
 - [ADR-004: Release 2.0.0 Standardization & Enterprise-Grade Autonomous Loop](decisions/ADR-004-v2-release-standardization.md) - Release 2.0.0 standardization, 10 canonical phases, and telemetry ceilings.
+- [ADR-005: Enterprise Fleet Roadmap & Deep Evaluation Harness Architecture](decisions/ADR-005-enterprise-fleet-roadmap-and-eval-harness.md) - Deep Evaluation Harness (Pass@1, F2P/P2P, Anti-Gaming), Ephemeral Sandboxing, and AST-Level Worktree Merging.
 
 ### ⚠️ Pitfalls & Anti-Patterns (Failure Modes & Lessons Learned)
 - [Pitfalls Registry (wiki/pitfalls.md)](pitfalls.md) - Living catalog of real-world stumbling blocks, cognitive traps, and preventive invariants.
