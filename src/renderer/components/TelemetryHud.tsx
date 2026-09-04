@@ -15,6 +15,28 @@ export function formatTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
+export type CeilingStatus = "normal" | "approaching" | "exceeded";
+
+export function evaluateCeilingStatus(
+  gptInputTokens: number,
+  gptOutputTokens: number,
+  estimatedCostUsd?: number | null
+): CeilingStatus {
+  const gptTotal = Math.max(0, gptInputTokens ?? 0) + Math.max(0, gptOutputTokens ?? 0);
+  const cost =
+    typeof estimatedCostUsd === "number" && Number.isFinite(estimatedCostUsd)
+      ? estimatedCostUsd
+      : null;
+
+  if ((cost !== null && cost >= 0.50) || gptTotal >= 60_000) {
+    return "exceeded";
+  }
+  if ((cost !== null && cost >= 0.40) || gptTotal >= 50_000) {
+    return "approaching";
+  }
+  return "normal";
+}
+
 interface TelemetryHudProps {
   readonly telemetry: TelemetrySnapshot;
 }
@@ -44,17 +66,14 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
     metrics.estimatedCostUsd !== null &&
     metrics.estimatedCostUsd >= telemetry.budgetLimitUsd;
 
-  const totalTokens =
-    metrics.gpt.inputTokens +
-    metrics.gpt.outputTokens +
-    metrics.gemini.inputTokens +
-    metrics.gemini.outputTokens;
-  const isApproachingCeiling =
-    (metrics.estimatedCostUsd !== null && metrics.estimatedCostUsd >= 0.40) ||
-    totalTokens >= 50_000;
-  const isCeilingExceeded =
-    (metrics.estimatedCostUsd !== null && metrics.estimatedCostUsd >= 0.50) ||
-    totalTokens >= 60_000;
+  const gptTotalTokens = metrics.gpt.inputTokens + metrics.gpt.outputTokens;
+  const ceilingStatus = evaluateCeilingStatus(
+    metrics.gpt.inputTokens,
+    metrics.gpt.outputTokens,
+    metrics.estimatedCostUsd
+  );
+  const isApproachingCeiling = ceilingStatus === "approaching";
+  const isCeilingExceeded = ceilingStatus === "exceeded";
 
   const gptTotalInput = metrics.gpt.inputTokens;
   const gptCachedInput = Math.min(gptTotalInput, metrics.gpt.cachedInputTokens);
@@ -171,7 +190,7 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
               ? "bg-amber-950/30 text-amber-300 border-amber-800/50 font-semibold"
               : "bg-[#141414] text-zinc-400 border-[#27272a]"
           }`}
-          title="Canonical hard execution limits: $0.50 USD and 60k tokens"
+          title={`Canonical hard execution limits: $0.50 USD and 60k tokens (Layer 1 GPT only: ${formatTokens(gptTotalTokens)} / 60k)`}
         >
           <span className="text-zinc-500 font-medium">Ceiling:</span>
           <span className="text-zinc-300 font-semibold">$0.50</span>

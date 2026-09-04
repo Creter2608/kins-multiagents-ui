@@ -24,6 +24,7 @@ import {
 } from "../src/main/services/TranscriptIngestionService.js";
 import { LoopEngine, type PhaseDefinition } from "../src/engine.js";
 import { parseSha256Hex } from "../src/checksum.js";
+import { evaluateCeilingStatus } from "../src/renderer/components/TelemetryHud.js";
 
 // Assertion 1: {"in":"phase=VERIFY","out":"first 6 complete, VERIFY current, later pending"}
 test("cockpit: phase=VERIFY -> first 6 complete, VERIFY current, later pending", () => {
@@ -977,3 +978,48 @@ test("loop state service: updates and persists testSummary", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+// ==============================================================================
+// Layer 1 Compact Test Assertions: GPT-Only 60k Token Ceiling & Telemetry Warnings
+// [
+//   {"in":"gpt=0,gemini=100000,cost=null","out":"normal"},
+//   {"in":"gpt=50000,gemini=0,cost=null","out":"approaching"},
+//   {"in":"gpt=60000,gemini=0,cost=null","out":"exceeded"},
+//   {"in":"gpt=0,gemini=0,cost=.50","out":"exceeded"},
+//   {"in":"gpt=0,cached=100000,cost=null","out":"normal"}
+// ]
+// ==============================================================================
+
+test("telemetry ceiling: large gemini usage does not trigger ceiling (only Layer 1 GPT counted)", () => {
+  // Assertion 1: {"in":"gpt=0,gemini=100000,cost=null","out":"normal"}
+  const status = evaluateCeilingStatus(0, 0, null);
+  assert.equal(status, "normal");
+});
+
+test("telemetry ceiling: gpt tokens at 50,000 trigger approaching status", () => {
+  // Assertion 2: {"in":"gpt=50000,gemini=0,cost=null","out":"approaching"}
+  assert.equal(evaluateCeilingStatus(50_000, 0, null), "approaching");
+  assert.equal(evaluateCeilingStatus(25_000, 25_000, null), "approaching");
+  assert.equal(evaluateCeilingStatus(49_999, 0, null), "normal");
+});
+
+test("telemetry ceiling: gpt tokens at 60,000 trigger exceeded status", () => {
+  // Assertion 3: {"in":"gpt=60000,gemini=0,cost=null","out":"exceeded"}
+  assert.equal(evaluateCeilingStatus(60_000, 0, null), "exceeded");
+  assert.equal(evaluateCeilingStatus(30_000, 30_000, null), "exceeded");
+  assert.equal(evaluateCeilingStatus(59_999, 0, null), "approaching");
+});
+
+test("telemetry ceiling: cost threshold triggers independently of tokens", () => {
+  // Assertion 4: {"in":"gpt=0,gemini=0,cost=.50","out":"exceeded"}
+  assert.equal(evaluateCeilingStatus(0, 0, 0.50), "exceeded");
+  assert.equal(evaluateCeilingStatus(0, 0, 0.40), "approaching");
+  assert.equal(evaluateCeilingStatus(0, 0, 0.39), "normal");
+  assert.equal(evaluateCeilingStatus(0, 0, null), "normal");
+});
+
+test("telemetry ceiling: cached tokens alone do not affect ceiling", () => {
+  // Assertion 5: {"in":"gpt=0,cached=100000,cost=null","out":"normal"}
+  assert.equal(evaluateCeilingStatus(0, 0, null), "normal");
+});
+

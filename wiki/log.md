@@ -1,5 +1,19 @@
 # Project Log
 
+## [2026-09-04] Telemetry Ceiling Refinement: GPT-Only 60k Token Boundary
+
+### Summary
+Refined the telemetry execution budget ceiling indicator in `TelemetryHud.tsx` so that token threshold calculations evaluate only Layer 1 GPT tokens (`metrics.gpt.inputTokens + metrics.gpt.outputTokens`), fully excluding unbilled/flat-rate Gemini Pro tokens.
+
+### Delivered Capabilities
+1. **GPT-Only Token Ceiling Evaluation**: Replaced total multi-provider token summation with `evaluateCeilingStatus(gptInputTokens, gptOutputTokens, estimatedCostUsd)` checking GPT tokens against the 50,000 (approaching) and 60,000 (exceeded) limits.
+2. **Ceiling Tooltip Clarity**: Updated tooltip to explicitly show current Layer 1 GPT token count vs the 60k ceiling (`Layer 1 GPT only: X / 60k`).
+3. **Deterministic Unit Test Coverage**: Added 5 adversarial unit test cases to `test/cockpit.test.ts` verifying that Gemini usage alone never trips the ceiling, while GPT tokens and costs trigger approaching and exceeded states independently.
+
+### Verification Evidence (CPU $0)
+- `node node_modules/typescript/bin/tsc -p tsconfig.json`: 0 errors
+- `node --test --test-concurrency=1 dist/test/*.test.js`: 78/78 tests passed (Exit code 0)
+
 ## [2026-09-04] Release 2.1.0: Pipeline Test Results Display, MCP Tool Filter & Inspector Popup
 
 ### Summary
