@@ -1,5 +1,30 @@
 # Project Log
 
+## [2026-09-06] Universal Multi-Project Compatibility & Anti-Bleed Architecture (Complete)
+
+### Summary
+Delivered end-to-end universal compatibility across external codebases for `kins-multiagents-ui`, transforming it into an agnostic developer cockpit that functions reliably regardless of whether the opened repository contains built-in AI loop scripts or harness tooling. Eliminated feature disappearance, cross-project token leakage, and hardcoded project assumptions across Rollback, Harness Runner, MCP Server Discovery, Telemetry, and AQI visualization. Added dedicated test suite `test/multi-project-compatibility.test.ts` (9 test cases) verifying all compact assertions from Layer 1 GPT Prompt Architect. Total test suite expanded from 270 to 279 tests passing 100% on local CPU inside Docker sandbox (`kins_autonomous_sandbox`) with `.eval/` immutability strictly preserved.
+
+### Key Deliverables
+1. **Universal Fallback Rollback Engine (`src/main/services/RollbackService.ts`)**:
+   - Implemented `resolveRollbackScript()`: checks `<projectRoot>/scripts/ai-loop.mjs` first, falling back to `<appRoot>/scripts/ai-loop.mjs` with explicit `--state-file <projectRoot>/.ai/state.json`.
+   - Prevents rollback failure on external repos while guaranteeing local script precedence.
+2. **Universal Harness Runner Engine (`src/main/services/EvalHarnessService.ts`)**:
+   - Implemented `resolveRunnerPath()`: checks `<projectRoot>/scripts/harness/runner.mjs` first, falling back to built-in host `<appRoot>/scripts/harness/runner.mjs`.
+   - Enables benchmarking any external repo via host runner with `--repo-root <projectRoot>`.
+3. **Multi-IDE Standard MCP Discovery (`src/main/services/McpMonitorService.ts`)**:
+   - Extended configuration discovery across standard multi-IDE project paths: `mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.mcp.json`.
+   - Added automatic deduplication so shared server configurations across multiple config files only register once.
+4. **Cross-Project Telemetry Bleed Prevention (`src/main/services/ProjectService.ts`, `src/main/index.ts`)**:
+   - Wired `telemetryService` into `ProjectScopedServices`.
+   - On successful `switchProject()`, calls `telemetryService.resetCurrentSession()` to guarantee prompt tokens, cost metrics, and audit events are cleanly scoped per repository.
+5. **Universal AQI Cockpit Visualization (`src/renderer/components/EvalScoreboard.tsx`, `App.tsx`)**:
+   - Updated AQI card and warning banners to evaluate `architecturalCompliance = report?.architecturalCompliance ?? loopState?.architecturalCompliance`.
+   - Passes `loopState={loopState}` from renderer `App.tsx`, preventing blank/dash values when an external repository does not run a local test harness.
+6. **Deterministic Verification & Non-Regression**:
+   - Added `test/multi-project-compatibility.test.ts` covering all 5 architectural assertions.
+   - All 279 tests pass 100% in Docker sandbox.
+
 ## [2026-09-06] Built-in Fallback Architectural Judge for Multi-Project Cockpit (Option B Complete)
 
 ### Summary
