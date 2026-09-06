@@ -30,6 +30,20 @@ export type PhaseTransitionReason =
   | "verify-test-failure"
   | "reality-check-remediation";
 
+function isDocumentationPath(filePath: string): boolean {
+  if (!filePath || typeof filePath !== "string") return false;
+  const normalized = filePath.trim().toLowerCase();
+  return normalized.endsWith(".md") || normalized.endsWith(".txt");
+}
+
+function parseTaskType(subject: string): string {
+  const s = subject.trim().toLowerCase();
+  if (s.startsWith("refactor")) return "refactor";
+  if (s.startsWith("feat")) return "feat";
+  if (s.startsWith("bootstrap") || s.startsWith("init")) return "bootstrap";
+  return "fix";
+}
+
 export class LoopStateService {
   private stateFilePath: string;
   private appRoot: string;
@@ -282,22 +296,40 @@ export class LoopStateService {
     try {
       const repoRoot = path.resolve(path.dirname(this.stateFilePath), "..");
       let diffText = "";
+      let taskType = "fix";
+
+      // 1. Check if working tree has non-documentation changes
       try {
-        diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD"], {
-          cwd: repoRoot,
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "pipe"]
-        });
-        if (!diffText.trim()) {
+        let workingTreeNames: string[] = [];
+        try {
+          workingTreeNames = execFileSync(
+            "git",
+            ["-c", "safe.directory=*", "diff", "--name-only", "HEAD"],
+            { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+          ).split("\n").map(s => s.trim()).filter(Boolean);
+        } catch {
           try {
-            diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD~1"], {
+            workingTreeNames = execFileSync(
+              "git",
+              ["-c", "safe.directory=*", "diff", "--name-only", "--cached"],
+              { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+            ).split("\n").map(s => s.trim()).filter(Boolean);
+          } catch {
+            workingTreeNames = [];
+          }
+        }
+
+        const hasWorkingTreeCode = workingTreeNames.some(p => !isDocumentationPath(p));
+        if (hasWorkingTreeCode) {
+          try {
+            diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD"], {
               cwd: repoRoot,
               encoding: "utf-8",
               stdio: ["ignore", "pipe", "pipe"]
             });
           } catch {
             try {
-              diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "HEAD"], {
+              diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "--cached"], {
                 cwd: repoRoot,
                 encoding: "utf-8",
                 stdio: ["ignore", "pipe", "pipe"]
@@ -306,27 +338,79 @@ export class LoopStateService {
               diffText = "";
             }
           }
+
+          try {
+            const headSubject = execFileSync(
+              "git",
+              ["-c", "safe.directory=*", "log", "-1", "--format=%s"],
+              { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+            ).trim();
+            taskType = parseTaskType(headSubject);
+          } catch {
+            taskType = "fix";
+          }
         }
       } catch {
         diffText = "";
       }
 
-      let taskType = "fix";
-      try {
-        const commitMsg = execFileSync("git", ["-c", "safe.directory=*", "log", "-1", "--pretty=%B"], {
-          cwd: repoRoot,
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "pipe"]
-        }).trim().toLowerCase();
-        if (commitMsg.startsWith("refactor")) taskType = "refactor";
-        else if (commitMsg.startsWith("feat")) taskType = "feat";
-        else if (commitMsg.startsWith("bootstrap") || commitMsg.startsWith("init")) taskType = "bootstrap";
-      } catch {}
+      // 2. If working tree is clean or documentation-only, inspect newest commits (up to 10)
+      if (!diffText.trim()) {
+        try {
+          const logOutput = execFileSync(
+            "git",
+            ["-c", "safe.directory=*", "log", "-n", "10", "--format=%H"],
+            { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+          );
+          const commitHashes = logOutput.split("\n").map(h => h.trim()).filter(Boolean);
+
+          for (const hash of commitHashes) {
+            try {
+              const changedFilesOutput = execFileSync(
+                "git",
+                ["-c", "safe.directory=*", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", hash],
+                {
+                  cwd: repoRoot,
+                  encoding: "utf-8",
+                  stdio: ["ignore", "pipe", "pipe"]
+                }
+              );
+              const changedFiles = changedFilesOutput.split("\n").map(p => p.trim()).filter(Boolean);
+              const hasCode = changedFiles.some(p => !isDocumentationPath(p));
+              if (hasCode) {
+                diffText = execFileSync(
+                  "git",
+                  ["-c", "safe.directory=*", "show", "--format=", "--patch", hash],
+                  { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+                );
+                try {
+                  const subject = execFileSync(
+                    "git",
+                    ["-c", "safe.directory=*", "log", "-1", "--format=%s", hash],
+                    { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+                  ).trim();
+                  taskType = parseTaskType(subject);
+                } catch {
+                  taskType = "fix";
+                }
+                break;
+              }
+            } catch {
+              continue;
+            }
+          }
+        } catch {
+          diffText = "";
+        }
+      }
 
       let compliance: ArchitecturalCompliance;
       if (this.customJudgeFn) {
         compliance = this.customJudgeFn(diffText);
       } else {
+        if (!diffText.trim()) {
+          return null;
+        }
         let judgePath = path.resolve(repoRoot, "scripts", "harness", "judge.mjs");
         if (!fs.existsSync(judgePath)) {
           judgePath = path.resolve(this.appRoot, "scripts", "harness", "judge.mjs");

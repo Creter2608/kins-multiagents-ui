@@ -144,3 +144,74 @@ test("builtin judge: setProjectRoot on external git repo resets prior state and 
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
 });
+
+test("builtin judge: clean tree with docs-only HEAD looks back to previous code commit and extracts taskType", async () => {
+  const repoDir = setupTestGitRepo("ext-repo-docs-head-");
+  try {
+    // 1. First commit with code: feat
+    fs.writeFileSync(path.join(repoDir, "service.ts"), "export const serviceActive = true;\n", "utf-8");
+    execFileSync("git", ["add", "service.ts"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "feat: implement core service"], { cwd: repoDir, stdio: "ignore" });
+
+    // 2. Second commit with only docs
+    fs.writeFileSync(path.join(repoDir, "README.md"), "# Project Readme\n", "utf-8");
+    execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "docs(wiki): record delivery"], { cwd: repoDir, stdio: "ignore" });
+
+    const stateFile = path.join(repoDir, ".ai", "state.json");
+    const service = new LoopStateService(stateFile);
+    service.setAppRootForTesting(process.cwd());
+
+    const compliance = await service.evaluateArchitecture();
+    assert.ok(compliance !== null, "Compliance should not be null");
+    assert.strictEqual(compliance.taskType, "feat", "taskType should be derived from the code commit, not docs");
+    const metrics = (compliance as any)?.metrics;
+    assert.ok(metrics && metrics.productionFiles >= 1, "Should have evaluated the production code file");
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("builtin judge: repository with only documentation commits returns null", async () => {
+  const repoDir = setupTestGitRepo("ext-repo-docs-only-");
+  try {
+    for (let i = 1; i <= 3; i++) {
+      fs.writeFileSync(path.join(repoDir, `doc${i}.md`), `# Doc ${i}\n`, "utf-8");
+      execFileSync("git", ["add", `doc${i}.md`], { cwd: repoDir, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", `docs: update doc ${i}`], { cwd: repoDir, stdio: "ignore" });
+    }
+
+    const stateFile = path.join(repoDir, ".ai", "state.json");
+    const service = new LoopStateService(stateFile);
+    service.setAppRootForTesting(process.cwd());
+
+    const compliance = await service.evaluateArchitecture();
+    assert.strictEqual(compliance, null, "Should return null when all commits are documentation-only");
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("builtin judge: dirty code in working tree takes precedence over docs commit at HEAD", async () => {
+  const repoDir = setupTestGitRepo("ext-repo-dirty-precedence-");
+  try {
+    fs.writeFileSync(path.join(repoDir, "README.md"), "# Init Docs\n", "utf-8");
+    execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "docs: initialize documentation"], { cwd: repoDir, stdio: "ignore" });
+
+    // Modify a code file in working tree (dirty)
+    fs.writeFileSync(path.join(repoDir, "worker.ts"), "export function doWork() {}\n", "utf-8");
+    execFileSync("git", ["add", "worker.ts"], { cwd: repoDir, stdio: "ignore" });
+
+    const stateFile = path.join(repoDir, ".ai", "state.json");
+    const service = new LoopStateService(stateFile);
+    service.setAppRootForTesting(process.cwd());
+
+    const compliance = await service.evaluateArchitecture();
+    assert.ok(compliance !== null, "Compliance should not be null for dirty code");
+    const metrics = (compliance as any)?.metrics;
+    assert.ok(metrics && metrics.productionFiles >= 1, "Should evaluate the working-tree code file");
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,25 @@
 # Project Log
 
+## [2026-09-06] Architecture Score Blind Spot Resolution & Code-Bearing Commit Extraction (Complete)
+
+### Summary
+Resolved the Architecture Quality Index (AQI) false 5.0 blind spot where documentation-only commits (`docs(wiki): ...` or changes exclusively touching `.md`/`.txt`) at `HEAD` masked real code modifications from architectural evaluation. Layer 1 GPT Prompt Architect formulated blueprints and compact adversarial test assertions, synthesized by Layer 2 Gemini 3.8 Flash. In `LoopStateService.evaluateArchitecture()`, implemented a robust two-tier Git diff resolution: (1) prefers non-documentation working tree changes, and (2) when the working tree is clean or documentation-only, inspects up to 10 recent commits using `git diff-tree --root` to select the newest code-bearing commit and derive `taskType` from that commit. Repositories with purely documentation commits safely resolve to `null`. Added 3 new test cases to `test/builtin-judge.test.ts`. Total test suite expanded from 284 to 287 tests passing 100% on local CPU inside Docker sandbox (`kins_autonomous_sandbox`) with `.eval/` immutability strictly preserved.
+
+### Key Deliverables
+1. **Smart Code-Bearing Commit Resolution (`src/main/services/LoopStateService.ts`)**:
+   - Added `isDocumentationPath()` and `parseTaskType()` helpers.
+   - Working tree checks verify if any non-doc paths are modified; if so, evaluates working tree code diff.
+   - If working tree is clean or documentation-only, inspects up to 10 newest commits via `git diff-tree --root --no-commit-id --name-only -r <hash>`.
+   - Selects the first commit containing at least one non-documentation path, extracts unified patch via `git show --format= --patch <hash>`, and extracts `taskType` from that commit's subject (`feat`, `refactor`, `bootstrap`, `fix`).
+   - If no code-bearing commit exists, returns `null` safely without generating false 5.0 scores or crashing.
+   - Preserves `customJudgeFn` test mock invocation across non-git test directories.
+2. **Adversarial Unit Test Suite (`test/builtin-judge.test.ts`)**:
+   - Added test: clean tree with docs-only `HEAD` looks back to previous code commit and extracts `taskType`.
+   - Added test: repository with only documentation commits returns `null`.
+   - Added test: dirty code in working tree takes precedence over docs commit at `HEAD`.
+3. **Deterministic Verification & Non-Regression**:
+   - All 287 tests passing across the entire project suite. Zero compilation errors (`npm run typecheck`).
+
 ## [2026-09-06] 100% Self-Contained Universal Developer Cockpit Architecture (Complete)
 
 ### Summary
