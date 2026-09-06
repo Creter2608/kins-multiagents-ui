@@ -111,6 +111,10 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     return await services.loop.decideGate(input);
   });
 
+  ipcMain.handle("loop:evaluateArchitecture", async () => {
+    return await services.loop.evaluateArchitecture();
+  });
+
   unsubs.push(
     services.loop.subscribe((snapshot) => {
       if (!window.isDestroyed()) {
@@ -212,8 +216,11 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeAllListeners("terminal:resize");
     ipcMain.removeHandler("terminal:restart");
     ipcMain.removeHandler("loop:getSnapshot");
+    ipcMain.removeHandler("loop:stepForward");
+    ipcMain.removeHandler("loop:stepBack");
     ipcMain.removeHandler("loop:rollback");
     ipcMain.removeHandler("loop:reset");
+    ipcMain.removeHandler("loop:decideGate");
     ipcMain.removeHandler("mcp:getSnapshot");
     ipcMain.removeHandler("logs:getSnapshot");
     ipcMain.removeHandler("logs:clear");

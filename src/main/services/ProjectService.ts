@@ -7,6 +7,7 @@ export interface ProjectScopedServices {
   readonly loopStateService: { setProjectRoot(p: string): Promise<void> };
   readonly mcpMonitorService: { setProjectRoot(p: string): Promise<void> };
   readonly rollbackService: { setProjectRoot(p: string): Promise<void> };
+  readonly evalHarnessService?: { setProjectRoot(p: string): Promise<void> };
 }
 
 interface PersistedProjectState {
@@ -116,6 +117,9 @@ export class ProjectService {
     await this.services.loopStateService.setProjectRoot(this.currentPath);
     await this.services.mcpMonitorService.setProjectRoot(this.currentPath);
     await this.services.rollbackService.setProjectRoot(this.currentPath);
+    if (this.services.evalHarnessService) {
+      await this.services.evalHarnessService.setProjectRoot(this.currentPath);
+    }
 
     this.persist();
     return this.getState();
@@ -132,6 +136,9 @@ export class ProjectService {
     await this.services.loopStateService.setProjectRoot(resolved);
     await this.services.mcpMonitorService.setProjectRoot(resolved);
     await this.services.rollbackService.setProjectRoot(resolved);
+    if (this.services.evalHarnessService) {
+      await this.services.evalHarnessService.setProjectRoot(resolved);
+    }
 
     this.currentPath = resolved;
     this.recentPaths = [

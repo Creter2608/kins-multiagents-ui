@@ -6,6 +6,53 @@ import type { PtyExitEvent } from "../../shared/contracts.js";
 
 const PTY_EXIT_TIMEOUT_MS = 2000;
 
+export const ALLOWED_ENV_VARS = new Set([
+  "PATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "HOME",
+  "HOMEPATH",
+  "HOMEDRIVE",
+  "SHELL",
+  "COMSPEC",
+  "TERM",
+  "COLORTERM",
+  "LANG",
+  "SYSTEMROOT",
+  "SYSTEMDRIVE",
+  "WINDIR",
+  "NODE_ENV",
+  "USER",
+  "LOGNAME",
+  "TMP",
+  "TEMP",
+  "NUMBER_OF_PROCESSORS",
+  "PROCESSOR_ARCHITECTURE",
+  "OS",
+  "PATHEXT"
+]);
+
+export function buildSanitizedPtyEnv(rawEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawEnv)) {
+    if (typeof value !== "string") continue;
+    const upperKey = key.toUpperCase();
+    if (
+      /(_KEY|_SECRET|_TOKEN|AUTH|PASS|CREDENTIAL)/i.test(key) &&
+      !key.startsWith("npm_")
+    ) {
+      continue;
+    }
+    if (ALLOWED_ENV_VARS.has(upperKey)) {
+      sanitized[key] = value;
+    }
+  }
+  sanitized["COLORTERM"] = "truecolor";
+  sanitized["TERM"] = "xterm-256color";
+  return sanitized;
+}
+
 export class PtyService {
   private ptyProcess: pty.IPty | null = null;
   private projectRoot: string;
@@ -17,6 +64,34 @@ export class PtyService {
   private inFlightRestart: Promise<void> | null = null;
   private lastCols = 80;
   private lastRows = 24;
+  private pendingDataBuffer: string[] = [];
+  private pendingDataLength = 0;
+  private flushTimer: NodeJS.Timeout | null = null;
+  private readonly BATCH_INTERVAL_MS = 16;
+  private readonly MAX_BUFFER_CHARS = 4096;
+
+  private flushDataBuffer(generation: number = this.currentGeneration): void {
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.pendingDataBuffer.length === 0) {
+      return;
+    }
+    const combined = this.pendingDataBuffer.join("");
+    this.pendingDataBuffer = [];
+    this.pendingDataLength = 0;
+
+    if (this.currentGeneration === generation) {
+      for (const listener of this.dataListeners) {
+        try {
+          listener(combined);
+        } catch (err) {
+          console.error("[PtyService] Listener error:", err);
+        }
+      }
+    }
+  }
 
   constructor(
     projectRoot: string = process.cwd(),
@@ -55,11 +130,7 @@ export class PtyService {
       }
     }
 
-    const env = {
-      ...process.env,
-      COLORTERM: "truecolor",
-      TERM: "xterm-256color"
-    };
+    const env = buildSanitizedPtyEnv(process.env);
 
     try {
       const proc = pty.spawn(fileToRun, args, {
@@ -73,17 +144,25 @@ export class PtyService {
       this.ptyProcess = proc;
 
       proc.onData((data: string) => {
-        // Only forward data if this session is still the active generation
+        // Micro-batch terminal output chunks to prevent IPC saturation (PERF-2)
         if (this.currentGeneration === sessionGeneration) {
-          for (const listener of this.dataListeners) {
-            listener(data);
+          this.pendingDataBuffer.push(data);
+          this.pendingDataLength += data.length;
+
+          if (this.pendingDataLength >= this.MAX_BUFFER_CHARS) {
+            this.flushDataBuffer(sessionGeneration);
+          } else if (!this.flushTimer) {
+            this.flushTimer = setTimeout(() => {
+              this.flushDataBuffer(sessionGeneration);
+            }, this.BATCH_INTERVAL_MS);
           }
         }
       });
 
       proc.onExit((event: { exitCode: number; signal?: number }) => {
-        // Only forward exit and clear ptyProcess if matching current generation
+        // Flush remaining buffer before exiting
         if (this.currentGeneration === sessionGeneration) {
+          this.flushDataBuffer(sessionGeneration);
           this.ptyProcess = null;
           for (const listener of this.exitListeners) {
             listener({ exitCode: event.exitCode, signal: event.signal });
@@ -201,6 +280,7 @@ export class PtyService {
 
   dispose(): void {
     this.isDisposed = true;
+    this.flushDataBuffer(this.currentGeneration);
     if (this.ptyProcess) {
       try {
         this.ptyProcess.kill();

@@ -44,6 +44,8 @@ export interface ComputeMetricsOptions {
   readonly passAtK?: number | undefined;
   readonly passAtKDistributions?: Readonly<Record<number, number>> | undefined;
   readonly flakyTaskIds?: readonly string[] | undefined;
+  readonly dei?: number | undefined;
+  readonly costMicroUsd?: number | undefined;
 }
 
 export function parseTask(content: unknown, sourcePath?: string): BenchmarkTask;

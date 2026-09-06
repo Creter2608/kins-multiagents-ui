@@ -985,6 +985,136 @@ test("loop state service: updates and persists testSummary", () => {
 });
 
 // ==============================================================================
+// Layer 1 Compact Test Assertions: Loop-Level Architectural AQI Evaluation
+// [
+//   {"in":"compliance absent","out":"AQI card hidden"},
+//   {"in":"AQI 4.5, passed","out":"4.5 / 5.0 PASSED; details collapsed"},
+//   {"in":"click score","out":"four sub-scores and feedback shown"},
+//   {"in":"enter REALITY_CHECK or COMPLETE","out":"judge result stored in snapshot"},
+//   {"in":"judge rejects","out":"transition succeeds; prior score retained"}
+// ]
+// ==============================================================================
+
+test("loop state service: updates and persists architecturalCompliance", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-test-compliance-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    const service = new LoopStateService(stateFile);
+    assert.equal(service.getSnapshot().architecturalCompliance, undefined);
+
+    const mockCompliance = {
+      aqi: 4.5,
+      passed: true,
+      criteriaScores: {
+        surgicalDiff: 5.0,
+        simplicity: 4.0,
+        modularity: 5.0,
+        maintainability: 4.0
+      },
+      feedback: ["Clean patch."]
+    };
+
+    service.updateArchitecturalCompliance(mockCompliance);
+
+    assert.equal(service.getSnapshot().architecturalCompliance?.aqi, 4.5);
+    assert.equal(service.getSnapshot().architecturalCompliance?.passed, true);
+    assert.equal(service.getSnapshot().architecturalCompliance?.criteriaScores.surgicalDiff, 5.0);
+
+    const reloaded = new LoopStateService(stateFile);
+    reloaded.readState();
+    assert.equal(reloaded.getSnapshot().architecturalCompliance?.aqi, 4.5);
+    assert.equal(reloaded.getSnapshot().architecturalCompliance?.passed, true);
+    assert.equal(reloaded.getSnapshot().architecturalCompliance?.feedback[0], "Clean patch.");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loop state service: transition to REALITY_CHECK or COMPLETE triggers evaluation and stores result in snapshot", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-test-eval-transition-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    const service = new LoopStateService(stateFile);
+    let evalCallCount = 0;
+
+    service.setJudgeFunctionForTesting(() => {
+      evalCallCount++;
+      return {
+        aqi: 4.8,
+        passed: true,
+        criteriaScores: {
+          surgicalDiff: 5.0,
+          simplicity: 5.0,
+          modularity: 4.5,
+          maintainability: 4.5
+        },
+        feedback: ["Evaluated from test mock"]
+      };
+    });
+
+    // Advance loop to VERIFY first
+    service.advanceToPhase("VERIFY", "Code written");
+    assert.equal(evalCallCount, 0);
+
+    // Advance to REALITY_CHECK -> should trigger evaluateArchitecture
+    service.advanceToPhase("REALITY_CHECK", "Tests passed");
+    
+    // Allow any async eval promise to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.equal(evalCallCount, 1);
+    assert.equal(service.getSnapshot().architecturalCompliance?.aqi, 4.8);
+    assert.equal(service.getSnapshot().architecturalCompliance?.passed, true);
+
+    // Advance to RELEASE_GATE -> no new eval
+    service.advanceToPhase("RELEASE_GATE", "Audit passed");
+    assert.equal(evalCallCount, 1);
+
+    // Advance to COMPLETE -> should trigger evaluateArchitecture again
+    service.advanceToPhase("COMPLETE", "Signed off");
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.equal(evalCallCount, 2);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loop state service: judge failure retains prior score and allows transition to succeed", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-test-eval-fail-"));
+  const stateFile = path.join(tempDir, "state.json");
+  try {
+    const service = new LoopStateService(stateFile);
+
+    // Seed prior compliance
+    service.updateArchitecturalCompliance({
+      aqi: 4.0,
+      passed: true,
+      criteriaScores: { surgicalDiff: 4, simplicity: 4, modularity: 4, maintainability: 4 },
+      feedback: ["Initial score"]
+    });
+
+    // Mock judge to throw an error
+    service.setJudgeFunctionForTesting(() => {
+      throw new Error("Simulated judge failure");
+    });
+
+    // Transition to REALITY_CHECK
+    const ok = service.advanceToPhase("REALITY_CHECK", "Verification done");
+    assert.equal(ok, true);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Transition succeeded and prior score retained
+    assert.equal(service.getSnapshot().currentPhase, "REALITY_CHECK");
+    assert.equal(service.getSnapshot().architecturalCompliance?.aqi, 4.0);
+    assert.equal(service.getSnapshot().architecturalCompliance?.feedback[0], "Initial score");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// ==============================================================================
 // Layer 1 Compact Test Assertions: GPT-Only 60k Token Ceiling & Telemetry Warnings
 // [
 //   {"in":"gpt=0,gemini=100000,cost=null","out":"normal"},

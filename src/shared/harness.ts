@@ -99,6 +99,20 @@ export interface EvaluationTaskResult {
   readonly passed: boolean;
 }
 
+export interface ArchitecturalCriteriaScores {
+  readonly surgicalDiff: number;
+  readonly simplicity: number;
+  readonly modularity: number;
+  readonly maintainability: number;
+}
+
+export interface ArchitecturalCompliance {
+  readonly aqi: number;
+  readonly passed: boolean;
+  readonly criteriaScores: ArchitecturalCriteriaScores;
+  readonly feedback: readonly string[];
+}
+
 export interface EvaluationMetrics {
   readonly passAt1: number;
   readonly passAtK: number;
@@ -106,6 +120,8 @@ export interface EvaluationMetrics {
   readonly passAtKDistributions?: Readonly<Record<number, number>> | undefined;
   readonly flakyTaskIds?: readonly string[] | undefined;
   readonly ssi: number;
+  readonly dei?: number | undefined;
+  readonly costMicroUsd?: number | undefined;
 }
 
 export type AntiGamingViolationCode =
@@ -137,6 +153,7 @@ export interface EvaluationReport {
   readonly results: readonly EvaluationTaskResult[];
   readonly violations: readonly AntiGamingViolation[];
   readonly flakyTaskIds?: readonly string[] | undefined;
+  readonly architecturalCompliance?: ArchitecturalCompliance | undefined;
 }
 
 export interface BatchEvaluationReport {

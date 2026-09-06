@@ -1,5 +1,49 @@
 # Project Log
 
+## [2026-09-06] Comprehensive Cockpit Hardening & Modernization (Sprints 1 - 4 Complete)
+
+### Summary
+Successfully executed the 4-sprint upgrade roadmap outlined in `docs/architecture/kins-multiagents-ui-evaluation-and-upgrade-blueprint.md` following the canonical 10-phase Autonomous Loop v2.0 (`docs/LOOP.md`). Hardened Electron IPC & PTY security (`SEC-1`, `SEC-2`, `ARCH-1`), unified loop state persistence with atomic file locking and dynamic project root reconfiguration (`ARCH-2`, `ARCH-3`), optimized terminal rendering with micro-buffering and memoization (`PERF-1`, `PERF-2`, `REL-1`), and delivered interactive Gate Decision controls and telemetry diagnostics export (`FEAT-1`, `FEAT-2`). All 76 test suites pass 100% on local CPU ($0 LLM token cost) with complete protection of `.eval/`.
+
+### Key Deliverables Across Sprints
+1. **Sprint 1 (Security & IPC Hardening)**:
+   - `SEC-1`: Implemented `ALLOWED_ENV_VARS` allowlist and `buildSanitizedPtyEnv()` in `src/main/services/PtyService.ts` to prevent credential leakage (`OPENAI_API_KEY`, tokens) into child processes.
+   - `SEC-2`: Added `setWindowOpenHandler` (deny external windows) and `will-navigate` restrictions in `src/main/index.ts`.
+   - `ARCH-1`: Fixed IPC handler leaks during window reloads by unregistering `loop:stepForward`, `loop:stepBack`, and `loop:decideGate` in `teardownIpc()` in `src/main/ipc.ts`.
+   - Tests: `test/sprint1-hardening.test.ts`.
+2. **Sprint 2 (State Consistency & Workspace Scoping)**:
+   - `ARCH-2`: Implemented `setProjectRoot()` in `EvalHarnessService.ts` and wired project switching via `ProjectService.ts` and `src/main/index.ts`.
+   - `ARCH-3`: Replaced divergent state mutations in `LoopStateService.ts` with dedicated `store: JsonFileLoopStateStore` and wrapped operations in advisory `FileLock` with Windows EBUSY/EPERM copy fallback.
+   - Tests: `test/sprint2-state-project.test.ts`.
+3. **Sprint 3 (Performance & Rerender Optimization)**:
+   - `PERF-2`: Implemented 16ms micro-buffering and 4KB chunk batching in `PtyService.ts` to prevent Electron IPC renderer flooding.
+   - `REL-1`: Added adaptive exponential backoff (2s up to 15s) in `DockerStatusService.ts` when container is missing or unavailable.
+   - `PERF-1`: Wrapped `PhaseTracker.tsx` and `TelemetryHud.tsx` in `React.memo` to eliminate unnecessary rerenders.
+   - Tests: `test/sprint3-perf.test.ts`.
+4. **Sprint 4 (UX & Monitoring)**:
+   - `FEAT-1`: Added interactive "Review Gate Decision" modal to `PhaseTracker.tsx` with pass/fail test metrics, approve action, and mandatory rejection reason.
+   - `FEAT-2`: Added "Export Diagnostics" JSON snapshot button and `createDiagnosticsSnapshot()` in `TelemetryHud.tsx`.
+   - Tests: `test/sprint4-ux-monitor.test.ts`. Total project tests expanded to 76/76 passing (100%).
+
+## [2026-09-05] Cockpit HUD AQI & DEI Visual Integration & PITFALL-014 Inscription
+
+### Summary
+Delivered visual integration of Architecture Quality Index (AQI 1.0 - 5.0) and Dollar Efficiency Index (DEI / Cost Micro-USD) directly onto Cockpit HUD (`src/renderer/components/EvalScoreboard.tsx`). Wired `evaluateArchitecturalCompliance` from `scripts/harness/judge.mjs` and economic telemetry from `scripts/harness/runner.mjs` through canonical contracts in `src/shared/harness.ts` and `src/shared/contracts.ts`. Expanded Scoreboard HUD from 4 to 6 metric cards with semantic color coding and feedback banners for sub-threshold AQI (< 3.5). Added unit tests in `test/eval-scoreboard-aqi.test.ts`. All 34 harness unit tests pass 100% on local CPU. Inscribed `PITFALL-014` into `wiki/pitfalls.md` to prevent boilerplate tag hallucination and guarantee direct MCP tool invocation (`call_mcp_tool`).
+
+### Key Deliverables
+1. **Shared Contracts Extension (`src/shared/harness.ts`, `src/shared/contracts.ts`)**:
+   - Added `ArchitecturalCompliance` and `ArchitecturalCriteriaScores`.
+   - Extended `EvaluationMetrics` with `dei?: number` and `costMicroUsd?: number`.
+   - Extended `EvaluationReport` with `architecturalCompliance?: ArchitecturalCompliance`.
+2. **Runner & Judge Pipeline Wiring (`scripts/harness/runner.mjs`, `.d.mts`, `.d.ts`)**:
+   - Wired `evaluateArchitecturalCompliance(diffText)` against `verifiedCommit` in both `runEvaluation` and `runBenchmarkBatch`.
+   - Populated deterministic `dei` and `costMicroUsd` defaults in `computeMetrics`.
+3. **Cockpit HUD Visual Display (`src/renderer/components/EvalScoreboard.tsx`)**:
+   - Expanded grid to 6 columns displaying Pass@1, Pass@k, SSI, Architecture (AQI), Efficiency (DEI & Cost), and Task Count.
+   - Added interactive/semantic status styling and Architectural Compliance Warning Banner.
+4. **Knowledge Compounding & Guardrail Inscription (`wiki/pitfalls.md`)**:
+   - Inscribed `PITFALL-014` prohibiting ungrounded transparency tagging and mandating MCP tool execution.
+
 ## [2026-09-04] Agent Efficiency Architecture (P2 & P3 Delivery): Fast Pre-Flight Checker & Context Pitfall Pruner
 
 ### Summary

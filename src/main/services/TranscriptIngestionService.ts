@@ -291,6 +291,20 @@ export function parseGptTokenUsageLine(text: string): ParsedGptTokenUsage | null
   };
 }
 
+function extractConversationIds(text: string): string[] {
+  const matches = text.matchAll(/"conversationId":\s*"([^"]+)"/g);
+  const ids: string[] = [];
+  for (const m of matches) {
+    if (m[1]) ids.push(m[1]);
+  }
+  return ids;
+}
+
+function extractSystemMessageSender(text: string): string | undefined {
+  const match = text.match(/sender=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : undefined;
+}
+
 export class TranscriptIngestionService {
   private telemetryService: TelemetryService;
   private mcpService: McpMonitorService;
@@ -301,6 +315,9 @@ export class TranscriptIngestionService {
   private lastOffset: number = 0;
   private incompleteLine: string = "";
   private pollTimer: NodeJS.Timeout | null = null;
+
+  // Queue of pending synthetic subagent ID batches awaiting tool result conversationIds
+  private pendingSubagentsQueue: string[][] = [];
 
   // Deduplication registries for idempotent ingestion
   private seenToolCallKeys = new Set<string>();
@@ -343,6 +360,7 @@ export class TranscriptIngestionService {
     this.seenToolCallKeys.clear();
     this.seenGptEventKeys.clear();
     this.seenGeminiStepIndices.clear();
+    this.pendingSubagentsQueue = [];
     this.totalGptPrompt = 0;
     this.totalGptCompletion = 0;
     this.totalGptCacheHit = 0;
@@ -493,6 +511,8 @@ export class TranscriptIngestionService {
 
           if (this.subagentService && (toolName === "invoke_subagent" || toolName.endsWith(".invoke_subagent"))) {
             this.handleSubagentToolCall(step, tc, stepIdx, i);
+          } else if (this.subagentService && (toolName === "manage_subagents" || toolName.endsWith(".manage_subagents"))) {
+            this.handleManageSubagentsToolCall(tc);
           }
         }
       }
@@ -519,6 +539,10 @@ export class TranscriptIngestionService {
           id: step.sender,
           status: "completed"
         });
+      }
+
+      if (typeof step.content === "string") {
+        this.handleSubagentOutput(step.content);
       }
     }
 
@@ -686,8 +710,20 @@ export class TranscriptIngestionService {
       }
     }
 
-    const rawList = args.Subagents || args.subagents;
+    let rawList = args.Subagents || args.subagents;
+    if (typeof rawList === "string") {
+      try {
+        const parsed = JSON.parse(rawList);
+        if (Array.isArray(parsed)) {
+          rawList = parsed;
+        }
+      } catch {
+        // preserve safe fallback
+      }
+    }
+
     if (Array.isArray(rawList) && rawList.length > 0) {
+      const batchIds: string[] = [];
       for (let sIdx = 0; sIdx < rawList.length; sIdx++) {
         const item = rawList[sIdx];
         if (!item || typeof item !== "object") continue;
@@ -704,6 +740,8 @@ export class TranscriptIngestionService {
           startedAt: typeof step.created_at === "string" ? new Date(step.created_at).getTime() : undefined
         });
 
+        batchIds.push(String(subId));
+
         if (step.status === "ERROR") {
           this.subagentService.updateStatus({
             id: String(subId),
@@ -711,6 +749,9 @@ export class TranscriptIngestionService {
             errorMessage: typeof step.content === "string" ? step.content : "Subagent error"
           });
         }
+      }
+      if (batchIds.length > 0) {
+        this.pendingSubagentsQueue.push(batchIds);
       }
     } else {
       const subId = args.id || args.conversationId || `${stepIdx}:sub:${toolIdx}:0`;
@@ -726,12 +767,78 @@ export class TranscriptIngestionService {
         startedAt: typeof step.created_at === "string" ? new Date(step.created_at).getTime() : undefined
       });
 
+      this.pendingSubagentsQueue.push([String(subId)]);
+
       if (step.status === "ERROR") {
         this.subagentService.updateStatus({
           id: String(subId),
           status: "error",
           errorMessage: typeof step.content === "string" ? step.content : "Subagent error"
         });
+      }
+    }
+  }
+
+  private handleManageSubagentsToolCall(tc: any): void {
+    if (!this.subagentService) return;
+    let args = tc.args || {};
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        args = {};
+      }
+    }
+    const action = String(args.Action || args.action || "").toLowerCase();
+    if (action === "kill_all") {
+      this.subagentService.markAllCompleted();
+    } else if (action === "kill") {
+      const ids = args.ConversationIds || args.conversationIds || args.conversationId || args.id;
+      if (Array.isArray(ids)) {
+        for (const id of ids) {
+          if (typeof id === "string") {
+            this.subagentService.markCompletedByConversationId(id);
+          }
+        }
+      } else if (typeof ids === "string") {
+        this.subagentService.markCompletedByConversationId(ids);
+      }
+    }
+  }
+
+  private handleSubagentOutput(content: string): void {
+    if (!this.subagentService) return;
+
+    if (content.includes("conversationId")) {
+      const ids = extractConversationIds(content);
+      if (ids.length > 0 && this.pendingSubagentsQueue.length > 0) {
+        const batch = this.pendingSubagentsQueue.shift();
+        if (batch) {
+          const limit = Math.min(batch.length, ids.length);
+          for (let i = 0; i < limit; i++) {
+            const subId = batch[i];
+            const convId = ids[i];
+            if (subId && convId) {
+              this.subagentService.bindConversationId(subId, convId);
+            }
+          }
+        }
+      }
+    }
+
+    const sender = extractSystemMessageSender(content);
+    if (sender) {
+      this.subagentService.markCompletedByConversationId(sender);
+    }
+
+    if (content.includes("Successfully killed")) {
+      this.subagentService.markAllCompleted();
+    } else if (content.includes('"state":"idle"')) {
+      const idleMatches = content.matchAll(/"conversationId":\s*"([^"]+)",[^}]*"state":\s*"idle"/g);
+      for (const m of idleMatches) {
+        if (m[1]) {
+          this.subagentService.markIdleByConversationId(m[1]);
+        }
       }
     }
   }

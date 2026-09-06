@@ -1,6 +1,7 @@
 import type { LoopPhase, PhaseDisplayItem } from "./phases.js";
-import type { EvaluationReport } from "./harness.js";
+import type { EvaluationReport, ArchitecturalCompliance, ArchitecturalCriteriaScores } from "./harness.js";
 
+export type { ArchitecturalCompliance, ArchitecturalCriteriaScores };
 export type Unsubscribe = () => void;
 
 export interface PtyExitEvent {
@@ -51,6 +52,7 @@ export interface LoopStateSnapshot {
   readonly phases: readonly PhaseDisplayItem[];
   readonly history?: readonly LoopHistoryEntry[] | undefined;
   readonly testSummary?: LoopTestSummary | undefined;
+  readonly architecturalCompliance?: ArchitecturalCompliance | undefined;
   readonly lastError?: { readonly code: string; readonly message: string } | undefined;
   readonly syncError?: string | undefined;
   readonly lastUpdated: number;
@@ -195,6 +197,7 @@ export interface CockpitApi {
     readonly rollback: () => Promise<RollbackResult>;
     readonly reset: () => Promise<LoopResetResult>;
     readonly decideGate?: (input: GateDecisionInput) => Promise<GateDecisionResult>;
+    readonly evaluateArchitecture?: () => Promise<ArchitecturalCompliance | null>;
     readonly onSnapshot: (listener: (state: LoopStateSnapshot) => void) => Unsubscribe;
   };
   readonly mcp: {
@@ -247,6 +250,7 @@ export interface SubagentActivity {
   readonly role: string;
   readonly model: string;
   readonly promptSummary: string;
+  readonly fullPrompt?: string | undefined;
   readonly status: SubagentStatus;
   readonly startedAt: number;
   readonly updatedAt: number;

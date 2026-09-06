@@ -52,7 +52,8 @@ async function createWindow(): Promise<void> {
         ptyService,
         loopStateService: loopService,
         mcpMonitorService: mcpService,
-        rollbackService
+        rollbackService,
+        evalHarnessService: evalService
       }
     );
     await projectService.initialize();
@@ -77,6 +78,19 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: true
     }
+  });
+
+  // Security Invariants: Deny opening new windows and restrict navigation
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+    const devUrl = process.env.VITE_DEV_SERVER_URL;
+    if (devUrl && navigationUrl.startsWith(devUrl)) {
+      return;
+    }
+    if (navigationUrl.startsWith("file://")) {
+      return;
+    }
+    event.preventDefault();
   });
 
   // Diagnostics for preload & renderer loading

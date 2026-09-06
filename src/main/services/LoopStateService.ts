@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { computePhaseStatuses, LOOP_PHASES, nextLoopPhase, previousLoopPhase, type LoopPhase } from "../../shared/phases.js";
 import type {
   LoopStateSnapshot,
@@ -10,9 +12,10 @@ import type {
   GateDecisionInput,
   GateDecisionResult,
   LoopTestSummary,
-  LoopTestStatus
+  LoopTestStatus,
+  ArchitecturalCompliance
 } from "../../shared/contracts.js";
-import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
+import { JsonFileLoopStateStore, LoopCommandService, FileLock } from "../../loop/index.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
   const parsed = JSON.parse(content);
@@ -29,6 +32,7 @@ export type PhaseTransitionReason =
 
 export class LoopStateService {
   private stateFilePath: string;
+  private store: JsonFileLoopStateStore;
   private lastValidSnapshot: LoopStateSnapshot;
   private watcher: fs.FSWatcher | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -36,6 +40,7 @@ export class LoopStateService {
 
   constructor(stateFilePath: string = path.resolve(".ai/state.json")) {
     this.stateFilePath = stateFilePath;
+    this.store = new JsonFileLoopStateStore(this.stateFilePath);
     const initialPhase = LOOP_PHASES[0];
     this.lastValidSnapshot = {
       runId: "init",
@@ -107,6 +112,9 @@ export class LoopStateService {
             lastRunAt: null
           });
 
+      const rawCompliance = (parsed as Record<string, unknown>).architecturalCompliance as ArchitecturalCompliance | undefined;
+      const architecturalCompliance = rawCompliance ?? this.lastValidSnapshot.architecturalCompliance;
+
       this.lastValidSnapshot = {
         runId: String(parsed.runId || this.lastValidSnapshot.runId),
         schemaVersion: Number(parsed.schemaVersion || 1),
@@ -125,6 +133,7 @@ export class LoopStateService {
         phases: phaseStatuses,
         history,
         testSummary,
+        architecturalCompliance,
         lastError: parsed.lastError,
         syncError: undefined,
         lastUpdated: Date.now()
@@ -194,6 +203,104 @@ export class LoopStateService {
     }
   }
 
+  private customJudgeFn?: ((diffText: string) => ArchitecturalCompliance) | undefined;
+
+  setJudgeFunctionForTesting(fn?: (diffText: string) => ArchitecturalCompliance): void {
+    this.customJudgeFn = fn;
+  }
+
+  updateArchitecturalCompliance(compliance: ArchitecturalCompliance): void {
+    try {
+      this.readState();
+      let stateData: Record<string, unknown> = {};
+      if (fs.existsSync(this.stateFilePath)) {
+        try {
+          stateData = JSON.parse(fs.readFileSync(this.stateFilePath, "utf-8")) as Record<string, unknown>;
+        } catch {
+          stateData = {};
+        }
+      }
+
+      const updatedState = {
+        runId: this.lastValidSnapshot.runId,
+        schemaVersion: this.lastValidSnapshot.schemaVersion,
+        currentPhase: this.lastValidSnapshot.currentPhase,
+        status: this.lastValidSnapshot.status,
+        usage: this.lastValidSnapshot.usage,
+        budget: this.lastValidSnapshot.budget,
+        ...stateData,
+        architecturalCompliance: compliance
+      };
+
+      const dir = path.dirname(this.stateFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const tempPath = `${this.stateFilePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      fs.writeFileSync(tempPath, JSON.stringify(updatedState, null, 2), "utf-8");
+      fs.renameSync(tempPath, this.stateFilePath);
+
+      this.readState();
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    } catch {
+      // Retain in memory if write fails
+      this.lastValidSnapshot = {
+        ...this.lastValidSnapshot,
+        architecturalCompliance: compliance,
+        lastUpdated: Date.now()
+      };
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    }
+  }
+
+  async evaluateArchitecture(): Promise<ArchitecturalCompliance | null> {
+    try {
+      const repoRoot = path.resolve(path.dirname(this.stateFilePath), "..");
+      let diffText = "";
+      try {
+        diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD"], {
+          cwd: repoRoot,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        if (!diffText.trim()) {
+          diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD~1"], {
+            cwd: repoRoot,
+            encoding: "utf-8",
+            stdio: ["ignore", "pipe", "pipe"]
+          });
+        }
+      } catch {
+        diffText = "";
+      }
+
+      let compliance: ArchitecturalCompliance;
+      if (this.customJudgeFn) {
+        compliance = this.customJudgeFn(diffText);
+      } else {
+        const judgePath = path.resolve(repoRoot, "scripts", "harness", "judge.mjs");
+        if (!fs.existsSync(judgePath)) {
+          return null;
+        }
+        const judgeModule = (await import(pathToFileURL(judgePath).href)) as {
+          evaluateArchitecturalCompliance: (diff: string) => ArchitecturalCompliance;
+        };
+        compliance = judgeModule.evaluateArchitecturalCompliance(diffText);
+      }
+
+      this.updateArchitecturalCompliance(compliance);
+      return compliance;
+    } catch (err) {
+      console.warn("[LoopStateService] evaluateArchitecture failed:", err);
+      return null;
+    }
+  }
+
   resetLoop(customRunId?: string): LoopResetResult {
     try {
       const initialPhase = LOOP_PHASES[0];
@@ -227,10 +334,32 @@ export class LoopStateService {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // Write atomically via temp file
-      const tempPath = `${this.stateFilePath}.tmp-${Date.now()}`;
-      fs.writeFileSync(tempPath, JSON.stringify(freshState, null, 2), "utf-8");
-      fs.renameSync(tempPath, this.stateFilePath);
+      // Write atomically via temp file with advisory file locking
+      const lock = new FileLock(this.stateFilePath);
+      lock.acquire();
+      try {
+        const tempPath = `${this.stateFilePath}.tmp-${Date.now()}`;
+        fs.writeFileSync(tempPath, JSON.stringify(freshState, null, 2), "utf-8");
+        try {
+          fs.renameSync(tempPath, this.stateFilePath);
+        } catch (err: unknown) {
+          if (
+            err &&
+            typeof err === "object" &&
+            ((err as { code?: string }).code === "EPERM" ||
+              (err as { code?: string }).code === "EBUSY")
+          ) {
+            fs.copyFileSync(tempPath, this.stateFilePath);
+            try {
+              fs.unlinkSync(tempPath);
+            } catch {}
+          } else {
+            throw err;
+          }
+        }
+      } finally {
+        lock.release();
+      }
 
       // Immediately read back and emit to all listeners
       const state = this.readState();
@@ -262,8 +391,7 @@ export class LoopStateService {
     }
 
     try {
-      const store = new JsonFileLoopStateStore(this.stateFilePath);
-      const commandService = new LoopCommandService(store);
+      const commandService = new LoopCommandService(this.store);
       await commandService.transition({
         runId: input.runId,
         expectedPhase: input.expectedPhase,
@@ -424,7 +552,8 @@ export class LoopStateService {
           operations: stateData.usage?.operations ?? current.usage.operations
         },
         history,
-        testSummary: stateData.testSummary || current.testSummary
+        testSummary: stateData.testSummary || current.testSummary,
+        architecturalCompliance: stateData.architecturalCompliance ?? current.architecturalCompliance
       };
 
       const dir = path.dirname(this.stateFilePath);
@@ -432,11 +561,40 @@ export class LoopStateService {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      const tempPath = `${this.stateFilePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      fs.writeFileSync(tempPath, JSON.stringify(updatedState, null, 2), "utf-8");
-      fs.renameSync(tempPath, this.stateFilePath);
+      const lock = new FileLock(this.stateFilePath);
+      lock.acquire();
+      try {
+        const tempPath = `${this.stateFilePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        fs.writeFileSync(tempPath, JSON.stringify(updatedState, null, 2), "utf-8");
+        try {
+          fs.renameSync(tempPath, this.stateFilePath);
+        } catch (err: unknown) {
+          if (
+            err &&
+            typeof err === "object" &&
+            ((err as { code?: string }).code === "EPERM" ||
+              (err as { code?: string }).code === "EBUSY")
+          ) {
+            fs.copyFileSync(tempPath, this.stateFilePath);
+            try {
+              fs.unlinkSync(tempPath);
+            } catch {}
+          } else {
+            throw err;
+          }
+        }
+      } finally {
+        lock.release();
+      }
 
       this.readState();
+
+      if (to === "REALITY_CHECK" || to === "COMPLETE") {
+        void this.evaluateArchitecture().catch((err) => {
+          console.warn("[LoopStateService] Auto-eval architecture failed:", err);
+        });
+      }
+
       return true;
     } catch {
       return false;
@@ -498,6 +656,7 @@ export class LoopStateService {
 
   async setProjectRoot(projectPath: string): Promise<void> {
     this.stateFilePath = path.join(path.resolve(projectPath), ".ai", "state.json");
+    this.store = new JsonFileLoopStateStore(this.stateFilePath);
 
     if (!fs.existsSync(this.stateFilePath)) {
       const initialPhase = LOOP_PHASES[0];

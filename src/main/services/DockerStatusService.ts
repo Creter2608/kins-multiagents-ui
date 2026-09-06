@@ -27,17 +27,24 @@ export function mapDockerState(runningOutput: string, exitCode: number): DockerS
 export class DockerStatusService {
   private containerName: string;
   private currentStatus: DockerSandboxStatus = "Unavailable";
-  private pollIntervalMs: number;
+  private baseIntervalMs: number;
+  private currentIntervalMs: number;
+  private maxIntervalMs = 15000;
   private timer: NodeJS.Timeout | null = null;
   private listeners = new Set<(status: DockerSandboxStatus) => void>();
 
   constructor(containerName: string = "kins_autonomous_sandbox", pollIntervalMs: number = 3000) {
     this.containerName = containerName;
-    this.pollIntervalMs = pollIntervalMs;
+    this.baseIntervalMs = pollIntervalMs;
+    this.currentIntervalMs = pollIntervalMs;
   }
 
   getStatus(): DockerSandboxStatus {
     return this.currentStatus;
+  }
+
+  getCurrentIntervalMs(): number {
+    return this.currentIntervalMs;
   }
 
   async checkStatus(): Promise<DockerSandboxStatus> {
@@ -55,6 +62,13 @@ export class DockerStatusService {
       this.currentStatus = mapDockerState(output, execErr.code ?? 1);
     }
 
+    // Adaptive backoff (REL-1): back off if Docker daemon is offline or missing
+    if (this.currentStatus === "Unavailable" || this.currentStatus === "Missing") {
+      this.currentIntervalMs = Math.min(this.maxIntervalMs, Math.round(this.currentIntervalMs * 1.5));
+    } else {
+      this.currentIntervalMs = this.baseIntervalMs;
+    }
+
     for (const listener of this.listeners) {
       listener(this.currentStatus);
     }
@@ -62,14 +76,23 @@ export class DockerStatusService {
     return this.currentStatus;
   }
 
+  private scheduleNext(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+    }
+    this.timer = setTimeout(async () => {
+      await this.checkStatus();
+      this.scheduleNext();
+    }, this.currentIntervalMs);
+  }
+
   start(): void {
-    if (this.timer) {
+    if (this.timer !== null) {
       return;
     }
-    void this.checkStatus();
-    this.timer = setInterval(() => {
-      void this.checkStatus();
-    }, this.pollIntervalMs);
+    void this.checkStatus().then(() => {
+      this.scheduleNext();
+    });
   }
 
   subscribe(listener: (status: DockerSandboxStatus) => void): () => void {
@@ -79,8 +102,8 @@ export class DockerStatusService {
   }
 
   dispose(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
       this.timer = null;
     }
     this.listeners.clear();

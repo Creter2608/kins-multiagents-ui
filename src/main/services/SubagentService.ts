@@ -12,6 +12,7 @@ interface StoredSubagent {
   role: string;
   model: string;
   promptSummary: string;
+  fullPrompt?: string | undefined;
   status: SubagentStatus;
   startedAt: number;
   updatedAt: number;
@@ -30,14 +31,20 @@ export class SubagentService {
   private readonly now: () => number;
   private readonly order: string[] = []; // newest first
   private readonly records = new Map<string, StoredSubagent>();
+  private readonly aliases = new Map<string, string>(); // alias -> canonicalId
   private readonly listeners = new Set<SubagentListener>();
 
   constructor(now?: () => number) {
     this.now = now ?? (() => Date.now());
   }
 
+  private resolveCanonicalId(id: string): string {
+    return this.aliases.get(id) ?? id;
+  }
+
   recordInvocation(input: SubagentInvocationInput): SubagentActivity {
-    const existing = this.records.get(input.id);
+    const canonicalId = this.resolveCanonicalId(input.id);
+    const existing = this.records.get(canonicalId);
     const currentTime = this.now();
 
     if (existing) {
@@ -52,6 +59,9 @@ export class SubagentService {
       if (input.model && existing.model === "unknown") {
         existing.model = input.model.trim() || "unknown";
       }
+      if (input.prompt && !existing.fullPrompt) {
+        existing.fullPrompt = input.prompt.trim();
+      }
       if (input.prompt && !existing.promptSummary) {
         existing.promptSummary = normalizePromptSummary(input.prompt);
       }
@@ -64,11 +74,14 @@ export class SubagentService {
       ? input.startedAt
       : currentTime;
 
+    const rawPrompt = typeof input.prompt === "string" && input.prompt.trim() ? input.prompt.trim() : undefined;
+
     const stored: StoredSubagent = {
       id: input.id,
       role: input.role?.trim() || "unknown",
       model: input.model?.trim() || "unknown",
       promptSummary: normalizePromptSummary(input.prompt),
+      fullPrompt: rawPrompt,
       status: "running",
       startedAt,
       updatedAt: startedAt
@@ -80,8 +93,44 @@ export class SubagentService {
     return this.toActivity(stored);
   }
 
+  bindConversationId(subagentId: string, conversationId: string): void {
+    if (!subagentId || !conversationId || subagentId === conversationId) return;
+    const canonicalId = this.resolveCanonicalId(subagentId);
+    const record = this.records.get(canonicalId);
+    if (!record) return;
+    this.aliases.set(conversationId, canonicalId);
+  }
+
+  markCompletedByConversationId(conversationId: string, timestamp?: number): void {
+    const canonicalId = this.resolveCanonicalId(conversationId);
+    this.updateStatus({ id: canonicalId, status: "completed", timestamp });
+  }
+
+  markIdleByConversationId(conversationId: string, timestamp?: number): void {
+    const canonicalId = this.resolveCanonicalId(conversationId);
+    this.updateStatus({ id: canonicalId, status: "idle", timestamp });
+  }
+
+  markAllCompleted(timestamp?: number): void {
+    const effectiveTime = timestamp ?? this.now();
+    let changed = false;
+    for (const record of this.records.values()) {
+      if (record.status === "running" || record.status === "idle") {
+        record.status = "completed";
+        record.updatedAt = effectiveTime;
+        record.completedAt = effectiveTime;
+        record.errorMessage = undefined;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.notify();
+    }
+  }
+
   updateStatus(update: SubagentStatusUpdate): SubagentActivity | undefined {
-    const record = this.records.get(update.id);
+    const canonicalId = this.resolveCanonicalId(update.id);
+    const record = this.records.get(canonicalId);
     if (!record) {
       return undefined;
     }
@@ -125,6 +174,7 @@ export class SubagentService {
 
   reset(): void {
     this.records.clear();
+    this.aliases.clear();
     this.order.length = 0;
     this.notify();
   }
@@ -150,6 +200,7 @@ export class SubagentService {
       role: record.role,
       model: record.model,
       promptSummary: record.promptSummary,
+      fullPrompt: record.fullPrompt,
       status: record.status,
       startedAt: record.startedAt,
       updatedAt: record.updatedAt,

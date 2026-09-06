@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as process from 'node:process';
 import { validateGitDiffIntegrity } from './anti-gaming.mjs';
+import { evaluateArchitecturalCompliance } from './judge.mjs';
 import {
   getSandboxConfig,
   spawnEphemeralSandbox,
@@ -127,11 +128,16 @@ export function computeMetrics(results, options = {}) {
     ssi = Number((currentPassingAmongBase / basePassingP2P.length).toFixed(4));
   }
 
+  const dei = typeof options.dei === 'number' && Number.isFinite(options.dei) ? options.dei : 1.0;
+  const costMicroUsd = typeof options.costMicroUsd === 'number' && Number.isFinite(options.costMicroUsd) ? Math.round(options.costMicroUsd) : 0;
+
   const metrics = {
     passAt1,
     passAtK,
     k,
-    ssi
+    ssi,
+    dei,
+    costMicroUsd
   };
 
   if (passAtKDistributions) {
@@ -418,13 +424,26 @@ export async function runBenchmarkBatch(tasks, options = {}) {
     peakWorkers: poolRes.peakWorkers
   });
 
+  let diffText = '';
+  try {
+    diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', verifiedCommit], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch {
+    diffText = '';
+  }
+  const architecturalCompliance = evaluateArchitecturalCompliance(diffText);
+
   const baseReport = {
     schemaVersion: 1,
     baseCommit: verifiedCommit,
     metrics: poolRes.metrics,
-    passed: poolRes.passed,
+    passed: poolRes.passed && architecturalCompliance.passed,
     results: poolRes.results,
-    violations: []
+    violations: [],
+    architecturalCompliance
   };
 
   const batchReport = buildBatchEvaluationReport({
@@ -435,15 +454,26 @@ export async function runBenchmarkBatch(tasks, options = {}) {
     auditStream
   });
 
+  const finalMetrics = {
+    ...poolRes.metrics,
+    dei: typeof batchReport.dollarEfficiencyIndex === 'number' && Number.isFinite(batchReport.dollarEfficiencyIndex)
+      ? batchReport.dollarEfficiencyIndex
+      : (poolRes.metrics.dei ?? 1.0),
+    costMicroUsd: typeof batchReport.totalCostMicroUsd === 'number' && Number.isFinite(batchReport.totalCostMicroUsd)
+      ? Math.round(batchReport.totalCostMicroUsd)
+      : (poolRes.metrics.costMicroUsd ?? 0)
+  };
+
   const fullReport = {
     ...baseReport,
+    metrics: finalMetrics,
     dataset: batchReport.dataset,
     attempts: poolRes.attempts,
     weightedPassed: batchReport.weightedPassed,
     totalCostMicroUsd: batchReport.totalCostMicroUsd,
     dollarEfficiencyIndex: batchReport.dollarEfficiencyIndex,
     auditDigest: batchReport.auditDigest,
-    taskReports: [baseReport]
+    taskReports: [{ ...baseReport, metrics: finalMetrics }]
   };
 
   if (outputPath) {
@@ -598,13 +628,27 @@ export async function runEvaluation(options) {
     const allPassed = results.every(r => r.passed);
     const overallPassed = hasF2P && hasP2P && allPassed;
 
+    // Obtain evaluated diff against baseCommit
+    let diffText = '';
+    try {
+      diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', verifiedCommit], {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } catch {
+      diffText = '';
+    }
+    const architecturalCompliance = evaluateArchitecturalCompliance(diffText);
+
     const report = {
       schemaVersion: 1,
       baseCommit: verifiedCommit,
       metrics,
-      passed: overallPassed,
+      passed: overallPassed && architecturalCompliance.passed,
       results,
-      violations: []
+      violations: [],
+      architecturalCompliance
     };
 
     // 8. Write report atomically (with fallback for Windows EPERM/EBUSY)

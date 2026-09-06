@@ -21,6 +21,7 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-011** | Root-word inflection mismatch in heuristic path filters (`verify` vs `verifier`) | `SEMANTIC_CODE` | False-negative mock/anti-gaming detection; verifier.js bypassed | Use morphological root-stems (`/(?:verif\|validat\|eval)/i`) instead of whole-word base forms |
 | **PITFALL-012** | Terminal session destruction via conditional React unmounting | `STATE_INVALID` | Switching Cockpit tabs kills running PTY and clears terminal history | Keep terminal mounted and toggle view visibility via CSS `hidden` |
 | **PITFALL-013** | Arbitrary `HEAD~1` base commit in evaluation harness triggering false-positive anti-gaming disqualification | `INTEGRITY_MISMATCH` | Benchmark run fails with `SPECIFICATION INTEGRITY VIOLATION` on release commits | Default `baseCommit` to `HEAD` (or explicit customBaseCommit), never hardcoded `HEAD~1` |
+| **PITFALL-014** | Boilerplate / Hallucinated Transparency Tagging & CodeGraph MCP Bypass | `INTEGRITY_MISMATCH` | Agent outputs status tags without executing tool, or uses invisible shell workarounds instead of registered MCP tools | NEVER emit tags without execution in current turn; ALWAYS invoke `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` |
 
 
 ---
@@ -179,6 +180,20 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   - In working tree evaluation, always default `baseCommit` to `HEAD` (or an explicit task/target branch anchor), so that only uncommitted active agent changes are subjected to anti-gaming inspection.
   - Clear/reset `.ai/reports/eval-report.json` before runner launch to prevent exposing stale disqualified reports.
   - When no benchmark tasks are found in `.eval/harness/tasks`, emit a schema-valid empty report with `passed: true` rather than crashing.
+
+---
+
+### PITFALL-014: Boilerplate / Hallucinated Transparency Tagging & CodeGraph MCP Bypass
+- **Context:** Executing workflows in repositories indexed by CodeGraph (`.codegraph/`) under system transparency mandates.
+- **Observed Failure:**
+  - The agent outputs status tags like `🔍 [CodeGraph Context]: Extracted <N> symbols...` mechanically across consecutive turns even when CodeGraph was NOT queried in that turn.
+  - The agent resorts to running ad-hoc Python/SQLite scripts or raw shell commands rather than executing the registered MCP tool `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")`, rendering the tool invisible on the user's chat UI.
+- **Root Cause:**
+  - LLM inertia copying boilerplate prompt prefixes without verifying whether a tool call was actually executed in the current turn.
+  - Path/Sandbox environment errors causing silent internal fallback workarounds instead of surface-level auditability.
+- **Mandatory Invariants:**
+  1. **Strict Tagging Grounding:** An agent **MUST NEVER** output `🔍 [CodeGraph Context]: Extracted <N> symbols...` unless an actual CodeGraph query was executed IN THAT VERY TURN. If no query occurred, omit the tag entirely or explicitly state: `🔍 [CodeGraph Context]: None (No symbols queried this turn)`.
+  2. **MCP-First Routing:** When MCP servers are available (see `<mcp_servers>`), the agent **MUST** call `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` as the primary interface so the tool execution is rendered transparently on the user's client UI.
 
 ---
 

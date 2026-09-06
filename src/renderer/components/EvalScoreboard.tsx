@@ -180,8 +180,30 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
           </div>
         )}
 
+        {/* Architectural Quality Compliance Warning Banner */}
+        {report && report.architecturalCompliance && !report.architecturalCompliance.passed && (
+          <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 text-amber-300">
+            <div className="flex items-center gap-2 font-semibold text-amber-400 text-sm">
+              <AlertTriangle className="w-5 h-5" />
+              ARCHITECTURAL COMPLIANCE GATE FAILED ({report.architecturalCompliance.aqi.toFixed(1)} / 5.0)
+            </div>
+            <p className="text-xs text-amber-300/80 mt-1">
+              Code violates Karpathy simplicity or surgical diff invariants (minimum required threshold: 3.5).
+            </p>
+            {report.architecturalCompliance.feedback && report.architecturalCompliance.feedback.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {report.architecturalCompliance.feedback.map((item, idx) => (
+                  <div key={idx} className="text-xs font-mono bg-black/40 p-2 rounded border border-amber-500/20 text-amber-200">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Metric Cards Grid */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Card 1: Pass@1 */}
           <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
             <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Pass@1 (First-Shot)</div>
@@ -237,7 +259,53 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
             <div className="text-[11px] text-zinc-400 mt-1">Regression-free P2P preservation</div>
           </div>
 
-          {/* Card 4: Task Counts */}
+          {/* Card 4: AQI */}
+          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</div>
+            <div
+              className={`text-2xl font-bold font-mono mt-1 ${
+                hasEvaluatedTasks && report?.architecturalCompliance && typeof report.architecturalCompliance.aqi === "number" && Number.isFinite(report.architecturalCompliance.aqi)
+                  ? report.architecturalCompliance.passed
+                    ? "text-emerald-400"
+                    : report.architecturalCompliance.aqi >= 3.0
+                    ? "text-amber-400"
+                    : "text-rose-400"
+                  : "text-zinc-600"
+              }`}
+            >
+              {hasEvaluatedTasks && report?.architecturalCompliance && typeof report.architecturalCompliance.aqi === "number" && Number.isFinite(report.architecturalCompliance.aqi)
+                ? `${report.architecturalCompliance.aqi.toFixed(1)} / 5.0`
+                : "—"}
+            </div>
+            <div className="text-[11px] text-zinc-400 mt-1 truncate">
+              {hasEvaluatedTasks && report?.architecturalCompliance
+                ? `Surg: ${report.architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${report.architecturalCompliance.criteriaScores.simplicity}`
+                : "Karpathy simplicity gate"}
+            </div>
+          </div>
+
+          {/* Card 5: Dollar Efficiency (DEI) & Cost */}
+          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Efficiency (DEI)</div>
+            <div
+              className={`text-2xl font-bold font-mono mt-1 ${
+                hasEvaluatedTasks && typeof report?.metrics?.dei === "number" && Number.isFinite(report.metrics.dei)
+                  ? "text-cyan-400"
+                  : "text-zinc-600"
+              }`}
+            >
+              {hasEvaluatedTasks && typeof report?.metrics?.dei === "number" && Number.isFinite(report.metrics.dei)
+                ? report.metrics.dei.toFixed(2)
+                : "—"}
+            </div>
+            <div className="text-[11px] text-zinc-400 mt-1 truncate">
+              Cost: {hasEvaluatedTasks && typeof report?.metrics?.costMicroUsd === "number" && Number.isFinite(report.metrics.costMicroUsd)
+                ? `${Math.round(report.metrics.costMicroUsd)} µUSD`
+                : "—"}
+            </div>
+          </div>
+
+          {/* Card 6: Task Counts */}
           <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
             <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Tasks Evaluated</div>
             <div className="text-2xl font-bold font-mono mt-1 text-zinc-100">

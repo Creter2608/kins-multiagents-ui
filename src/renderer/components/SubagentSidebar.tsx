@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { SubagentActivity } from "../../shared/contracts.js";
-import { Bot, Clock, X } from "lucide-react";
+import { Bot, Clock, X, Copy, Check } from "lucide-react";
 
 export interface SubagentSidebarProps {
   readonly activities: readonly SubagentActivity[];
@@ -24,6 +24,7 @@ function formatDuration(ms: number): string {
 export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) => {
   const [now, setNow] = useState<number>(Date.now());
   const [selectedActivity, setSelectedActivity] = useState<SubagentActivity | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
 
   // Single component timer to refresh running/idle elapsed durations every second
   useEffect(() => {
@@ -128,10 +129,15 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
                   </span>
                 </div>
 
-                {act.promptSummary && (
-                  <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">
-                    {act.promptSummary}
-                  </p>
+                {(act.fullPrompt || act.promptSummary) && (
+                  <div
+                    tabIndex={0}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[11px] text-zinc-400 max-h-24 overflow-y-auto custom-scrollbar whitespace-pre-wrap break-words select-text font-mono leading-relaxed bg-black/30 p-1.5 rounded border border-[#1f1f1f]"
+                    title="Scroll or select text to inspect prompt"
+                  >
+                    {act.fullPrompt || act.promptSummary}
+                  </div>
                 )}
 
                 <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1 border-t border-[#1f1f1f]">
@@ -189,9 +195,41 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-0.5">Prompt Summary</div>
-                <div className="text-zinc-300 bg-black/40 p-2 rounded border border-[#27272a] text-[11px] leading-relaxed whitespace-pre-wrap">
-                  {selectedActivity.promptSummary || "(No prompt summary recorded)"}
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 uppercase font-bold tracking-wider mb-0.5">
+                  <span>Prompt / Task Details</span>
+                  {(selectedActivity.fullPrompt || selectedActivity.promptSummary) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = selectedActivity.fullPrompt || selectedActivity.promptSummary;
+                        if (text) {
+                          navigator.clipboard.writeText(text);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }
+                      }}
+                      className="text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1 font-mono text-[10px] lowercase cursor-pointer"
+                      title="Copy full prompt to clipboard"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400">copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>copy</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div
+                  tabIndex={0}
+                  className="text-zinc-300 bg-black/40 p-2.5 rounded border border-[#27272a] text-[11px] leading-relaxed whitespace-pre-wrap break-words max-h-56 overflow-y-auto custom-scrollbar select-text font-mono"
+                >
+                  {selectedActivity.fullPrompt || selectedActivity.promptSummary || "(No prompt summary recorded)"}
                 </div>
               </div>
               {selectedActivity.errorMessage && (

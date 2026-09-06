@@ -41,6 +41,20 @@ export class EvalHarnessService {
     this.startWatching();
   }
 
+  async setProjectRoot(projectPath: string): Promise<void> {
+    this.projectRoot = path.resolve(projectPath);
+    this.reportPath = path.resolve(this.projectRoot, ".ai", "reports", "eval-report.json");
+    this.runnerPath = path.resolve(this.projectRoot, "scripts", "harness", "runner.mjs");
+    this.snapshot = { ...DEFAULT_SNAPSHOT };
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+    this.readReport();
+    this.startWatching();
+    this.emit(this.snapshot);
+  }
+
   onSnapshot(listener: (snapshot: EvalHarnessSnapshot) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

@@ -322,6 +322,37 @@ async function main() {
             nextState.testSummary = savedState.testSummary;
           }
 
+          if (savedState.architecturalCompliance) {
+            nextState.architecturalCompliance = savedState.architecturalCompliance;
+          }
+
+          if (nextState.currentPhase === 'REALITY_CHECK' || nextState.currentPhase === 'COMPLETE') {
+            try {
+              const { evaluateArchitecturalCompliance } = await import('./harness/judge.mjs');
+              let diffText = '';
+              try {
+                diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', 'HEAD'], {
+                  cwd: REPO_ROOT,
+                  encoding: 'utf-8',
+                  stdio: ['ignore', 'pipe', 'pipe']
+                });
+                if (!diffText.trim()) {
+                  diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', 'HEAD~1'], {
+                    cwd: REPO_ROOT,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe']
+                  });
+                }
+              } catch {
+                diffText = '';
+              }
+              const compliance = evaluateArchitecturalCompliance(diffText);
+              nextState.architecturalCompliance = compliance;
+            } catch (err) {
+              process.stderr.write(`[ai-loop WARN] Architectural evaluation failed: ${err.message}\n`);
+            }
+          }
+
           atomicSaveState(stateFilePath, nextState);
           if (jsonOutput) {
             process.stdout.write(JSON.stringify(nextState, null, 2) + '\n');

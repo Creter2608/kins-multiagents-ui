@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { TelemetrySnapshot, TelemetryViewScope, TelemetryMetrics } from "../../shared/contracts.js";
-import { Cpu, Zap, DollarSign, Box, RotateCcw } from "lucide-react";
+import { Cpu, Zap, DollarSign, Box, RotateCcw, Download } from "lucide-react";
 
 export function formatTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) {
@@ -37,11 +37,49 @@ export function evaluateCeilingStatus(
   return "normal";
 }
 
+export interface DiagnosticsPayload {
+  readonly exportedAt: string;
+  readonly scope: TelemetryViewScope;
+  readonly metrics: TelemetryMetrics;
+  readonly telemetry: {
+    readonly budgetLimitUsd: number;
+    readonly dockerStatus: string;
+    readonly geminiCacheStatus: string;
+    readonly allTime?: TelemetryMetrics;
+    readonly currentSession?: TelemetryMetrics;
+  };
+  readonly ceilingStatus: CeilingStatus;
+}
+
+export function createDiagnosticsSnapshot(
+  telemetry: TelemetrySnapshot,
+  scope: TelemetryViewScope,
+  metrics: TelemetryMetrics
+): DiagnosticsPayload {
+  return {
+    exportedAt: new Date().toISOString(),
+    scope,
+    metrics,
+    telemetry: {
+      budgetLimitUsd: telemetry.budgetLimitUsd,
+      dockerStatus: telemetry.dockerStatus,
+      geminiCacheStatus: telemetry.geminiCacheStatus,
+      allTime: telemetry.allTime,
+      currentSession: telemetry.currentSession
+    },
+    ceilingStatus: evaluateCeilingStatus(
+      metrics.gpt.inputTokens,
+      metrics.gpt.outputTokens,
+      metrics.estimatedCostUsd
+    )
+  };
+}
+
 interface TelemetryHudProps {
   readonly telemetry: TelemetrySnapshot;
 }
 
-export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
+const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
   const [scope, setScope] = useState<TelemetryViewScope>("session");
   const [isResetting, setIsResetting] = useState(false);
 
@@ -94,6 +132,24 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
     }
   };
 
+  const handleExportDiagnostics = () => {
+    try {
+      const data = createDiagnosticsSnapshot(telemetry, scope, metrics);
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `kins-diagnostics-${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export diagnostics JSON:", err);
+    }
+  };
+
   return (
     <footer className="h-10 bg-[#0c0c0c] border-t border-[#1f1f1f] px-4 flex items-center justify-between text-xs font-mono select-none text-zinc-300">
       {/* Left: Scope Toggle, Reset & Provider In/Out Breakdown */}
@@ -126,17 +182,29 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
           </button>
         </div>
 
-        {/* Manual Reset Button */}
-        <button
-          type="button"
-          onClick={handleResetSession}
-          disabled={isResetting}
-          className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] px-2 py-0.5 rounded transition-colors disabled:opacity-50"
-          title="Reset current session tokens to 0 (retains All-Time totals)"
-        >
-          <RotateCcw className={`w-3 h-3 ${isResetting ? "animate-spin" : ""}`} />
-          <span>Reset</span>
-        </button>
+        {/* Action Buttons: Reset & Export */}
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={handleResetSession}
+            disabled={isResetting}
+            className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+            title="Reset current session tokens to 0 (retains All-Time totals)"
+          >
+            <RotateCcw className={`w-3 h-3 ${isResetting ? "animate-spin" : ""}`} />
+            <span>Reset</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportDiagnostics}
+            className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] px-2 py-0.5 rounded transition-colors"
+            title="Export diagnostics JSON snapshot"
+          >
+            <Download className="w-3 h-3" />
+            <span>Export</span>
+          </button>
+        </div>
 
         {/* GPT Telemetry */}
         <div className="flex items-center space-x-2">
@@ -218,3 +286,5 @@ export const TelemetryHud: React.FC<TelemetryHudProps> = ({ telemetry }) => {
     </footer>
   );
 };
+
+export const TelemetryHud = React.memo(TelemetryHudComponent);
