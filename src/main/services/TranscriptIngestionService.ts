@@ -71,6 +71,8 @@ export class TranscriptIngestionService {
   private totalGeminiPrompt = 0;
   private totalGeminiCompletion = 0;
   private cumulativeContextLength = 30000;
+  private sessionGeneration = 0;
+  private projectRoot = process.cwd();
 
   constructor(
     telemetryService: TelemetryService,
@@ -93,6 +95,31 @@ export class TranscriptIngestionService {
 
   setSubagentService(subagentService: SubagentService | null): void {
     this.subagentService = subagentService;
+  }
+
+  getSessionGeneration(): number {
+    return this.sessionGeneration;
+  }
+
+  getProjectRoot(): string {
+    return this.projectRoot;
+  }
+
+  async setProjectRoot(projectPath: string): Promise<void> {
+    this.sessionGeneration++;
+    this.projectRoot = path.resolve(projectPath);
+    this.resetSessionCounters();
+    this.lastOffset = 0;
+    this.incompleteLine = "";
+    this.currentTranscriptPath = null;
+  }
+
+  reset(): void {
+    this.sessionGeneration++;
+    this.resetSessionCounters();
+    this.lastOffset = 0;
+    this.incompleteLine = "";
+    this.currentTranscriptPath = null;
   }
 
   resetSessionCounters(): void {
@@ -146,7 +173,10 @@ export class TranscriptIngestionService {
     return newestPath;
   }
 
-  processLine(line: string): void {
+  processLine(line: string, generation?: number): void {
+    if (generation !== undefined && generation !== this.sessionGeneration) {
+      return;
+    }
     const trimmed = line.trim();
     if (!trimmed) return;
 
@@ -430,8 +460,10 @@ export class TranscriptIngestionService {
       const lines = raw.split(/\r?\n/);
       this.incompleteLine = lines.pop() ?? "";
 
+      const currentGen = this.sessionGeneration;
       for (const line of lines) {
-        this.processLine(line);
+        if (this.sessionGeneration !== currentGen) return;
+        this.processLine(line, currentGen);
       }
     } catch {
       // Defensive handling

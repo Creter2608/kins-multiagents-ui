@@ -9,6 +9,7 @@ export interface ProjectScopedServices {
   readonly rollbackService: { setProjectRoot(p: string): Promise<void> };
   readonly evalHarnessService?: { setProjectRoot(p: string): Promise<void> };
   readonly telemetryService?: { resetCurrentSession(): void };
+  readonly transcriptService?: { setProjectRoot(p: string): Promise<void>; reset?(): void };
 }
 
 interface PersistedProjectState {
@@ -121,6 +122,9 @@ export class ProjectService {
     if (this.services.evalHarnessService) {
       await this.services.evalHarnessService.setProjectRoot(this.currentPath);
     }
+    if (this.services.transcriptService) {
+      await this.services.transcriptService.setProjectRoot(this.currentPath);
+    }
 
     this.persist();
     return this.getState();
@@ -140,6 +144,9 @@ export class ProjectService {
     if (this.services.evalHarnessService) {
       await this.services.evalHarnessService.setProjectRoot(resolved);
     }
+    if (this.services.transcriptService) {
+      await this.services.transcriptService.setProjectRoot(resolved);
+    }
 
     this.currentPath = resolved;
     this.recentPaths = [
@@ -148,6 +155,7 @@ export class ProjectService {
     ];
 
     this.services.telemetryService?.resetCurrentSession();
+    this.services.transcriptService?.reset?.();
 
     this.persist();
     return this.getState();

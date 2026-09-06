@@ -18,7 +18,8 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '..');
+const APP_ROOT = path.resolve(__dirname, '..');
+const REPO_ROOT = APP_ROOT; // Backward compatibility alias
 
 // Dynamic import of dist/src/index.js (built engine)
 let LoopEngine, validateWorkspace, parseSha256Hex, LoopError, classifyUnknownError;
@@ -71,6 +72,7 @@ Commands:
   verify                   Validate workspace assertions against .eval/golden_assertions.json
 
 Options:
+  --project-root <path>    Path to the target project root (default: current working directory or derived from state file)
   --run-id <id>            Deterministic run identifier (default: auto-generated timestamp)
   --state-file <path>      Path to state JSON file (default: .ai/state.json)
   --golden-sha <sha>       Expected SHA-256 for golden assertions
@@ -80,10 +82,36 @@ Options:
   process.stdout.write(help.trim() + '\n');
 }
 
-function resolveStateFile(rawPath) {
-  const resolved = path.resolve(REPO_ROOT, rawPath || '.ai/state.json');
-  const evalDir = path.resolve(REPO_ROOT, '.eval');
-  if (resolved === evalDir || resolved.startsWith(evalDir + path.sep)) {
+function resolveTargetProjectRoot(projectRootArg, stateFileArg) {
+  if (projectRootArg) {
+    return path.resolve(projectRootArg);
+  }
+  if (stateFileArg) {
+    const resolvedState = path.resolve(stateFileArg);
+    const stateDir = path.dirname(resolvedState);
+    if (path.basename(stateDir) === '.ai') {
+      return path.dirname(stateDir);
+    }
+    try {
+      const gitRoot = execFileSync('git', ['-C', stateDir, 'rev-parse', '--show-toplevel'], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      }).trim();
+      if (gitRoot) return path.resolve(gitRoot);
+    } catch {
+      return stateDir;
+    }
+  }
+  return process.cwd();
+}
+
+function resolveStateFile(rawPath, targetProjectRoot) {
+  const root = targetProjectRoot || process.cwd();
+  const resolved = path.resolve(root, rawPath || '.ai/state.json');
+  const targetEvalDir = path.resolve(root, '.eval');
+  const appEvalDir = path.resolve(APP_ROOT, '.eval');
+  if (resolved === targetEvalDir || resolved.startsWith(targetEvalDir + path.sep) ||
+      resolved === appEvalDir || resolved.startsWith(appEvalDir + path.sep)) {
     throw new LoopError('CONFIG_INVALID', 'configuration', 'Security invariant violation: State file cannot be located in .eval/');
   }
   return resolved;
@@ -164,10 +192,12 @@ function loadState(stateFile) {
   }
 }
 
-function getEngineOptions(runId, goldenSha) {
+function getEngineOptions(runId, goldenSha, targetProjectRoot = APP_ROOT) {
   let validSha = goldenSha;
   if (!validSha) {
-    const shaFile = path.resolve(REPO_ROOT, '.eval/golden_assertions.sha256');
+    const targetShaFile = path.resolve(targetProjectRoot, '.eval/golden_assertions.sha256');
+    const appShaFile = path.resolve(APP_ROOT, '.eval/golden_assertions.sha256');
+    const shaFile = fs.existsSync(targetShaFile) ? targetShaFile : appShaFile;
     if (fs.existsSync(shaFile)) {
       validSha = fs.readFileSync(shaFile, 'utf-8').trim().split(/\s+/)[0];
     } else {
@@ -194,6 +224,7 @@ async function main() {
 
   let command = null;
   let cmdArgs = [];
+  let projectRootArg = null;
   let stateFileArg = null;
   let runIdArg = null;
   let goldenShaArg = null;
@@ -202,7 +233,9 @@ async function main() {
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
-    if (arg === '--state-file') {
+    if (arg === '--project-root') {
+      projectRootArg = rawArgs[++i];
+    } else if (arg === '--state-file') {
       stateFileArg = rawArgs[++i];
     } else if (arg === '--run-id') {
       runIdArg = rawArgs[++i];
@@ -224,7 +257,8 @@ async function main() {
     process.exit(1);
   }
 
-  const stateFilePath = resolveStateFile(stateFileArg);
+  const targetProjectRoot = resolveTargetProjectRoot(projectRootArg, stateFileArg);
+  const stateFilePath = resolveStateFile(stateFileArg, targetProjectRoot);
   const lock = new FileLock(stateFilePath);
 
   try {
@@ -232,7 +266,7 @@ async function main() {
       case 'init': {
         lock.acquire();
         try {
-          const opts = getEngineOptions(runIdArg, goldenShaArg);
+          const opts = getEngineOptions(runIdArg, goldenShaArg, targetProjectRoot);
           const engine = new LoopEngine(opts);
           const snapshot = engine.snapshot();
           snapshot.sandbox = {
@@ -332,21 +366,32 @@ async function main() {
               let diffText = '';
               try {
                 diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', 'HEAD'], {
-                  cwd: REPO_ROOT,
+                  cwd: targetProjectRoot,
                   encoding: 'utf-8',
                   stdio: ['ignore', 'pipe', 'pipe']
                 });
                 if (!diffText.trim()) {
                   diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff', 'HEAD~1'], {
-                    cwd: REPO_ROOT,
+                    cwd: targetProjectRoot,
                     encoding: 'utf-8',
                     stdio: ['ignore', 'pipe', 'pipe']
                   });
                 }
               } catch {
-                diffText = '';
+                try {
+                  diffText = execFileSync('git', ['-c', 'safe.directory=*', 'diff'], {
+                    cwd: targetProjectRoot,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe']
+                  });
+                } catch {
+                  diffText = '';
+                }
               }
-              const compliance = evaluateArchitecturalCompliance(diffText);
+              const compliance = evaluateArchitecturalCompliance({
+                repoRoot: targetProjectRoot,
+                diffText
+              });
               nextState.architecturalCompliance = compliance;
             } catch (err) {
               process.stderr.write(`[ai-loop WARN] Architectural evaluation failed: ${err.message}\n`);
@@ -378,19 +423,19 @@ async function main() {
         lock.acquire();
         try {
           const savedState = loadState(stateFilePath);
-          const opts = getEngineOptions(savedState.runId, savedState.goldenSha256);
+          const opts = getEngineOptions(savedState.runId, savedState.goldenSha256, targetProjectRoot);
           const engine = new LoopEngine(opts, savedState);
           const nextState = engine.rollback();
 
           if (revertCode) {
             try {
               execFileSync('git', ['restore', '--staged', '--worktree', '--', '.'], {
-                cwd: process.cwd(),
+                cwd: targetProjectRoot,
                 stdio: ['ignore', 'pipe', 'pipe']
               });
             } catch {
               execFileSync('git', ['checkout', '--', '.'], {
-                cwd: process.cwd(),
+                cwd: targetProjectRoot,
                 stdio: ['ignore', 'pipe', 'pipe']
               });
             }
@@ -448,7 +493,7 @@ async function main() {
         lock.acquire();
         try {
           const savedState = loadState(stateFilePath);
-          const opts = getEngineOptions(savedState.runId, savedState.goldenSha256);
+          const opts = getEngineOptions(savedState.runId, savedState.goldenSha256, targetProjectRoot);
           const engine = new LoopEngine(opts, savedState);
           const nextState = engine.fail(code, message);
 
@@ -483,14 +528,34 @@ async function main() {
         if (!taskId || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(taskId)) {
           throw new LoopError('CONFIG_INVALID', 'configuration', `Invalid task ID: '${taskId}'. Must match ^[a-z0-9][a-z0-9._-]{0,63}$`);
         }
+
+        // Detect unborn HEAD
+        let isUnborn = false;
+        try {
+          execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+            cwd: targetProjectRoot,
+            stdio: ['ignore', 'pipe', 'pipe']
+          });
+        } catch {
+          isUnborn = true;
+        }
+
+        if (isUnborn) {
+          throw new LoopError(
+            'STATE_CONFLICT',
+            'state',
+            'Cannot isolate task in git worktree: repository has no commits yet (unborn HEAD). An initial commit is required for git worktree isolation.'
+          );
+        }
+
         const branch = `task/${taskId}`;
-        const worktreePath = path.resolve(REPO_ROOT, '.worktrees', taskId);
+        const worktreePath = path.resolve(targetProjectRoot, '.worktrees', taskId);
 
         let reused = false;
         if (fs.existsSync(worktreePath)) {
           try {
             const wtList = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-              cwd: REPO_ROOT,
+              cwd: targetProjectRoot,
               encoding: 'utf-8',
               stdio: ['ignore', 'pipe', 'pipe']
             });
@@ -513,7 +578,7 @@ async function main() {
           let branchExists = false;
           try {
             execFileSync('git', ['rev-parse', '--verify', branch], {
-              cwd: REPO_ROOT,
+              cwd: targetProjectRoot,
               stdio: ['ignore', 'pipe', 'pipe']
             });
             branchExists = true;
@@ -523,12 +588,12 @@ async function main() {
 
           if (branchExists) {
             execFileSync('git', ['worktree', 'add', worktreePath, branch], {
-              cwd: REPO_ROOT,
+              cwd: targetProjectRoot,
               stdio: ['ignore', 'pipe', 'pipe']
             });
           } else {
             execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
-              cwd: REPO_ROOT,
+              cwd: targetProjectRoot,
               stdio: ['ignore', 'pipe', 'pipe']
             });
           }
@@ -544,7 +609,7 @@ async function main() {
           wtState = loadState(wtStateFile);
         } else {
           const runId = runIdArg || `run-${taskId}-${Date.now()}`;
-          const opts = getEngineOptions(runId, goldenShaArg);
+          const opts = getEngineOptions(runId, goldenShaArg, targetProjectRoot);
           const engine = new LoopEngine(opts);
           engine.transition('SPEC_GATE');
           wtState = engine.transition('ISOLATE');
@@ -571,7 +636,10 @@ async function main() {
       case 'pitfalls': {
         const { matchPitfalls } = await import('./harness/pitfall-matcher.mjs');
         const query = cmdArgs.join(' ') || '';
-        const matchResult = matchPitfalls(query);
+        const matchResult = matchPitfalls(query, {
+          targetProjectRoot,
+          appRoot: APP_ROOT
+        });
         if (jsonOutput) {
           process.stdout.write(JSON.stringify(matchResult, null, 2) + '\n');
         } else {
@@ -585,8 +653,12 @@ async function main() {
       }
 
       case 'verify': {
-        const shaPath = path.resolve(REPO_ROOT, '.eval/golden_assertions.sha256');
-        const goldenPath = path.resolve(REPO_ROOT, '.eval/golden_assertions.json');
+        let shaPath = path.resolve(targetProjectRoot, '.eval/golden_assertions.sha256');
+        let goldenPath = path.resolve(targetProjectRoot, '.eval/golden_assertions.json');
+        if (!fs.existsSync(shaPath) || !fs.existsSync(goldenPath)) {
+          shaPath = path.resolve(APP_ROOT, '.eval/golden_assertions.sha256');
+          goldenPath = path.resolve(APP_ROOT, '.eval/golden_assertions.json');
+        }
         if (!fs.existsSync(shaPath) || !fs.existsSync(goldenPath)) {
           throw new LoopError('CONFIG_TRUST_ANCHOR_MISSING', 'configuration', 'Missing .eval/ files for verification');
         }

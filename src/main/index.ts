@@ -54,7 +54,8 @@ async function createWindow(): Promise<void> {
         mcpMonitorService: mcpService,
         rollbackService,
         evalHarnessService: evalService,
-        telemetryService
+        telemetryService,
+        transcriptService
       }
     );
     await projectService.initialize();

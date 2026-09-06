@@ -20,14 +20,24 @@ export interface PitfallMatchResult {
   readonly tokenEstimate: number;
 }
 
+export interface PitfallPathOptions {
+  readonly explicitPath?: string;
+  readonly targetProjectRoot?: string;
+  readonly appRoot?: string;
+}
+
 export interface MatchPitfallOptions {
   readonly maxResults?: number;
   readonly tokenBudget?: number;
-  readonly catalogPath?: string;
+  readonly catalogPath?: string | PitfallPathOptions;
+  readonly targetProjectRoot?: string;
+  readonly appRoot?: string;
 }
 
-export function parsePitfallsCatalog(customPath?: string): PitfallCatalogEntry[];
+export function resolvePitfallsPath(options?: PitfallPathOptions): string | null;
+export function parsePitfallsCatalog(customPathOrOptions?: string | PitfallPathOptions): PitfallCatalogEntry[];
 export function matchPitfalls(
   input: string | readonly string[],
   options?: MatchPitfallOptions
 ): PitfallMatchResult;
+

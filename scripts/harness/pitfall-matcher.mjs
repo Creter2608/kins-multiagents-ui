@@ -55,13 +55,61 @@ const DOMAIN_KEYWORD_MAP = {
 };
 
 /**
+ * Deterministically resolves the pitfalls.md file path.
+ * Precedence: explicitPath -> <targetProjectRoot>/wiki/pitfalls.md -> <appRoot>/wiki/pitfalls.md.
+ * @param {object} [options={}]
+ * @param {string} [options.explicitPath]
+ * @param {string} [options.targetProjectRoot]
+ * @param {string} [options.appRoot]
+ * @returns {string | null}
+ */
+export function resolvePitfallsPath(options = {}) {
+  if (options.explicitPath) {
+    const explicit = path.resolve(options.explicitPath);
+    if (fs.existsSync(explicit)) return explicit;
+  }
+
+  const targetRoot = options.targetProjectRoot ? path.resolve(options.targetProjectRoot) : process.cwd();
+  const appRoot = options.appRoot ? path.resolve(options.appRoot) : REPO_ROOT;
+
+  // 1. Target project-local wiki
+  const targetWiki = path.join(targetRoot, 'wiki', 'pitfalls.md');
+  if (fs.existsSync(targetWiki)) {
+    return targetWiki;
+  }
+
+  // 2. Packaged application wiki fallback
+  const appWiki = path.join(appRoot, 'wiki', 'pitfalls.md');
+  if (fs.existsSync(appWiki)) {
+    return appWiki;
+  }
+
+  return null;
+}
+
+/**
  * Parses wiki/pitfalls.md into structured records.
- * @param {string} [customPath]
+ * @param {string | object} [customPathOrOptions]
  * @returns {Array<{ id: string; name: string; errorClass: string; symptom: string; invariant: string; tokens: Set<string> }>}
  */
-export function parsePitfallsCatalog(customPath) {
-  const filePath = path.resolve(REPO_ROOT, customPath || 'wiki/pitfalls.md');
-  if (!fs.existsSync(filePath)) {
+export function parsePitfallsCatalog(customPathOrOptions) {
+  let filePath = null;
+  if (typeof customPathOrOptions === 'string') {
+    if (path.isAbsolute(customPathOrOptions) && fs.existsSync(customPathOrOptions)) {
+      filePath = customPathOrOptions;
+    } else {
+      filePath = resolvePitfallsPath({ explicitPath: customPathOrOptions });
+      if (!filePath) {
+        filePath = path.resolve(REPO_ROOT, customPathOrOptions);
+      }
+    }
+  } else if (customPathOrOptions && typeof customPathOrOptions === 'object') {
+    filePath = resolvePitfallsPath(customPathOrOptions);
+  } else {
+    filePath = resolvePitfallsPath();
+  }
+
+  if (!filePath || !fs.existsSync(filePath)) {
     return [];
   }
 
