@@ -1,5 +1,24 @@
 # Project Log
 
+## [2026-09-06] Built-in Fallback Architectural Judge for Multi-Project Cockpit (Option B Complete)
+
+### Summary
+Delivered the Built-in Fallback Architectural Judge engine designed by Layer 1 GPT Prompt Architect and synthesized by Layer 2 Gemini 3.8 Flash (`run-builtin-judge-1`). External repositories opened in `kins-multiagents-ui` no longer require their own `scripts/harness/judge.mjs` or pre-existing `.ai/state.json` to calculate, persist, and display the Architecture Score (AQI 1.0 - 5.0) on `PhaseTracker` and `EvalScoreboard`. When switching projects via `setProjectRoot()`, the service proactively resets stale state and evaluates Git repository diffs using the host's built-in judge fallback while strictly preserving repository-local judge precedence. All 5 Layer 1 compact test assertions verified deterministically. Total project test suite expanded from 265 to 270 tests passing 100% on local CPU inside Docker sandbox ($0 LLM token cost) with `.eval/` immutability preserved.
+
+### Key Deliverables
+1. **Built-in Fallback Architecture Judge Resolution (`src/main/services/LoopStateService.ts`)**:
+   - Resolved `appRoot` dynamically via `resolveDefaultAppRoot()` walking up to the host application root, immune to compiled `dist/` vs `src/` directory depth.
+   - Preserved two-tier resolution: checks `<repoRoot>/scripts/harness/judge.mjs` first, then falls back to `<appRoot>/scripts/harness/judge.mjs`.
+   - Added root commit diff fallback (`git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD`) for new repositories with only a single commit.
+2. **Polymorphic Judge API Contract (`scripts/harness/judge.mjs`, `judge.d.mts`)**:
+   - Enhanced `evaluateArchitecturalCompliance` to seamlessly accept either unified diff strings or options objects with `{ repoRoot, taskType, diffText }`.
+   - Added explicit typed interface declarations in `judge.d.mts`.
+3. **Multi-Project Isolation & Proactive Evaluation (`LoopStateService.setProjectRoot`)**:
+   - Cleanly resets `architecturalCompliance` to `undefined` upon project switch to prevent state contamination.
+   - Proactively evaluates architecture asynchronously when opening an external Git repository.
+4. **Deterministic Unit & Integration Test Suite (`test/builtin-judge.test.ts`)**:
+   - Created comprehensive test suite covering all 5 Layer 1 compact assertions (built-in fallback, staged changes, custom local judge precedence, COMPLETE auto-evaluation, and project switching).
+
 ## [2026-09-06] Codebase Audit & Architectural Remediation (P1, P2 & P3 Complete)
 
 ### Summary
