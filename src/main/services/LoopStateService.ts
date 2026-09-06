@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { computePhaseStatuses, LOOP_PHASES, nextLoopPhase, previousLoopPhase, type LoopPhase } from "../../shared/phases.js";
 import type {
   LoopStateSnapshot,
@@ -32,14 +32,19 @@ export type PhaseTransitionReason =
 
 export class LoopStateService {
   private stateFilePath: string;
+  private appRoot: string;
   private store: JsonFileLoopStateStore;
   private lastValidSnapshot: LoopStateSnapshot;
   private watcher: fs.FSWatcher | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private listeners = new Set<(snapshot: LoopStateSnapshot) => void>();
 
-  constructor(stateFilePath: string = path.resolve(".ai/state.json")) {
+  constructor(
+    stateFilePath: string = path.resolve(".ai/state.json"),
+    appRoot?: string
+  ) {
     this.stateFilePath = stateFilePath;
+    this.appRoot = appRoot || this.resolveDefaultAppRoot();
     this.store = new JsonFileLoopStateStore(this.stateFilePath);
     const initialPhase = LOOP_PHASES[0];
     this.lastValidSnapshot = {
@@ -209,6 +214,21 @@ export class LoopStateService {
     this.customJudgeFn = fn;
   }
 
+  setAppRootForTesting(root: string): void {
+    this.appRoot = root;
+  }
+
+  private resolveDefaultAppRoot(): string {
+    let curr = path.dirname(fileURLToPath(import.meta.url));
+    while (curr !== path.dirname(curr)) {
+      if (fs.existsSync(path.join(curr, "scripts", "harness", "judge.mjs"))) {
+        return curr;
+      }
+      curr = path.dirname(curr);
+    }
+    return process.cwd();
+  }
+
   updateArchitecturalCompliance(compliance: ArchitecturalCompliance): void {
     try {
       this.readState();
@@ -269,11 +289,23 @@ export class LoopStateService {
           stdio: ["ignore", "pipe", "pipe"]
         });
         if (!diffText.trim()) {
-          diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD~1"], {
-            cwd: repoRoot,
-            encoding: "utf-8",
-            stdio: ["ignore", "pipe", "pipe"]
-          });
+          try {
+            diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "HEAD~1"], {
+              cwd: repoRoot,
+              encoding: "utf-8",
+              stdio: ["ignore", "pipe", "pipe"]
+            });
+          } catch {
+            try {
+              diffText = execFileSync("git", ["-c", "safe.directory=*", "diff", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "HEAD"], {
+                cwd: repoRoot,
+                encoding: "utf-8",
+                stdio: ["ignore", "pipe", "pipe"]
+              });
+            } catch {
+              diffText = "";
+            }
+          }
         }
       } catch {
         diffText = "";
@@ -295,7 +327,10 @@ export class LoopStateService {
       if (this.customJudgeFn) {
         compliance = this.customJudgeFn(diffText);
       } else {
-        const judgePath = path.resolve(repoRoot, "scripts", "harness", "judge.mjs");
+        let judgePath = path.resolve(repoRoot, "scripts", "harness", "judge.mjs");
+        if (!fs.existsSync(judgePath)) {
+          judgePath = path.resolve(this.appRoot, "scripts", "harness", "judge.mjs");
+        }
         if (!fs.existsSync(judgePath)) {
           return null;
         }
@@ -616,29 +651,29 @@ export class LoopStateService {
   }
 
   async setProjectRoot(projectPath: string): Promise<void> {
-    this.stateFilePath = path.join(path.resolve(projectPath), ".ai", "state.json");
+    const resolvedPath = path.resolve(projectPath);
+    this.stateFilePath = path.join(resolvedPath, ".ai", "state.json");
     this.store = new JsonFileLoopStateStore(this.stateFilePath);
 
-    if (!fs.existsSync(this.stateFilePath)) {
-      const initialPhase = LOOP_PHASES[0];
-      this.lastValidSnapshot = {
-        runId: "init",
-        schemaVersion: 1,
-        currentPhase: initialPhase,
-        status: "ready",
-        usage: { transitions: 0, retries: 0, operations: 0 },
-        budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
-        phases: computePhaseStatuses(initialPhase),
-        history: [],
-        testSummary: {
-          status: "idle",
-          passCount: 0,
-          failCount: 0,
-          lastRunAt: null
-        },
-        lastUpdated: Date.now()
-      };
-    }
+    const initialPhase = LOOP_PHASES[0];
+    this.lastValidSnapshot = {
+      runId: "init",
+      schemaVersion: 1,
+      currentPhase: initialPhase,
+      status: "ready",
+      usage: { transitions: 0, retries: 0, operations: 0 },
+      budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+      phases: computePhaseStatuses(initialPhase),
+      history: [],
+      testSummary: {
+        status: "idle",
+        passCount: 0,
+        failCount: 0,
+        lastRunAt: null
+      },
+      architecturalCompliance: undefined,
+      lastUpdated: Date.now()
+    };
 
     if (this.watcher) {
       this.watcher.close();
@@ -659,6 +694,14 @@ export class LoopStateService {
     }
 
     this.readState();
+
+    if (!this.lastValidSnapshot.architecturalCompliance) {
+      try {
+        if (fs.existsSync(path.join(resolvedPath, ".git"))) {
+          void this.evaluateArchitecture().catch(() => {});
+        }
+      } catch {}
+    }
   }
 
   start(): void {

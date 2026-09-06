@@ -23,9 +23,21 @@ export { TASK_PROFILES, FINDING_CODES };
  * @param {object} [options={}]
  * @returns {{ aqi: number, passed: boolean, criteriaScores: { surgicalDiff: number, simplicity: number, modularity: number, maintainability: number }, feedback: string[], taskType?: string, findings?: object[], hardFailures?: string[], metrics?: object }}
  */
-export function evaluateArchitecturalCompliance(diffText, options = {}) {
-  const minAqi = typeof options.minAqi === 'number' ? options.minAqi : DEFAULT_MIN_AQI;
-  const taskType = options.taskType || 'fix';
+export function evaluateArchitecturalCompliance(diffTextOrOptions, maybeOptions = {}) {
+  let diffText = "";
+  let options = {};
+  if (typeof diffTextOrOptions === "string") {
+    diffText = diffTextOrOptions;
+    options = maybeOptions || {};
+  } else if (typeof diffTextOrOptions === "object" && diffTextOrOptions !== null) {
+    options = diffTextOrOptions;
+    diffText = typeof options.diffText === "string"
+      ? options.diffText
+      : (typeof options.diff === "string" ? options.diff : "");
+  }
+
+  const minAqi = typeof options.minAqi === "number" ? options.minAqi : DEFAULT_MIN_AQI;
+  const taskType = options.taskType || "fix";
   const repoRoot = options.repoRoot || process.cwd();
 
   const analysis = analyzeArchitectureChange(diffText, {

@@ -16,10 +16,15 @@ export interface ArchitecturalComplianceResult {
 
 export interface EvaluateComplianceOptions {
   readonly minAqi?: number | undefined;
+  readonly taskType?: string | undefined;
+  readonly repoRoot?: string | undefined;
+  readonly diffText?: string | undefined;
+  readonly diff?: string | undefined;
+  readonly sourcePairs?: Map<string, string> | undefined;
 }
 
 export function evaluateArchitecturalCompliance(
-  diffText: string,
+  diffTextOrOptions: string | EvaluateComplianceOptions,
   options?: EvaluateComplianceOptions
 ): ArchitecturalComplianceResult;
 
