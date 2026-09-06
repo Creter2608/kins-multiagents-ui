@@ -1,5 +1,28 @@
 # Project Log
 
+## [2026-09-06] 100% Self-Contained Universal Developer Cockpit Architecture (Complete)
+
+### Summary
+Executed an exhaustive architectural overhaul designed by Layer 1 GPT Prompt Architect and synthesized by Layer 2 Gemini 3.8 Flash (`run-self-contained-cockpit-1`), packaging `kins-multiagents-ui` into a 100% self-contained, standalone developer cockpit that operates seamlessly against any arbitrary Git repository (empty, unborn HEAD, or fully populated) with zero host environment dependencies. Eliminated compile-time `REPO_ROOT` assumptions from `scripts/ai-loop.mjs`, added project-first pitfall resolution in `scripts/harness/pitfall-matcher.mjs`, and enforced hard cross-project session isolation in `TranscriptIngestionService`. All 5 Layer 1 compact adversarial test assertions verified deterministically. Total project test suite expanded from 279 to 284 tests passing 100% on local CPU inside Docker sandbox (`kins_autonomous_sandbox`) with `.eval/` immutability strictly preserved.
+
+### Key Deliverables
+1. **Dynamic Target Root & CLI Portability (`scripts/ai-loop.mjs`)**:
+   - Added `--project-root <path>` CLI option with fallback to canonical `<root>/.ai/state.json` derivation, `git rev-parse --show-toplevel`, or `process.cwd()`.
+   - Separated `targetProjectRoot` from `APP_ROOT`. All Git commands (`diff`, `worktree`, `restore`), state files, and evaluation roots now operate strictly within `targetProjectRoot`.
+   - Added unborn `HEAD` detection in `isolate` command: gracefully reports `Cannot isolate task in git worktree: repository has no commits yet (unborn HEAD)` without crashing or creating unsolicited commits.
+2. **Project-Local Pitfall Precedence with App Fallback (`scripts/harness/pitfall-matcher.mjs`, `pitfall-matcher.d.mts`)**:
+   - Implemented `resolvePitfallsPath()`: checks `<targetProjectRoot>/wiki/pitfalls.md` first, falling back to packaged `<appRoot>/wiki/pitfalls.md` read-only.
+   - External projects can now define custom architectural invariants while foreign projects inherit all built-in Karpathy invariants automatically.
+3. **Hard Session Generation & Anti-Contamination (`src/main/services/TranscriptIngestionService.ts`)**:
+   - Implemented `sessionGeneration` counter, incremented on `setProjectRoot()` and `reset()`.
+   - Guards `processLine()`: late or delayed transcript events from previous project sessions are deterministically discarded, preventing cross-project token and lifecycle bleed.
+4. **Coordinated Project Switching (`src/main/services/ProjectService.ts`, `src/main/index.ts`)**:
+   - Wired `transcriptService` into `ProjectScopedServices`.
+   - Repoints and resets `transcriptService` synchronously alongside `ptyService`, `loopStateService`, `mcpMonitorService`, `rollbackService`, `evalHarnessService`, and `telemetryService`.
+5. **Deterministic Verification & Non-Regression (`test/universal-self-contained.test.ts`)**:
+   - Added 5 comprehensive adversarial test cases covering all Layer 1 compact assertions.
+   - All 284 test cases passing 100% inside Docker sandbox.
+
 ## [2026-09-06] Universal Multi-Project Compatibility & Anti-Bleed Architecture (Complete)
 
 ### Summary
