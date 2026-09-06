@@ -111,6 +111,10 @@ export interface ArchitecturalCompliance {
   readonly passed: boolean;
   readonly criteriaScores: ArchitecturalCriteriaScores;
   readonly feedback: readonly string[];
+  readonly taskType?: string | undefined;
+  readonly threshold?: number | undefined;
+  readonly hardFailures?: readonly string[] | undefined;
+  readonly findings?: readonly object[] | undefined;
 }
 
 export interface EvaluationMetrics {

@@ -1,5 +1,24 @@
 # Project Log
 
+## [2026-09-06] Architecture Compliance Engine Upgrade (AQI v2.0 Delivery)
+
+### Summary
+Designed by Layer 1 GPT Prompt Architect and synthesized by Layer 2 Gemini 3.8 Flash, delivered the deterministic AQI v2.0 Architecture Quality Index & Compliance Engine (`scripts/harness/aqi.mjs`, `scripts/harness/aqi.d.mts`, `scripts/harness/aqi.test.mjs`). Resolved all 5 core gaming and architectural failure modes: replaced ghost modularity metric with Tarjan's Strongly Connected Components (SCC) cycle detection and typed public contract validation; eliminated regex bypasses using AST scope-aware alias tracking for debug sinks and block comments; enforced monotonic churn (additions + deletions) preventing dummy deletion offset gaming; and added context-aware Task Profiles (`fix`, `feat`, `refactor`, `bootstrap`) preventing false positive failures on legitimate greenfield scaffolding. Executed Autonomous Loop v2.0 (`run-1788670063001`) with all 264 project and harness tests passing 100% on local CPU ($0 LLM token cost).
+
+### Key Deliverables
+1. **Deterministic AQI v2.0 Engine (`scripts/harness/aqi.mjs`, `aqi.d.mts`)**:
+   - Unified diff parser with monotonic churn calculation (`semanticChurn = addedLines + deletedLines`).
+   - AST scope-aware alias tracking (`const emit = console.log`, `const { log } = console`, `process.stdout.write`).
+   - Tarjan SCC algorithm for detecting newly introduced circular dependencies between modules.
+   - Public contract validator enforcing typed parameters and return annotations on exported functions/methods.
+   - God-module concentration detector penalizing monolithic files concentrating >65% churn and >500 lines.
+   - Task profiles (`fix`, `feat`, `refactor`, `bootstrap`) with category floors and soft budgets.
+2. **Backward Compatible Judge Integration (`scripts/harness/judge.mjs`, `runner.mjs`)**:
+   - Delegated `evaluateArchitecturalCompliance` to `aqi.mjs` while preserving `DEFAULT_MIN_AQI = 3.5` and legacy report structure.
+   - Propagated trusted `taskType` and `repoRoot` from benchmark and evaluation runs.
+3. **Comprehensive Unit Verification (`scripts/harness/aqi.test.mjs`)**:
+   - All 6 compact adversarial assertions pass 100%. Total project test coverage expanded to 264 passing tests.
+
 ## [2026-09-06] Comprehensive Cockpit Hardening & Modernization (Sprints 1 - 4 Complete)
 
 ### Summary

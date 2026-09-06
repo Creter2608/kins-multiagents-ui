@@ -289,8 +289,15 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
       {loopState.architecturalCompliance && (
         <div className="px-3 py-2.5 border-t border-[#1f1f1f] bg-[#0c0c0c] space-y-1.5 font-mono">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-              Architecture Score
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                Architecture Score
+              </span>
+              {loopState.architecturalCompliance.taskType && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-zinc-800/90 text-zinc-300 border border-zinc-700/80">
+                  {loopState.architecturalCompliance.taskType}
+                </span>
+              )}
             </div>
             <span
               className={`text-[10px] px-2 py-0.5 rounded font-mono uppercase font-bold border ${
@@ -364,6 +371,19 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
                   </div>
                 </div>
               </div>
+
+              {loopState.architecturalCompliance.hardFailures && loopState.architecturalCompliance.hardFailures.length > 0 && (
+                <div className="space-y-1 pt-1 border-t border-rose-900/40">
+                  <div className="text-[10px] text-rose-400 uppercase font-bold">Hard Failures:</div>
+                  <ul className="space-y-1 list-none pl-0">
+                    {loopState.architecturalCompliance.hardFailures.map((hf, idx) => (
+                      <li key={idx} className="text-[10px] text-rose-300 bg-rose-950/40 px-1.5 py-1 rounded border border-rose-800/50">
+                        {hf}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {loopState.architecturalCompliance.feedback && loopState.architecturalCompliance.feedback.length > 0 && (
                 <div className="space-y-1 pt-1 border-t border-[#1f1f23]">

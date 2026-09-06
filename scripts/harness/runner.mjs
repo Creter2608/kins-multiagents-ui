@@ -434,7 +434,10 @@ export async function runBenchmarkBatch(tasks, options = {}) {
   } catch {
     diffText = '';
   }
-  const architecturalCompliance = evaluateArchitecturalCompliance(diffText);
+  const architecturalCompliance = evaluateArchitecturalCompliance(diffText, {
+    repoRoot,
+    taskType: options.taskType || 'feat'
+  });
 
   const baseReport = {
     schemaVersion: 1,
@@ -639,7 +642,10 @@ export async function runEvaluation(options) {
     } catch {
       diffText = '';
     }
-    const architecturalCompliance = evaluateArchitecturalCompliance(diffText);
+    const architecturalCompliance = evaluateArchitecturalCompliance(diffText, {
+      repoRoot,
+      taskType: options.taskType || 'feat'
+    });
 
     const report = {
       schemaVersion: 1,

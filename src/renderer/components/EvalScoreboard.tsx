@@ -261,7 +261,14 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
 
           {/* Card 4: AQI */}
           <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</span>
+              {report?.architecturalCompliance?.taskType && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
+                  {report.architecturalCompliance.taskType}
+                </span>
+              )}
+            </div>
             <div
               className={`text-2xl font-bold font-mono mt-1 ${
                 hasEvaluatedTasks && report?.architecturalCompliance && typeof report.architecturalCompliance.aqi === "number" && Number.isFinite(report.architecturalCompliance.aqi)
@@ -279,7 +286,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
             </div>
             <div className="text-[11px] text-zinc-400 mt-1 truncate">
               {hasEvaluatedTasks && report?.architecturalCompliance
-                ? `Surg: ${report.architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${report.architecturalCompliance.criteriaScores.simplicity}`
+                ? `Surg: ${report.architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${report.architecturalCompliance.criteriaScores.simplicity} | Mod: ${report.architecturalCompliance.criteriaScores.modularity} | Maint: ${report.architecturalCompliance.criteriaScores.maintainability}`
                 : "Karpathy simplicity gate"}
             </div>
           </div>

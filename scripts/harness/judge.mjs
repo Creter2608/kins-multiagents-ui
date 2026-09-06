@@ -3,116 +3,49 @@
  * Layer 1 Architectural Compliance & LLM-as-a-Judge Engine.
  * Evaluates patch diffs against Karpathy simplicity invariants and SWE-bench best practices:
  * Minimal Surgical Diff, Simplicity First, Modularity & Contracts, and Maintainability.
- * Computes the composite Architecture Quality Index (AQI 1.0 - 5.0).
+ * Computes the composite Architecture Quality Index (AQI 1.0 - 5.0) via deterministic AQI v2.0 engine.
  */
 
+import {
+  analyzeArchitectureChange,
+  scoreArchitectureAnalysis,
+  TASK_PROFILES,
+  FINDING_CODES
+} from './aqi.mjs';
+
 export const DEFAULT_MIN_AQI = 3.5;
+export { TASK_PROFILES, FINDING_CODES };
 
 /**
  * Evaluates architectural quality and surgical diff compliance of a git patch.
  *
  * @param {string} diffText Raw git diff unified output
  * @param {object} [options={}]
- * @returns {{ aqi: number, passed: boolean, criteriaScores: { surgicalDiff: number, simplicity: number, modularity: number, maintainability: number }, feedback: string[] }}
+ * @returns {{ aqi: number, passed: boolean, criteriaScores: { surgicalDiff: number, simplicity: number, modularity: number, maintainability: number }, feedback: string[], taskType?: string, findings?: object[], hardFailures?: string[], metrics?: object }}
  */
 export function evaluateArchitecturalCompliance(diffText, options = {}) {
   const minAqi = typeof options.minAqi === 'number' ? options.minAqi : DEFAULT_MIN_AQI;
+  const taskType = options.taskType || 'fix';
+  const repoRoot = options.repoRoot || process.cwd();
 
-  if (typeof diffText !== 'string' || !diffText.trim()) {
-    return {
-      aqi: 5.0,
-      passed: true,
-      criteriaScores: {
-        surgicalDiff: 5.0,
-        simplicity: 5.0,
-        modularity: 5.0,
-        maintainability: 5.0
-      },
-      feedback: ['Empty diff, no modifications evaluated.']
-    };
-  }
+  const analysis = analyzeArchitectureChange(diffText, {
+    taskType,
+    repoRoot,
+    sourcePairs: options.sourcePairs
+  });
 
-  const feedback = [];
-  let surgicalDiff = 5.0;
-  let simplicity = 5.0;
-  let modularity = 5.0;
-  let maintainability = 5.0;
-
-  const lines = diffText.split('\n');
-  let addedLinesCount = 0;
-  let deletedLinesCount = 0;
-  const touchedFiles = new Set();
-
-  for (const line of lines) {
-    if (line.startsWith('diff --git a/')) {
-      const parts = line.split(' ');
-      if (parts[2]) {
-        touchedFiles.add(parts[2].replace(/^a\//, ''));
-      }
-    } else if (line.startsWith('+') && !line.startsWith('+++')) {
-      addedLinesCount++;
-      const trimmed = line.slice(1).trim();
-
-      // Detect leftover debugging prints
-      if (/\bconsole\.(log|debug|info)\(/.test(trimmed)) {
-        maintainability -= 0.5;
-        feedback.push(`Suspicious debug logging added: "${trimmed.slice(0, 60)}"`);
-      }
-
-      // Detect debugger statements
-      if (/^\s*debugger;?$/.test(trimmed)) {
-        maintainability -= 1.0;
-        feedback.push('Debugger statement detected in patch');
-      }
-
-      // Detect commented-out code blocks
-      if (/^\s*\/\/\s*(const|let|var|function|class|import|export)\b/.test(trimmed)) {
-        surgicalDiff -= 0.5;
-        feedback.push(`Commented-out code detected: "${trimmed.slice(0, 60)}"`);
-      }
-    } else if (line.startsWith('-') && !line.startsWith('---')) {
-      deletedLinesCount++;
-    }
-  }
-
-  // File breadth penalty if too many files touched for a surgical fix
-  if (touchedFiles.size > 15) {
-    surgicalDiff -= 2.0;
-    feedback.push(`Large file footprint: ${touchedFiles.size} files modified in a single patch.`);
-  }
-
-  // Ratio check: speculative expansion penalty if disproportionate additions
-  if (addedLinesCount > 800 && deletedLinesCount < 20) {
-    simplicity -= 2.0;
-    feedback.push(`Potential speculative feature creep: +${addedLinesCount} lines added vs -${deletedLinesCount} deleted.`);
-  }
-
-  // Clamp criteria scores between 1.0 and 5.0
-  surgicalDiff = Math.max(1.0, Math.min(5.0, Math.round(surgicalDiff * 10) / 10));
-  simplicity = Math.max(1.0, Math.min(5.0, Math.round(simplicity * 10) / 10));
-  modularity = Math.max(1.0, Math.min(5.0, Math.round(modularity * 10) / 10));
-  maintainability = Math.max(1.0, Math.min(5.0, Math.round(maintainability * 10) / 10));
-
-  // Weighted composite AQI calculation:
-  // Surgical Diff: 30%, Simplicity: 30%, Modularity: 20%, Maintainability: 20%
-  const compositeAqi = (surgicalDiff * 0.3) + (simplicity * 0.3) + (modularity * 0.2) + (maintainability * 0.2);
-  const aqi = Math.round(compositeAqi * 100) / 100;
-
-  const passed = aqi >= minAqi;
-  if (!passed) {
-    feedback.push(`AQI score ${aqi} falls below required quality gate ${minAqi}`);
-  }
+  const score = scoreArchitectureAnalysis(analysis, { minAqi });
 
   return {
-    aqi,
-    passed,
-    criteriaScores: {
-      surgicalDiff,
-      simplicity,
-      modularity,
-      maintainability
-    },
-    feedback
+    aqi: score.aqi,
+    passed: score.passed,
+    criteriaScores: score.criteriaScores,
+    feedback: score.feedback,
+    taskType: score.taskType,
+    threshold: score.threshold,
+    findings: score.findings,
+    hardFailures: score.hardFailures,
+    metrics: score.metrics
   };
 }
 
