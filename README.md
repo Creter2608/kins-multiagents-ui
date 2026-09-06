@@ -1,6 +1,6 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.7.0](https://img.shields.io/badge/Release-v2.7.0-emerald.svg)](package.json)
+[![Release: v2.7.1](https://img.shields.io/badge/Release-v2.7.1-emerald.svg)](package.json)
 [![Tests: 268 passing](https://img.shields.io/badge/Tests-268%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
@@ -49,12 +49,15 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - Automatic container health polling (`Active`, `Stopped`, or `Unavailable`) displayed directly on the HUD.
 
 ### 5. Architectural Quality Index (AQI v2.0) & Compliance Engine
+- **Modular Single-Responsibility Engine (`scripts/harness/aqi/`)**: Decomposed into focused submodules (`diff-parser.mjs`, `cycle-detector.mjs`, `contract-rules.mjs`, `scoring.mjs`) with `aqi.mjs` serving as a lightweight façade (<250 lines) adhering strictly to `aqi.d.mts`.
 - **Tarjan's Strongly Connected Components (SCC)**: Deterministic module cycle detection identifying newly introduced circular dependencies between files in patch diffs.
+- **AST Companion Declaration & JSDoc Typing**: Verifies companion `.d.mts`/`.d.ts` declarations and typed JSDoc comments to eliminate false `WEAK_PUBLIC_CONTRACT` penalties on pure ESM JavaScript modules.
+- **Precise Directive Suppression & Scope Filtering**: Eliminates false `UNSAFE_SUPPRESSION` by distinguishing directive comments (`// @ts-ignore`) from documentation prose, and scopes debug output penalties strictly to non-test production code.
 - **AST Scope-Aware Alias Tracking**: Eliminates regex evasion by tracking aliased debug sinks (`const emit = console.log`, `const { log } = console`, `process.stdout.write`) and block-commented declarations.
 - **Monotonic Churn Calculation**: Computes `semanticChurn = addedLines + deletedLines`, neutralizing dummy deletion offset gaming.
 - **Public Contract Validation**: Verifies exported functions, methods, and classes retain strict TypeScript argument and return type signatures.
 - **God-Module Concentration Detector**: Penalizes monolithic patches that concentrate >65% churn and >500 lines into single files.
-- **Context-Aware Task Profiles**: Tailored evaluation profiles (`fix`, `feat`, `refactor`, `bootstrap`) preventing false positive failures on greenfield scaffolding while enforcing Karpathy simplicity gates.
+- **Context-Aware Task Profiles & Dynamic Cockpit Inference**: Tailored evaluation profiles (`fix`, `feat`, `refactor`, `bootstrap`) dynamically inferred by `LoopStateService` from commit context, paired with cache-busted judge loading.
 - **Visualized in Kins Cockpit**: Rendered natively in `PhaseTracker` and `EvalScoreboard` with task profile tags, criteria breakdowns (`Surg`, `Simp`, `Mod`, `Maint`), and prominent hard-failure alerts.
 
 ---
@@ -160,7 +163,7 @@ kins-multiagents-ui/
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry
 │   └── log.md                 # Autonomous execution log
 ├── test/                      # 258 automated unit and integration tests
-├── scripts/                   # aqi.mjs, ai-loop.mjs, ai-exec.mjs, init-template.mjs, create-shortcut.ps1
+├── scripts/                   # harness (aqi/, aqi.mjs, judge, runner), ai-loop.mjs, ai-exec.mjs, init-template.mjs
 ├── start-cockpit.bat          # 1-click Windows desktop batch launcher
 └── .eval/                     # Read-only golden assertions locked by SHA-256
 ```
