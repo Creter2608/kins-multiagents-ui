@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.6.0](https://img.shields.io/badge/Release-v2.6.0-emerald.svg)](package.json)
-[![Tests: 258 passing](https://img.shields.io/badge/Tests-258%20passing-brightgreen.svg)](package.json)
+[![Release: v2.7.0](https://img.shields.io/badge/Release-v2.7.0-emerald.svg)](package.json)
+[![Tests: 264 passing](https://img.shields.io/badge/Tests-264%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -48,6 +48,15 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - When container `kins_autonomous_sandbox` is active, all builds, dependency installations, and test runs execute inside Docker for complete host OS isolation.
 - Automatic container health polling (`Active`, `Stopped`, or `Unavailable`) displayed directly on the HUD.
 
+### 5. Architectural Quality Index (AQI v2.0) & Compliance Engine
+- **Tarjan's Strongly Connected Components (SCC)**: Deterministic module cycle detection identifying newly introduced circular dependencies between files in patch diffs.
+- **AST Scope-Aware Alias Tracking**: Eliminates regex evasion by tracking aliased debug sinks (`const emit = console.log`, `const { log } = console`, `process.stdout.write`) and block-commented declarations.
+- **Monotonic Churn Calculation**: Computes `semanticChurn = addedLines + deletedLines`, neutralizing dummy deletion offset gaming.
+- **Public Contract Validation**: Verifies exported functions, methods, and classes retain strict TypeScript argument and return type signatures.
+- **God-Module Concentration Detector**: Penalizes monolithic patches that concentrate >65% churn and >500 lines into single files.
+- **Context-Aware Task Profiles**: Tailored evaluation profiles (`fix`, `feat`, `refactor`, `bootstrap`) preventing false positive failures on greenfield scaffolding while enforcing Karpathy simplicity gates.
+- **Visualized in Kins Cockpit**: Rendered natively in `PhaseTracker` and `EvalScoreboard` with task profile tags, criteria breakdowns (`Surg`, `Simp`, `Mod`, `Maint`), and prominent hard-failure alerts.
+
 ---
 
 ## 🛠️ Tech Stack
@@ -56,7 +65,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **UI & Styling**: React 19, TypeScript 5.7, Tailwind CSS 3.4, Lucide Icons
 - **Terminal Core**: `@xterm/xterm`, `@xterm/addon-fit`, `node-pty`
 - **Build System**: Vite 6, esbuild (CommonJS preload bundling), TypeScript Compiler (`tsc`)
-- **Testing**: Node.js Native Test Runner (`node --test`), assert module (81+ deterministic tests)
+- **Testing**: Node.js Native Test Runner (`node --test`), assert module (264 deterministic unit, integration, and harness tests)
 
 ---
 
@@ -104,9 +113,10 @@ npm install
 
 All verification commands are CPU-bound ($0 LLM token spend):
 
-- **Run Full Deterministic Test Suite (109+ tests)**:
+- **Run Full Deterministic Test Suite (264 tests)**:
   ```bash
   npm test
+  node scripts/harness/aqi.test.mjs
   ```
 - **Strict TypeScript Typecheck**:
   ```bash
@@ -149,8 +159,8 @@ kins-multiagents-ui/
 │   ├── decisions/             # Architecture Decision Records (ADR-001, ADR-002, ADR-003)
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry
 │   └── log.md                 # Autonomous execution log
-├── test/                      # 81+ automated unit and integration tests
-├── scripts/                   # ai-loop.mjs, ai-exec.mjs, init-template.mjs, create-shortcut.ps1
+├── test/                      # 258 automated unit and integration tests
+├── scripts/                   # aqi.mjs, ai-loop.mjs, ai-exec.mjs, init-template.mjs, create-shortcut.ps1
 ├── start-cockpit.bat          # 1-click Windows desktop batch launcher
 └── .eval/                     # Read-only golden assertions locked by SHA-256
 ```
