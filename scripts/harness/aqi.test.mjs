@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import {
   parseUnifiedDiff,
   findDependencyCycles,
@@ -170,3 +173,104 @@ ${Array.from({ length: 125 }, (_, j) => `+export function util${i}_${j}(x: numbe
   assert.strictEqual(score.criteriaScores.surgicalDiff, 5.0, 'Bootstrap mode should not penalize surgical diff churn');
   assert.ok(score.aqi >= 4.0);
 });
+
+test('aqi: Adversarial 1 - exported .mjs function covered by companion .d.mts passes without WEAK_PUBLIC_CONTRACT', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aqi-companion-test-'));
+  try {
+    fs.writeFileSync(path.join(tempDir, 'service.mjs'), 'export function execute(data) { return data; }', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'service.d.mts'), 'export declare function execute(data: string): string;', 'utf8');
+
+    const diff = `
+diff --git a/service.mjs b/service.mjs
+--- a/service.mjs
++++ b/service.mjs
+@@ -1,1 +1,2 @@
++export function execute(data) { return data; }
+`;
+    const analysis = analyzeArchitectureChange(diff, { taskType: 'feat', repoRoot: tempDir });
+    const score = scoreArchitectureAnalysis(analysis);
+
+    assert.strictEqual(analysis.findings.some(f => f.code === FINDING_CODES.WEAK_PUBLIC_CONTRACT), false, 'Should have no WEAK_PUBLIC_CONTRACT');
+    assert.strictEqual(score.criteriaScores.modularity, 5.0, 'Modularity should be 5.0 with companion .d.mts');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('aqi: Adversarial 2 - prose mentioning @ts-ignore is ignored, genuine // @ts-ignore directive triggers HARD FAILURE', () => {
+  // Diff 1: Prose documentation comment
+  const proseDiff = `
+diff --git a/src/doc.ts b/src/doc.ts
+--- a/src/doc.ts
++++ b/src/doc.ts
+@@ -1,1 +1,2 @@
++// Hard suppression markers: @ts-ignore, @ts-nocheck, 'as any'
+`;
+  const proseAnalysis = analyzeArchitectureChange(proseDiff, { taskType: 'fix' });
+  assert.strictEqual(proseAnalysis.hardFailures.length, 0, 'Prose comment must not trigger hard failure');
+  assert.strictEqual(proseAnalysis.findings.some(f => f.code === FINDING_CODES.UNSAFE_SUPPRESSION), false);
+
+  // Diff 2: Real directive comment
+  const directiveDiff = `
+diff --git a/src/service.ts b/src/service.ts
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -1,1 +1,3 @@
++// @ts-ignore
++const x = 1;
+`;
+  const directiveAnalysis = analyzeArchitectureChange(directiveDiff, { taskType: 'fix' });
+  const directiveScore = scoreArchitectureAnalysis(directiveAnalysis);
+  assert.strictEqual(directiveAnalysis.hardFailures.length > 0, true, 'Genuine @ts-ignore directive must trigger hard failure');
+  assert.strictEqual(directiveScore.passed, false, 'Score must fail on hard failure');
+});
+
+test('aqi: Adversarial 3 - process.stdout.write in .test.mjs is ignored, but penalized in production .mjs', () => {
+  // Test file diff
+  const testFileDiff = `
+diff --git a/test/sample.test.mjs b/test/sample.test.mjs
+--- a/test/sample.test.mjs
++++ b/test/sample.test.mjs
+@@ -1,1 +1,2 @@
++process.stdout.write("testing mock diff");
+`;
+  const testAnalysis = analyzeArchitectureChange(testFileDiff, { taskType: 'fix' });
+  assert.strictEqual(testAnalysis.findings.some(f => f.code === FINDING_CODES.DEBUG_OUTPUT), false, 'Test file must ignore debug prints');
+
+  // Production file diff
+  const prodFileDiff = `
+diff --git a/src/app.mjs b/src/app.mjs
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -1,1 +1,2 @@
++process.stdout.write("leaked debug stdout");
+`;
+  const prodAnalysis = analyzeArchitectureChange(prodFileDiff, { taskType: 'fix' });
+  assert.strictEqual(prodAnalysis.findings.some(f => f.code === FINDING_CODES.DEBUG_OUTPUT), true, 'Production file must be penalized');
+});
+
+test('aqi: Adversarial 4 - modularized AQI files under 500 lines produce 0 GOD_MODULE findings', () => {
+  // Multi-file diff representing decomposed modules (each ~120-250 lines)
+  let modularDiff = '';
+  const sourcePairs = new Map();
+
+  const moduleNames = ['diff-parser.mjs', 'cycle-detector.mjs', 'contract-rules.mjs', 'scoring.mjs', 'aqi.mjs'];
+  for (const mod of moduleNames) {
+    const lines = Array.from({ length: 150 }, (_, i) => `export function fn_${mod.replace(/[^a-z]/g, '')}_${i}(x) { return x; }`);
+    const content = lines.join('\n');
+    sourcePairs.set(`scripts/harness/aqi/${mod}`, { before: '', after: content });
+    modularDiff += `
+diff --git a/scripts/harness/aqi/${mod} b/scripts/harness/aqi/${mod}
+new file mode 100644
+--- /dev/null
++++ b/scripts/harness/aqi/${mod}
+@@ -0,0 +1,150 @@
+${lines.map(l => `+${l}`).join('\n')}
+`;
+  }
+
+  const analysis = analyzeArchitectureChange(modularDiff, { taskType: 'feat', sourcePairs });
+  assert.strictEqual(analysis.findings.some(f => f.code === FINDING_CODES.GOD_MODULE), false, 'Modularized files must not trigger GOD_MODULE');
+  assert.strictEqual(analysis.metrics.godModuleCandidates, 0);
+});
+

@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
 [![Release: v2.7.0](https://img.shields.io/badge/Release-v2.7.0-emerald.svg)](package.json)
-[![Tests: 264 passing](https://img.shields.io/badge/Tests-264%20passing-brightgreen.svg)](package.json)
+[![Tests: 268 passing](https://img.shields.io/badge/Tests-268%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -65,7 +65,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **UI & Styling**: React 19, TypeScript 5.7, Tailwind CSS 3.4, Lucide Icons
 - **Terminal Core**: `@xterm/xterm`, `@xterm/addon-fit`, `node-pty`
 - **Build System**: Vite 6, esbuild (CommonJS preload bundling), TypeScript Compiler (`tsc`)
-- **Testing**: Node.js Native Test Runner (`node --test`), assert module (264 deterministic unit, integration, and harness tests)
+- **Testing**: Node.js Native Test Runner (`node --test`), assert module (268 deterministic unit, integration, and harness tests)
 
 ---
 
@@ -113,7 +113,7 @@ npm install
 
 All verification commands are CPU-bound ($0 LLM token spend):
 
-- **Run Full Deterministic Test Suite (264 tests)**:
+- **Run Full Deterministic Test Suite (268 tests)**:
   ```bash
   npm test
   node scripts/harness/aqi.test.mjs

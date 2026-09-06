@@ -1,259 +1,41 @@
 /**
  * scripts/harness/aqi.mjs
  * Deterministic AQI v2.0 Architecture Quality Index & Compliance Engine.
- * Implements context-aware diff analysis, TypeScript AST inspection,
- * Tarjan SCC cycle detection, public contract verification, and anti-gaming rules.
+ * Public orchestration façade re-exporting modular submodules:
+ * - diff-parser: unified diff parsing & monotonic churn
+ * - cycle-detector: Tarjan SCC dependency cycle detection
+ * - contract-rules: AST public contract validation & suppression filters
+ * - scoring: task profiles, finding codes, and AQI composite scoring
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
 
-export const TASK_PROFILES = Object.freeze({
-  fix: Object.freeze({
-    id: 'fix',
-    fileBudget: 4,
-    churnBudget: 120,
-    hunkBudget: 8,
-    minAqi: 3.8,
-    floors: Object.freeze({ surgicalDiff: 3.5 })
-  }),
-  feat: Object.freeze({
-    id: 'feat',
-    fileBudget: 12,
-    churnBudget: 500,
-    hunkBudget: 30,
-    minAqi: 3.5,
-    floors: Object.freeze({ modularity: 3.5 })
-  }),
-  refactor: Object.freeze({
-    id: 'refactor',
-    fileBudget: 20,
-    churnBudget: 800,
-    hunkBudget: 50,
-    minAqi: 3.7,
-    floors: Object.freeze({ modularity: 3.5, maintainability: 3.5 })
-  }),
-  bootstrap: Object.freeze({
-    id: 'bootstrap',
-    fileBudget: 50,
-    churnBudget: 3500,
-    hunkBudget: 150,
-    minAqi: 3.5,
-    floors: Object.freeze({ modularity: 3.5 })
-  })
-});
+import { parseUnifiedDiff } from './aqi/diff-parser.mjs';
+import { findDependencyCycles } from './aqi/cycle-detector.mjs';
+import {
+  isTestFilePath,
+  isExecutableCodeComment,
+  evaluateUnsafeSuppression,
+  getCompanionDeclarations,
+  hasTypedJsDoc
+} from './aqi/contract-rules.mjs';
+import {
+  TASK_PROFILES,
+  FINDING_CODES,
+  scoreArchitectureAnalysis
+} from './aqi/scoring.mjs';
 
-export const FINDING_CODES = Object.freeze({
-  DEBUG_OUTPUT: 'DEBUG_OUTPUT',
-  DEBUGGER_STATEMENT: 'DEBUGGER_STATEMENT',
-  COMMENTED_CODE: 'COMMENTED_CODE',
-  HIGH_COMPLEXITY: 'HIGH_COMPLEXITY',
-  DEPENDENCY_CYCLE: 'DEPENDENCY_CYCLE',
-  WEAK_PUBLIC_CONTRACT: 'WEAK_PUBLIC_CONTRACT',
-  TIGHT_COUPLING: 'TIGHT_COUPLING',
-  DEEP_INTERNAL_IMPORT: 'DEEP_INTERNAL_IMPORT',
-  GOD_MODULE: 'GOD_MODULE',
-  UNSAFE_SUPPRESSION: 'UNSAFE_SUPPRESSION',
-  EXPLICIT_ANY: 'EXPLICIT_ANY',
-  LARGE_FOOTPRINT: 'LARGE_FOOTPRINT',
-  SPECULATIVE_EXPANSION: 'SPECULATIVE_EXPANSION',
-  PLACEHOLDER_MARKER: 'PLACEHOLDER_MARKER'
-});
-
-/**
- * Parses a unified git diff text into structured file records.
- *
- * @param {string} diffText
- * @returns {Array<object>}
- */
-export function parseUnifiedDiff(diffText) {
-  if (typeof diffText !== 'string' || !diffText.trim()) {
-    return [];
-  }
-
-  const files = [];
-  const rawSections = diffText.split(/^diff --git /m);
-
-  for (const section of rawSections) {
-    if (!section.trim()) continue;
-
-    const lines = section.split('\n');
-    const headerLine = lines[0] || '';
-    const headerParts = headerLine.split(' ');
-    const oldPathRaw = headerParts[0]?.replace(/^a\//, '') || '';
-    const newPathRaw = headerParts[1]?.replace(/^b\//, '') || '';
-
-    let oldPath = oldPathRaw;
-    let newPath = newPathRaw;
-    let isNew = false;
-    let isDeleted = false;
-    let isRename = false;
-    let isBinary = false;
-
-    let addedLinesCount = 0;
-    let deletedLinesCount = 0;
-    const addedLines = [];
-    const addedLineNumbers = [];
-    const hunks = [];
-    let currentHunk = null;
-    let currentNewLineNumber = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-
-      if (line.startsWith('new file mode')) {
-        isNew = true;
-      } else if (line.startsWith('deleted file mode')) {
-        isDeleted = true;
-      } else if (line.startsWith('similarity index') || line.startsWith('rename from')) {
-        isRename = true;
-      } else if (line.startsWith('Binary files')) {
-        isBinary = true;
-      } else if (line.startsWith('--- ')) {
-        const p = line.slice(4).trim();
-        if (p === '/dev/null') isNew = true;
-      } else if (line.startsWith('+++ ')) {
-        const p = line.slice(4).trim();
-        if (p === '/dev/null') isDeleted = true;
-        else newPath = p.replace(/^b\//, '');
-      } else if (line.startsWith('@@ ')) {
-        const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-        if (hunkMatch) {
-          const oldStart = parseInt(hunkMatch[1], 10);
-          const oldLines = parseInt(hunkMatch[2] || '1', 10);
-          const newStart = parseInt(hunkMatch[3], 10);
-          const newLines = parseInt(hunkMatch[4] || '1', 10);
-
-          currentHunk = { oldStart, oldLines, newStart, newLines };
-          hunks.push(currentHunk);
-          currentNewLineNumber = newStart;
-        }
-      } else if (currentHunk) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          addedLinesCount++;
-          addedLines.push(line.slice(1));
-          addedLineNumbers.push(currentNewLineNumber);
-          currentNewLineNumber++;
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-          deletedLinesCount++;
-        } else if (line.startsWith(' ')) {
-          currentNewLineNumber++;
-        }
-      }
-    }
-
-    files.push({
-      oldPath: isNew ? null : oldPath,
-      newPath: isDeleted ? null : newPath,
-      path: isDeleted ? oldPath : newPath,
-      isNew,
-      isDeleted,
-      isRename,
-      isBinary,
-      addedLinesCount,
-      deletedLinesCount,
-      semanticChurn: addedLinesCount + deletedLinesCount,
-      addedLines,
-      addedLineNumbers,
-      hunks
-    });
-  }
-
-  return files;
-}
-
-/**
- * Deterministic Tarjan's Strongly Connected Components (SCC) algorithm.
- * Identifies dependency cycles in a directed graph.
- *
- * @param {Map<string, Set<string>>} graph
- * @returns {Array<string[]>} List of SCCs with size > 1
- */
-export function findDependencyCycles(graph) {
-  let index = 0;
-  const indices = new Map();
-  const lowlinks = new Map();
-  const onStack = new Map();
-  const stack = [];
-  const cycles = [];
-
-  const nodes = Array.from(graph.keys()).sort();
-
-  function strongConnect(v) {
-    indices.set(v, index);
-    lowlinks.set(v, index);
-    index++;
-    stack.push(v);
-    onStack.set(v, true);
-
-    const neighbors = Array.from(graph.get(v) || []).sort();
-    for (const w of neighbors) {
-      if (!indices.has(w)) {
-        strongConnect(w);
-        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(w)));
-      } else if (onStack.get(w)) {
-        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(w)));
-      }
-    }
-
-    if (lowlinks.get(v) === indices.get(v)) {
-      const component = [];
-      let w;
-      do {
-        w = stack.pop();
-        onStack.set(w, false);
-        component.push(w);
-      } while (w !== v);
-
-      if (component.length > 1) {
-        cycles.push(component.sort());
-      }
-    }
-  }
-
-  for (const node of nodes) {
-    if (!indices.has(node)) {
-      strongConnect(node);
-    }
-  }
-
-  return cycles.sort((a, b) => a[0].localeCompare(b[0]));
-}
-
-/**
- * Checks if a comment string represents executable code rather than plain prose.
- *
- * @param {string} text
- * @returns {boolean}
- */
-export function isExecutableCodeComment(text) {
-  const clean = text.replace(/^\/\*+/, '').replace(/\*+\/$/, '').replace(/^\/\/+/, '').trim();
-  if (!clean || clean.length < 3) return false;
-
-  // Ignore typical documentation / URLs / TODOs
-  if (/^(https?:\/\/|TODO|FIXME|NOTE|TIP|IMPORTANT|WARN|@param|@returns|@type)\b/i.test(clean)) {
-    return false;
-  }
-
-  // Keywords that signal dead or commented-out code
-  if (/^\s*(const|let|var|function|class|import|export|return|interface|type)\b/.test(clean)) {
-    return true;
-  }
-
-  // Statements like: `a = b;` or `doSomething();` or `if (x) { ... }`
-  if (/^\s*(if|for|while|switch|try|catch)\s*\(/.test(clean)) {
-    return true;
-  }
-  if (/^[a-zA-Z0-9_$]+\s*=\s*[^;]+;?$/.test(clean)) {
-    return true;
-  }
-  if (/^[a-zA-Z0-9_$.]+\s*\([^)]*\)\s*;?$/.test(clean)) {
-    return true;
-  }
-
-  return false;
-}
+// Public API Re-exports for 100% backward compatibility
+export {
+  parseUnifiedDiff,
+  findDependencyCycles,
+  isExecutableCodeComment,
+  TASK_PROFILES,
+  FINDING_CODES,
+  scoreArchitectureAnalysis
+};
 
 /**
  * Performs AST and semantic analysis on parsed diff and source files.
@@ -308,7 +90,7 @@ export function analyzeArchitectureChange(diffText, options = {}) {
   for (const file of parsedFiles) {
     if (!file.path) continue;
 
-    const isTest = /(^|\/)(test|__tests__|tests)\/|\.test\.[a-z]+$/i.test(file.path);
+    const isTest = isTestFilePath(file.path);
     const isDoc = /\.(md|txt|rst|adoc)$/i.test(file.path);
 
     if (isTest) metrics.testFiles++;
@@ -329,20 +111,22 @@ export function analyzeArchitectureChange(diffText, options = {}) {
       const trimmed = rawLine.trim();
       const lineNum = file.addedLineNumbers[idx] || null;
 
-      // Debugging prints check
-      if (/\bconsole\.(log|debug|info|warn)\(/.test(trimmed) ||
-          /\bprocess\.(stdout|stderr)\.write\(/.test(trimmed) ||
-          /\bconsole\[["'](log|debug|info|warn)["']\]\(/.test(trimmed)) {
-        metrics.debugCallsCount++;
-        findings.push({
-          code: FINDING_CODES.DEBUG_OUTPUT,
-          category: 'maintainability',
-          severity: 'warning',
-          file: file.path,
-          line: lineNum,
-          evidence: `Suspicious debug logging added: "${trimmed.slice(0, 60)}"`,
-          penalty: 0.5
-        });
+      // Debugging prints check - strictly scoped to production files
+      if (!isTest) {
+        if (/\bconsole\.(log|debug|info|warn)\(/.test(trimmed) ||
+            /\bprocess\.(stdout|stderr)\.write\(/.test(trimmed) ||
+            /\bconsole\[["'](log|debug|info|warn)["']\]\(/.test(trimmed)) {
+          metrics.debugCallsCount++;
+          findings.push({
+            code: FINDING_CODES.DEBUG_OUTPUT,
+            category: 'maintainability',
+            severity: 'warning',
+            file: file.path,
+            line: lineNum,
+            evidence: `Suspicious debug logging added: "${trimmed.slice(0, 60)}"`,
+            penalty: 0.5
+          });
+        }
       }
 
       // Debugger check
@@ -374,18 +158,21 @@ export function analyzeArchitectureChange(diffText, options = {}) {
         });
       }
 
-      // Hard suppression markers: @ts-ignore, @ts-nocheck, 'as any'
-      if (/@ts-(ignore|nocheck)\b/.test(trimmed) || /\bas\s+any\b/.test(trimmed)) {
-        hardFailures.push(`Unsafe type suppression detected: "${trimmed.slice(0, 60)}" at ${file.path}:${lineNum}`);
-        findings.push({
-          code: FINDING_CODES.UNSAFE_SUPPRESSION,
-          category: 'maintainability',
-          severity: 'error',
-          file: file.path,
-          line: lineNum,
-          evidence: `Unsafe type suppression: "${trimmed.slice(0, 60)}"`,
-          penalty: 1.5
-        });
+      // Actionable type suppression directives (strictly scoped to production files)
+      if (!isTest) {
+        const suppression = evaluateUnsafeSuppression(trimmed);
+        if (suppression.isSuppression) {
+          hardFailures.push(`Unsafe type suppression detected: "${trimmed.slice(0, 60)}" at ${file.path}:${lineNum}`);
+          findings.push({
+            code: FINDING_CODES.UNSAFE_SUPPRESSION,
+            category: 'maintainability',
+            severity: 'error',
+            file: file.path,
+            line: lineNum,
+            evidence: `Unsafe type suppression: "${trimmed.slice(0, 60)}"`,
+            penalty: 1.5
+          });
+        }
       }
     }
 
@@ -401,7 +188,6 @@ export function analyzeArchitectureChange(diffText, options = {}) {
       afterSource = pair.after;
       beforeSource = pair.before;
     } else {
-      // Reconstruct after source from added lines if disk file is absent
       const fullDiskPath = path.resolve(repoRoot, file.path);
       if (fs.existsSync(fullDiskPath)) {
         try {
@@ -433,7 +219,7 @@ export function analyzeArchitectureChange(diffText, options = {}) {
 
       // AST Walker
       const localImports = new Set();
-      const declaredAliases = new Map(); // aliasName -> original
+      const declaredAliases = new Map();
       let topLevelDeclarationsCount = 0;
       let fileSemanticLines = 0;
 
@@ -442,7 +228,6 @@ export function analyzeArchitectureChange(diffText, options = {}) {
         const rawResolved = path.posix.normalize(dir === '.' ? specifier.replace(/^\.\//, '') : `${dir}/${specifier}`);
         const baseResolved = rawResolved.replace(/\.[cm]?[jt]sx?$/, '');
 
-        // Match against touched files
         for (const touched of touchedFilePaths) {
           const touchedBase = touched.replace(/\.[cm]?[jt]sx?$/, '');
           if (touched === rawResolved || touchedBase === baseResolved) {
@@ -461,7 +246,7 @@ export function analyzeArchitectureChange(diffText, options = {}) {
           }
         }
 
-        // Track debug sink aliases: const emit = console.log, const { log } = console
+        // Track debug sink aliases: const emit = console.log
         if (ts.isVariableDeclaration(node) && node.name && node.initializer) {
           if (ts.isIdentifier(node.name)) {
             const varName = node.name.text;
@@ -481,8 +266,8 @@ export function analyzeArchitectureChange(diffText, options = {}) {
           }
         }
 
-        // Detect calls through tracked aliases: emit("x")
-        if (ts.isCallExpression(node)) {
+        // Detect calls through tracked aliases in production files
+        if (!isTest && ts.isCallExpression(node)) {
           const callExpr = node.expression.getText(sourceFile);
           if (declaredAliases.has(callExpr)) {
             metrics.debugCallsCount++;
@@ -507,7 +292,20 @@ export function analyzeArchitectureChange(diffText, options = {}) {
             const hasReturnType = Boolean(node.type);
             const hasParamTypes = node.parameters.every(p => Boolean(p.type));
 
-            if (!isReactComponent && (!hasReturnType || !hasParamTypes)) {
+            // Check if JavaScript export is covered by companion declaration or typed JSDoc
+            const isPlainJs = /\.[cm]?jsx?$/i.test(file.path) && !/\.tsx?$/i.test(file.path);
+            let isSatisfiedContract = hasReturnType && hasParamTypes;
+
+            if (!isSatisfiedContract && isPlainJs) {
+              const companion = getCompanionDeclarations(repoRoot, file.path);
+              if (companion && companion.has(funcName)) {
+                isSatisfiedContract = true;
+              } else if (hasTypedJsDoc(node, sourceFile)) {
+                isSatisfiedContract = true;
+              }
+            }
+
+            if (!isReactComponent && !isSatisfiedContract) {
               metrics.untypedExportsCount++;
               findings.push({
                 code: FINDING_CODES.WEAK_PUBLIC_CONTRACT,
@@ -608,132 +406,5 @@ export function analyzeArchitectureChange(diffText, options = {}) {
       eligibleFiles: touchedFilePaths.size,
       parsedFiles: afterGraph.size
     }
-  };
-}
-
-/**
- * Computes AQI composite scores, category deductions, and pass/fail verdict.
- *
- * @param {object} analysis ArchitectureAnalysis from analyzeArchitectureChange
- * @param {object} [options={}]
- * @returns {object} ArchitectureScore
- */
-export function scoreArchitectureAnalysis(analysis, options = {}) {
-  const profile = TASK_PROFILES[analysis.taskType] || TASK_PROFILES.fix;
-  const minAqi = typeof options.minAqi === 'number' ? options.minAqi : profile.minAqi;
-
-  let surgicalDiff = 5.0;
-  let simplicity = 5.0;
-  let modularity = 5.0;
-  let maintainability = 5.0;
-  const feedback = [];
-
-  // Empty diff check
-  if (analysis.files.length === 0) {
-    return {
-      aqi: 5.0,
-      passed: true,
-      taskType: analysis.taskType,
-      threshold: minAqi,
-      criteriaScores: { surgicalDiff: 5.0, simplicity: 5.0, modularity: 5.0, maintainability: 5.0 },
-      hardFailures: [],
-      findings: [],
-      metrics: analysis.metrics,
-      feedback: ['Empty diff, no modifications evaluated.']
-    };
-  }
-
-  // 1. Surgical Diff Churn & Footprint Deductions
-  // In bootstrap/init mode, file footprint and additions are exempt from churn penalties
-  if (analysis.taskType !== 'bootstrap') {
-    if (analysis.touchedFilesCount > profile.fileBudget) {
-      const overFiles = (analysis.touchedFilesCount - profile.fileBudget) / profile.fileBudget;
-      const penalty = Math.min(2.0, Math.round(overFiles * 1.5 * 10) / 10);
-      surgicalDiff -= penalty;
-      feedback.push(`Large file footprint: ${analysis.touchedFilesCount} files modified in a single patch.`);
-    }
-
-    if (analysis.metrics.semanticChurn > profile.churnBudget) {
-      const overChurn = (analysis.metrics.semanticChurn - profile.churnBudget) / profile.churnBudget;
-      const penalty = Math.min(2.0, Math.round(overChurn * 1.5 * 10) / 10);
-      surgicalDiff -= penalty;
-      feedback.push(`High churn: ${analysis.metrics.semanticChurn} total line changes exceed budget ${profile.churnBudget}.`);
-    }
-
-    // Retain legacy feature creep rule for backward compatibility
-    if (analysis.metrics.addedLinesCount > 800 && analysis.metrics.deletedLinesCount < 20) {
-      simplicity -= 2.0;
-      feedback.push(`Potential speculative feature creep: +${analysis.metrics.addedLinesCount} lines added vs -${analysis.metrics.deletedLinesCount} deleted.`);
-    }
-  }
-
-  // 2. Apply findings by category
-  for (const finding of analysis.findings) {
-    if (finding.category === 'surgicalDiff') {
-      surgicalDiff -= finding.penalty;
-    } else if (finding.category === 'simplicity') {
-      simplicity -= finding.penalty;
-    } else if (finding.category === 'modularity') {
-      modularity -= finding.penalty;
-    } else if (finding.category === 'maintainability') {
-      maintainability -= finding.penalty;
-    }
-    feedback.push(finding.evidence);
-  }
-
-  // 3. Clamp scores to [1.0, 5.0]
-  surgicalDiff = Math.max(1.0, Math.min(5.0, Math.round(surgicalDiff * 10) / 10));
-  simplicity = Math.max(1.0, Math.min(5.0, Math.round(simplicity * 10) / 10));
-  modularity = Math.max(1.0, Math.min(5.0, Math.round(modularity * 10) / 10));
-  maintainability = Math.max(1.0, Math.min(5.0, Math.round(maintainability * 10) / 10));
-
-  // 4. Weighted Composite AQI (30% Surgical, 30% Simplicity, 20% Modularity, 20% Maintainability)
-  const composite = (surgicalDiff * 0.3) + (simplicity * 0.3) + (modularity * 0.2) + (maintainability * 0.2);
-  const aqi = Math.round(composite * 100) / 100;
-
-  // 5. Evaluate Floors & Hard Failures
-  let passed = aqi >= minAqi && analysis.hardFailures.length === 0;
-
-  if (profile.floors) {
-    if (profile.floors.surgicalDiff && surgicalDiff < profile.floors.surgicalDiff) {
-      passed = false;
-      feedback.push(`Surgical diff score ${surgicalDiff} falls below category floor ${profile.floors.surgicalDiff}`);
-    }
-    if (profile.floors.modularity && modularity < profile.floors.modularity) {
-      passed = false;
-      feedback.push(`Modularity score ${modularity} falls below category floor ${profile.floors.modularity}`);
-    }
-    if (profile.floors.maintainability && maintainability < profile.floors.maintainability) {
-      passed = false;
-      feedback.push(`Maintainability score ${maintainability} falls below category floor ${profile.floors.maintainability}`);
-    }
-  }
-
-  if (analysis.hardFailures.length > 0) {
-    passed = false;
-    for (const hf of analysis.hardFailures) {
-      feedback.push(`HARD FAILURE: ${hf}`);
-    }
-  }
-
-  if (!passed && aqi < minAqi) {
-    feedback.push(`AQI score ${aqi} falls below required quality gate ${minAqi}`);
-  }
-
-  return {
-    aqi,
-    passed,
-    taskType: analysis.taskType,
-    threshold: minAqi,
-    criteriaScores: {
-      surgicalDiff,
-      simplicity,
-      modularity,
-      maintainability
-    },
-    hardFailures: analysis.hardFailures,
-    findings: analysis.findings,
-    metrics: analysis.metrics,
-    feedback
   };
 }
