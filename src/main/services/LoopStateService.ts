@@ -90,6 +90,9 @@ export class LoopStateService {
    */
   readState(): LoopStateSnapshot {
     if (!fs.existsSync(this.stateFilePath)) {
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
       return this.lastValidSnapshot;
     }
 

@@ -23,13 +23,34 @@ export interface ServiceContainer {
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
+  const broadcastProjectSwitch = (projectState: any) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("project:changed", projectState);
+      window.webContents.send("loop:snapshot", services.loop.getSnapshot());
+      window.webContents.send("mcp:snapshot", services.mcp.getSnapshot());
+      window.webContents.send("logs:entries", services.logs.getSnapshot().entries);
+      window.webContents.send("telemetry:snapshot", services.telemetry.getSnapshot());
+      window.webContents.send("eval:snapshot", services.evalHarness.getSnapshot());
+      if (services.subagents) {
+        window.webContents.send(SUBAGENT_IPC_CHANNELS.changed, services.subagents.list());
+      }
+      window.webContents.send("terminal:clear");
+    }
+  };
+
+  services.project.setOnProjectSwitched?.((projectState) => {
+    broadcastProjectSwitch(projectState);
+  });
+
   // Project
   ipcMain.handle("project:get-state", async () => {
     return services.project.getState();
   });
 
   ipcMain.handle("project:switch", async (_event, projectPath: string) => {
-    return await services.project.switchProject(projectPath);
+    const nextState = await services.project.switchProject(projectPath);
+    broadcastProjectSwitch(nextState);
+    return nextState;
   });
 
   ipcMain.handle("project:open-folder", async () => {
@@ -39,7 +60,9 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     if (res.canceled || res.filePaths.length === 0 || !res.filePaths[0]) {
       return null;
     }
-    return await services.project.switchProject(res.filePaths[0]);
+    const nextState = await services.project.switchProject(res.filePaths[0]);
+    broadcastProjectSwitch(nextState);
+    return nextState;
   });
   // Terminal
   ipcMain.handle("terminal:start", async () => {

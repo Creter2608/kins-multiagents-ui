@@ -17,7 +17,12 @@ const cockpitApi: CockpitApi = {
   project: {
     getState: () => ipcRenderer.invoke("project:get-state"),
     switchProject: (projectPath: string) => ipcRenderer.invoke("project:switch", projectPath),
-    openProjectFolder: () => ipcRenderer.invoke("project:open-folder")
+    openProjectFolder: () => ipcRenderer.invoke("project:open-folder"),
+    onProjectChanged: (listener: (state: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: any) => listener(state);
+      ipcRenderer.on("project:changed", handler);
+      return () => ipcRenderer.removeListener("project:changed", handler);
+    }
   },
   terminal: {
     start: () => ipcRenderer.invoke("terminal:start"),
@@ -33,6 +38,11 @@ const cockpitApi: CockpitApi = {
       const handler = (_event: Electron.IpcRendererEvent, eventData: PtyExitEvent) => listener(eventData);
       ipcRenderer.on("terminal:exit", handler);
       return () => ipcRenderer.removeListener("terminal:exit", handler);
+    },
+    onClear: (listener: () => void) => {
+      const handler = () => listener();
+      ipcRenderer.on("terminal:clear", handler);
+      return () => ipcRenderer.removeListener("terminal:clear", handler);
     }
   },
   loop: {

@@ -10,6 +10,8 @@ export interface ProjectScopedServices {
   readonly evalHarnessService?: { setProjectRoot(p: string): Promise<void> };
   readonly telemetryService?: { resetCurrentSession(): void };
   readonly transcriptService?: { setProjectRoot(p: string): Promise<void>; reset?(): void };
+  readonly subagentService?: { reset(): void };
+  readonly logService?: { clearLogs(): void };
 }
 
 interface PersistedProjectState {
@@ -23,6 +25,7 @@ export class ProjectService {
   private services: ProjectScopedServices;
   private currentPath: string;
   private recentPaths: string[] = [];
+  private onProjectSwitchedCallback: ((state: ProjectState) => void) | null = null;
 
   constructor(
     configFilePath: string,
@@ -69,6 +72,10 @@ export class ProjectService {
     } catch (err) {
       console.error("[ProjectService] Failed to persist recent projects:", err);
     }
+  }
+
+  setOnProjectSwitched(callback: (state: ProjectState) => void): void {
+    this.onProjectSwitchedCallback = callback;
   }
 
   async initialize(): Promise<ProjectState> {
@@ -156,8 +163,12 @@ export class ProjectService {
 
     this.services.telemetryService?.resetCurrentSession();
     this.services.transcriptService?.reset?.();
+    this.services.subagentService?.reset();
+    this.services.logService?.clearLogs();
 
     this.persist();
-    return this.getState();
+    const state = this.getState();
+    this.onProjectSwitchedCallback?.(state);
+    return state;
   }
 }

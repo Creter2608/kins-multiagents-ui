@@ -62,6 +62,11 @@ export const TerminalStage: React.FC = () => {
         term.write(data);
       });
 
+      // Clear terminal screen on project switch or clear event
+      const unsubClear = api.terminal.onClear?.(() => {
+        term.clear();
+      });
+
       // Handle resize
       const handleResize = () => {
         if (fitAddonRef.current && terminalRef.current) {
@@ -90,6 +95,7 @@ export const TerminalStage: React.FC = () => {
 
       return () => {
         unsubData();
+        unsubClear?.();
         window.removeEventListener("resize", handleResize);
         term.dispose();
       };

@@ -15,6 +15,14 @@ export const ProjectSelector: React.FC = () => {
     void api.project.getState().then(setProjectState).catch((err) => {
       console.error("[ProjectSelector] Failed to fetch initial state:", err);
     });
+
+    const unsub = api.project.onProjectChanged?.((state) => {
+      setProjectState(state);
+    });
+
+    return () => {
+      unsub?.();
+    };
   }, []);
 
   useEffect(() => {

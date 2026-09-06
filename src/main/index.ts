@@ -27,13 +27,13 @@ const projectRoot = path.resolve(__dirname, "../../..");
 
 // Instantiate backend services with deterministic absolute paths
 const ptyService = new PtyService(projectRoot);
-const loopService = new LoopStateService(path.join(projectRoot, ".ai", "state.json"));
+const loopService = new LoopStateService(path.join(projectRoot, ".ai", "state.json"), projectRoot);
 const mcpService = new McpMonitorService(projectRoot);
 const logService = new CriticalLogService();
 const telemetryService = new TelemetryService();
 const dockerService = new DockerStatusService();
-const rollbackService = new RollbackService(projectRoot);
-const evalService = new EvalHarnessService(projectRoot);
+const rollbackService = new RollbackService(projectRoot, projectRoot);
+const evalService = new EvalHarnessService(projectRoot, projectRoot);
 const subagentService = new SubagentService();
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 let projectService: ProjectService | null = null;
@@ -55,7 +55,9 @@ async function createWindow(): Promise<void> {
         rollbackService,
         evalHarnessService: evalService,
         telemetryService,
-        transcriptService
+        transcriptService,
+        subagentService,
+        logService
       }
     );
     await projectService.initialize();

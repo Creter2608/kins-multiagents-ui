@@ -181,6 +181,7 @@ export interface CockpitApi {
     readonly getState: () => Promise<ProjectState>;
     readonly switchProject: (projectPath: string) => Promise<ProjectState>;
     readonly openProjectFolder: () => Promise<ProjectState | null>;
+    readonly onProjectChanged?: (listener: (state: ProjectState) => void) => Unsubscribe;
   };
   readonly terminal: {
     readonly start: () => Promise<void>;
@@ -189,6 +190,7 @@ export interface CockpitApi {
     readonly restart: () => Promise<void>;
     readonly onData: (listener: (data: string) => void) => Unsubscribe;
     readonly onExit: (listener: (event: PtyExitEvent) => void) => Unsubscribe;
+    readonly onClear?: (listener: () => void) => Unsubscribe;
   };
   readonly loop: {
     readonly getSnapshot: () => Promise<LoopStateSnapshot>;

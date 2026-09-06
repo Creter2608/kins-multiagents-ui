@@ -207,6 +207,30 @@ export class EvalHarnessService {
       baseCommit = rawBase;
     }
 
+    // If external project does not have an .eval directory, write and emit a clean empty report gracefully
+    const evalDir = path.resolve(this.projectRoot, ".eval");
+    if (!fs.existsSync(evalDir)) {
+      const emptyReport: EvaluationReport = {
+        schemaVersion: 1,
+        baseCommit,
+        metrics: { passAt1: 0, passAtK: 0, k: 1, ssi: 0 },
+        passed: true,
+        results: [],
+        violations: []
+      };
+      const reportsDir = path.dirname(this.reportPath);
+      if (!fs.existsSync(reportsDir)) {
+        try {
+          fs.mkdirSync(reportsDir, { recursive: true });
+        } catch {}
+      }
+      try {
+        fs.writeFileSync(this.reportPath, JSON.stringify(emptyReport, null, 2) + "\n", "utf-8");
+      } catch {}
+      this.readReport();
+      return this.getSnapshot();
+    }
+
     // Reset/clear stale report before runner execution so failed or empty runs cannot expose stale results
     try {
       if (fs.existsSync(this.reportPath)) {

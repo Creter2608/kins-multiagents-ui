@@ -3,12 +3,19 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { RollbackService } from "../src/main/services/RollbackService.js";
 import { EvalHarnessService } from "../src/main/services/EvalHarnessService.js";
 import { McpMonitorService, PROJECT_MCP_CONFIG_PATHS } from "../src/main/services/McpMonitorService.js";
 import { ProjectService, type ProjectScopedServices } from "../src/main/services/ProjectService.js";
 import type { LoopStateSnapshot } from "../src/shared/contracts.js";
 import type { ArchitecturalCompliance, EvaluationReport } from "../src/shared/harness.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const APP_ROOT = fs.existsSync(path.join(__dirname, "..", "scripts"))
+  ? path.resolve(__dirname, "..")
+  : path.resolve(__dirname, "../..");
 
 test("PROJECT_MCP_CONFIG_PATHS includes standard multi-IDE configuration locations", () => {
   assert.ok(PROJECT_MCP_CONFIG_PATHS.includes("mcp.json"));
@@ -257,4 +264,95 @@ test("AQI Display Contract: nullish fallback selects loopState compliance when r
   const resolvedReport = reportWithCompliance?.architecturalCompliance ?? loopStateOnly?.architecturalCompliance;
   assert.deepEqual(resolvedReport, mockReportCompliance);
   assert.equal(resolvedReport?.aqi, 3.2);
+});
+
+test("ProjectService: resets subagents, logs, and triggers onProjectSwitched callback on switch", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "proj-scoped-"));
+  const defaultDir = path.join(tempDir, "proj-a");
+  const targetDir = path.join(tempDir, "proj-b");
+  fs.mkdirSync(defaultDir, { recursive: true });
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const configFile = path.join(tempDir, "recent-projects.json");
+  let subagentResetCount = 0;
+  let logsClearCount = 0;
+  let switchedCallbackReceived: string | null = null;
+
+  const mockServices: ProjectScopedServices = {
+    ptyService: { setProjectRoot: async () => {} },
+    loopStateService: { setProjectRoot: async () => {} },
+    mcpMonitorService: { setProjectRoot: async () => {} },
+    rollbackService: { setProjectRoot: async () => {} },
+    subagentService: {
+      reset: () => {
+        subagentResetCount++;
+      }
+    },
+    logService: {
+      clearLogs: () => {
+        logsClearCount++;
+      }
+    }
+  };
+
+  try {
+    const service = new ProjectService(configFile, defaultDir, mockServices);
+    service.setOnProjectSwitched((state) => {
+      switchedCallbackReceived = state.currentProject.path;
+    });
+
+    await service.initialize();
+    assert.equal(subagentResetCount, 0, "Initialize should not reset subagents");
+    assert.equal(logsClearCount, 0, "Initialize should not clear logs");
+
+    await service.switchProject(targetDir);
+    assert.equal(subagentResetCount, 1, "switchProject should reset subagents");
+    assert.equal(logsClearCount, 1, "switchProject should clear logs");
+    assert.equal(switchedCallbackReceived, path.resolve(targetDir));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("LoopStateService: emits default initial snapshot to listeners when switching to project without .ai/state.json", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "loop-clean-"));
+  try {
+    const { LoopStateService } = await import("../src/main/services/LoopStateService.js");
+    const service = new LoopStateService(path.join(tempDir, ".ai", "state.json"));
+
+    let receivedSnapshot: LoopStateSnapshot | null = null;
+    service.subscribe((snap) => {
+      receivedSnapshot = snap;
+    });
+
+    // Switch to another clean directory
+    const cleanRepoDir = path.join(tempDir, "clean-repo");
+    fs.mkdirSync(cleanRepoDir, { recursive: true });
+
+    await service.setProjectRoot(cleanRepoDir);
+
+    assert.ok(receivedSnapshot !== null, "Listener must receive snapshot when switching to clean repo");
+    const snap = receivedSnapshot as LoopStateSnapshot;
+    assert.equal(snap.currentPhase, "INITIALIZE");
+    assert.equal(snap.runId, "init");
+    assert.equal(snap.status, "ready");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("EvalHarnessService: runBenchmark in external repository without .eval directory returns empty passing report", async () => {
+  const tempGit = fs.mkdtempSync(path.join(os.tmpdir(), "harness-no-eval-"));
+  try {
+    const service = new EvalHarnessService(tempGit, APP_ROOT);
+    const snap = await service.runBenchmark();
+
+    assert.ok(snap !== null);
+    assert.equal(snap.status, "ready");
+    assert.ok(snap.report !== null);
+    assert.equal(snap.report?.passed, true);
+    assert.deepEqual(snap.report?.results, []);
+  } finally {
+    fs.rmSync(tempGit, { recursive: true, force: true });
+  }
 });
