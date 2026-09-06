@@ -15,7 +15,7 @@ import type {
   LoopTestStatus,
   ArchitecturalCompliance
 } from "../../shared/contracts.js";
-import { JsonFileLoopStateStore, LoopCommandService, FileLock } from "../../loop/index.js";
+import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
   const parsed = JSON.parse(content);
@@ -348,37 +348,8 @@ export class LoopStateService {
         }
       };
 
-      const dir = path.dirname(this.stateFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      // Write atomically via temp file with advisory file locking
-      const lock = new FileLock(this.stateFilePath);
-      lock.acquire();
-      try {
-        const tempPath = `${this.stateFilePath}.tmp-${Date.now()}`;
-        fs.writeFileSync(tempPath, JSON.stringify(freshState, null, 2), "utf-8");
-        try {
-          fs.renameSync(tempPath, this.stateFilePath);
-        } catch (err: unknown) {
-          if (
-            err &&
-            typeof err === "object" &&
-            ((err as { code?: string }).code === "EPERM" ||
-              (err as { code?: string }).code === "EBUSY")
-          ) {
-            fs.copyFileSync(tempPath, this.stateFilePath);
-            try {
-              fs.unlinkSync(tempPath);
-            } catch {}
-          } else {
-            throw err;
-          }
-        }
-      } finally {
-        lock.release();
-      }
+      // Write atomically via store with advisory file locking
+      this.store.writeSync(freshState);
 
       // Immediately read back and emit to all listeners
       const state = this.readState();
@@ -575,36 +546,7 @@ export class LoopStateService {
         architecturalCompliance: stateData.architecturalCompliance ?? current.architecturalCompliance
       };
 
-      const dir = path.dirname(this.stateFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const lock = new FileLock(this.stateFilePath);
-      lock.acquire();
-      try {
-        const tempPath = `${this.stateFilePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        fs.writeFileSync(tempPath, JSON.stringify(updatedState, null, 2), "utf-8");
-        try {
-          fs.renameSync(tempPath, this.stateFilePath);
-        } catch (err: unknown) {
-          if (
-            err &&
-            typeof err === "object" &&
-            ((err as { code?: string }).code === "EPERM" ||
-              (err as { code?: string }).code === "EBUSY")
-          ) {
-            fs.copyFileSync(tempPath, this.stateFilePath);
-            try {
-              fs.unlinkSync(tempPath);
-            } catch {}
-          } else {
-            throw err;
-          }
-        }
-      } finally {
-        lock.release();
-      }
+      this.store.writeSync(updatedState);
 
       this.readState();
 

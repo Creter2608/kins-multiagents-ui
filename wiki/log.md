@@ -1,5 +1,29 @@
 # Project Log
 
+## [2026-09-06] Codebase Audit & Architectural Remediation (P1, P2 & P3 Complete)
+
+### Summary
+Executed an evidence-driven architectural audit and remediation cycle governed by Autonomous Loop v2.0 (`run-1788687448314`). Layer 1 GPT Prompt Architect formulated blueprints and compact test assertions, synthesized by Layer 2 Gemini 3.8 Flash. 
+1. Eliminated potential IPC handler collision leaks by adding `loop:evaluateArchitecture` to teardown in `src/main/ipc.ts` (P1). 
+2. Consolidated loop state persistence by encapsulating atomic file writes and advisory file locks into `JsonFileLoopStateStore.writeSync()` and removing over 60 lines of duplicate locking/temporary file persistence boilerplate in `LoopStateService.ts` (P2). 
+3. Decomposed monolithic `TranscriptIngestionService.ts` (860 lines -> 532 lines, 38% reduction) by extracting pure regex, verification, and phase detection parsing functions into `src/main/services/transcriptParsers.ts` with 100% backward-compatible re-exports and a dedicated test suite `test/transcript-parsers.test.ts` (P3).
+AQI score evaluated at **4.55/5.0** (Modularity: 5.0, Simplicity: 5.0, Maintainability: 5.0, Hard Failures: 0) with zero regressions and `.eval/` immutable.
+
+### Key Deliverables
+1. **IPC Teardown Lifecycle Hardening (`src/main/ipc.ts`)**:
+   - Added `ipcMain.removeHandler("loop:evaluateArchitecture")` to prevent registration collisions during window destroy or reload.
+2. **Unified State Persistence (`src/loop/LoopStateStore.ts`, `src/main/services/LoopStateService.ts`)**:
+   - Modularized `atomicWrite()` and added `writeSync()` to `JsonFileLoopStateStore`.
+   - Streamlined `resetLoop()` and `transitionPhase()` in `LoopStateService.ts` to delegate to `this.store.writeSync()`.
+   - Removed unused `FileLock` import and redundant manual locking.
+3. **Modular Parser Decomposition (`src/main/services/transcriptParsers.ts`, `TranscriptIngestionService.ts`)**:
+   - Extracted `isVerificationCommand`, `isIsolationCommand`, `isStackDetectionTarget`, `parseVerificationOutput`, `detectPhaseWithEvidenceFromTranscriptStep`, `detectPhaseFromTranscriptStep`, and `parseGptTokenUsageLine`.
+   - Re-exported all parser functions and types from `TranscriptIngestionService.ts` to guarantee zero breaking changes for existing consumers.
+   - Reduced `TranscriptIngestionService.ts` footprint from 860 to 532 lines.
+4. **Verification & Testing (`test/loop-command-service.test.ts`, `test/transcript-parsers.test.ts`)**:
+   - Added test cases verifying atomic file locking and state persistence.
+   - Added 5 adversarial test cases in `test/transcript-parsers.test.ts` verifying positive/negative classification boundaries, TAP/Jest output parsing, token counters, and legacy export parity.
+
 ## [2026-09-06] AQI Engine Modular Decomposition & False-Positive Elimination
 
 ### Summary

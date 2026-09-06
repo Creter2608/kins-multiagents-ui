@@ -85,7 +85,7 @@ export function handleJsonRpcMessage(
         },
         serverInfo: {
           name: "kins-agent-loop",
-          version: "2.7.1"
+          version: "2.7.2"
         }
       }
     });

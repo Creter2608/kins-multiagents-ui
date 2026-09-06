@@ -221,6 +221,7 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("loop:rollback");
     ipcMain.removeHandler("loop:reset");
     ipcMain.removeHandler("loop:decideGate");
+    ipcMain.removeHandler("loop:evaluateArchitecture");
     ipcMain.removeHandler("mcp:getSnapshot");
     ipcMain.removeHandler("logs:getSnapshot");
     ipcMain.removeHandler("logs:clear");

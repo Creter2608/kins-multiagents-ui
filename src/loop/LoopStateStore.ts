@@ -97,6 +97,45 @@ export class JsonFileLoopStateStore implements LoopStateStore {
     }
   }
 
+  private atomicWrite(state: unknown): void {
+    const dir = path.dirname(this.stateFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const tmpFile = `${this.stateFilePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    const serialized = JSON.stringify(state, null, 2) + "\n";
+    fs.writeFileSync(tmpFile, serialized, "utf-8");
+
+    try {
+      fs.renameSync(tmpFile, this.stateFilePath);
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === "object" &&
+        ((err as { code?: string }).code === "EPERM" ||
+          (err as { code?: string }).code === "EBUSY")
+      ) {
+        fs.copyFileSync(tmpFile, this.stateFilePath);
+        try {
+          fs.unlinkSync(tmpFile);
+        } catch {}
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  writeSync(state: unknown): void {
+    const lock = new FileLock(this.stateFilePath);
+    lock.acquire();
+    try {
+      this.atomicWrite(state);
+    } finally {
+      lock.release();
+    }
+  }
+
   async update(
     mutate: (current: LoopState) => LoopState | Promise<LoopState>
   ): Promise<LoopState> {
@@ -105,34 +144,7 @@ export class JsonFileLoopStateStore implements LoopStateStore {
     try {
       const current = await this.read();
       const updated = await mutate(current);
-
-      const dir = path.dirname(this.stateFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const tmpFile = `${this.stateFilePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-      const serialized = JSON.stringify(updated, null, 2) + "\n";
-      fs.writeFileSync(tmpFile, serialized, "utf-8");
-
-      try {
-        fs.renameSync(tmpFile, this.stateFilePath);
-      } catch (err: unknown) {
-        if (
-          err &&
-          typeof err === "object" &&
-          ((err as { code?: string }).code === "EPERM" ||
-            (err as { code?: string }).code === "EBUSY")
-        ) {
-          fs.copyFileSync(tmpFile, this.stateFilePath);
-          try {
-            fs.unlinkSync(tmpFile);
-          } catch {}
-        } else {
-          throw err;
-        }
-      }
-
+      this.atomicWrite(updated);
       return updated;
     } finally {
       lock.release();

@@ -16,6 +16,7 @@ import {
 import { parseSha256Hex } from "../src/checksum.js";
 import type { LoopState } from "../src/engine.js";
 import { LoopError } from "../src/errors.js";
+import { LoopStateService } from "../src/main/services/LoopStateService.js";
 
 const DUMMY_SHA = parseSha256Hex("c9e3edcf9d3c16427221490a55e17de7414cb77b3c6653ffa63073cacf81889c");
 
@@ -488,6 +489,61 @@ test("mcp-server: handleJsonRpcMessage responds to initialize, tools/list, and t
   assert.equal(parsedTrans.ok, true);
   assert.equal(parsedTrans.state.currentPhase, "EXECUTE");
 
+  fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
+});
+
+test("JsonFileLoopStateStore: writeSync writes atomically under file lock", async () => {
+  const stateFile = makeTempStateFile();
+  const store = new JsonFileLoopStateStore(stateFile);
+  const testState = createInitialState("sync-write-001");
+
+  store.writeSync(testState);
+
+  assert.ok(fs.existsSync(stateFile));
+  const readBack = await store.read();
+  assert.equal(readBack.runId, "sync-write-001");
+  assert.equal(readBack.currentPhase, "INITIALIZE");
+
+  // Mutate and write again
+  const mutatedState = {
+    ...testState,
+    currentPhase: "PLAN" as const,
+    usage: { transitions: 1, retries: 0, operations: 0 }
+  };
+  store.writeSync(mutatedState);
+
+  const readBack2 = await store.read();
+  assert.equal(readBack2.currentPhase, "PLAN");
+  assert.equal(readBack2.usage.transitions, 1);
+
+  fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
+});
+
+test("LoopStateService: transitionPhase and resetLoop persist via store and notify listeners", () => {
+  const stateFile = makeTempStateFile();
+  const service = new LoopStateService(stateFile);
+
+  const notifications: string[] = [];
+  service.subscribe((snapshot: { currentPhase: string }) => {
+    notifications.push(snapshot.currentPhase);
+  });
+
+  // resetLoop persists state
+  const resetRes = service.resetLoop("reset-run-001");
+  assert.equal(resetRes.success, true);
+  assert.equal(service.getSnapshot().runId, "reset-run-001");
+
+  // transitionPhase persists state
+  const ok = service.transitionPhase("SPEC_GATE");
+  assert.equal(ok, true);
+  assert.equal(service.getSnapshot().currentPhase, "SPEC_GATE");
+
+  // Read raw file to verify persistence
+  const rawDisk = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+  assert.equal(rawDisk.currentPhase, "SPEC_GATE");
+  assert.equal(rawDisk.runId, "reset-run-001");
+
+  service.dispose();
   fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
 });
 

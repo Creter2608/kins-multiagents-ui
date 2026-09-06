@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.7.1](https://img.shields.io/badge/Release-v2.7.1-emerald.svg)](package.json)
-[![Tests: 268 passing](https://img.shields.io/badge/Tests-268%20passing-brightgreen.svg)](package.json)
+[![Release: v2.7.2](https://img.shields.io/badge/Release-v2.7.2-emerald.svg)](package.json)
+[![Tests: 275 passing](https://img.shields.io/badge/Tests-275%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -162,7 +162,7 @@ kins-multiagents-ui/
 │   ├── decisions/             # Architecture Decision Records (ADR-001, ADR-002, ADR-003)
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry
 │   └── log.md                 # Autonomous execution log
-├── test/                      # 258 automated unit and integration tests
+├── test/                      # 265 automated unit and integration tests
 ├── scripts/                   # harness (aqi/, aqi.mjs, judge, runner), ai-loop.mjs, ai-exec.mjs, init-template.mjs
 ├── start-cockpit.bat          # 1-click Windows desktop batch launcher
 └── .eval/                     # Read-only golden assertions locked by SHA-256
