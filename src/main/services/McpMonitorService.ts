@@ -2,6 +2,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { McpSnapshot, McpServerInfo, ToolCallRecord } from "../../shared/contracts.js";
 
+export const PROJECT_MCP_CONFIG_PATHS = [
+  "mcp.json",
+  ".cursor/mcp.json",
+  ".vscode/mcp.json",
+  ".mcp.json",
+] as const;
+
 export class McpMonitorService {
   private projectRoot: string;
   private globalMcpDirs: string[];
@@ -65,27 +72,29 @@ export class McpMonitorService {
       }
     }
 
-    // 2. Scan project mcp.json
-    const projectMcpFile = path.join(this.projectRoot, "mcp.json");
-    if (fs.existsSync(projectMcpFile)) {
-      try {
-        const content = fs.readFileSync(projectMcpFile, "utf-8");
-        const parsed = JSON.parse(content);
-        if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
-          for (const name of Object.keys(parsed.mcpServers)) {
-            if (!discovered.some((s) => s.name === name)) {
-              discovered.push({
-                name,
-                status: "configured",
-                source: "project",
-                tools: [],
-                lastObserved: Date.now()
-              });
+    // 2. Scan project MCP configs across multi-IDE standard paths
+    for (const relPath of PROJECT_MCP_CONFIG_PATHS) {
+      const candidatePath = path.join(this.projectRoot, relPath);
+      if (fs.existsSync(candidatePath)) {
+        try {
+          const content = fs.readFileSync(candidatePath, "utf-8");
+          const parsed = JSON.parse(content);
+          if (parsed && typeof parsed === "object" && parsed.mcpServers && typeof parsed.mcpServers === "object") {
+            for (const name of Object.keys(parsed.mcpServers)) {
+              if (!discovered.some((s) => s.name === name)) {
+                discovered.push({
+                  name,
+                  status: "configured",
+                  source: "project",
+                  tools: [],
+                  lastObserved: Date.now()
+                });
+              }
             }
           }
+        } catch {
+          // Ignore parse errors
         }
-      } catch {
-        // Ignore parse errors
       }
     }
 

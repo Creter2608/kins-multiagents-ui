@@ -8,6 +8,7 @@ export interface ProjectScopedServices {
   readonly mcpMonitorService: { setProjectRoot(p: string): Promise<void> };
   readonly rollbackService: { setProjectRoot(p: string): Promise<void> };
   readonly evalHarnessService?: { setProjectRoot(p: string): Promise<void> };
+  readonly telemetryService?: { resetCurrentSession(): void };
 }
 
 interface PersistedProjectState {
@@ -145,6 +146,8 @@ export class ProjectService {
       resolved,
       ...this.recentPaths.filter((p) => p !== resolved)
     ];
+
+    this.services.telemetryService?.resetCurrentSession();
 
     this.persist();
     return this.getState();

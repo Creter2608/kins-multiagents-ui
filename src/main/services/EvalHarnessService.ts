@@ -6,6 +6,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { EvalHarnessSnapshot, EvalHarnessStatus } from "../../shared/contracts.js";
 import type { EvaluationReport } from "../../shared/harness.js";
 
@@ -18,6 +19,7 @@ const DEFAULT_SNAPSHOT: EvalHarnessSnapshot = {
 
 export class EvalHarnessService {
   private projectRoot: string;
+  private appRootOverride?: string | undefined;
   private reportPath: string;
   private runnerPath: string;
   private snapshot: EvalHarnessSnapshot = { ...DEFAULT_SNAPSHOT };
@@ -26,10 +28,42 @@ export class EvalHarnessService {
   private debounceTimer: NodeJS.Timeout | null = null;
   private inFlightBenchmark: Promise<EvalHarnessSnapshot> | null = null;
 
-  constructor(projectRoot: string) {
-    this.projectRoot = projectRoot;
-    this.reportPath = path.resolve(projectRoot, ".ai", "reports", "eval-report.json");
-    this.runnerPath = path.resolve(projectRoot, "scripts", "harness", "runner.mjs");
+  constructor(projectRoot: string, appRoot?: string) {
+    this.projectRoot = path.resolve(projectRoot);
+    this.appRootOverride = appRoot ? path.resolve(appRoot) : undefined;
+    this.reportPath = path.resolve(this.projectRoot, ".ai", "reports", "eval-report.json");
+    this.runnerPath = path.resolve(this.projectRoot, "scripts", "harness", "runner.mjs");
+  }
+
+  setAppRootForTesting(root: string): void {
+    this.appRootOverride = path.resolve(root);
+  }
+
+  resolveDefaultAppRoot(): string {
+    if (this.appRootOverride) {
+      return this.appRootOverride;
+    }
+    let curr = path.dirname(fileURLToPath(import.meta.url));
+    while (curr !== path.dirname(curr)) {
+      if (fs.existsSync(path.join(curr, "scripts", "harness", "runner.mjs"))) {
+        return curr;
+      }
+      curr = path.dirname(curr);
+    }
+    return process.cwd();
+  }
+
+  resolveRunnerPath(): string | null {
+    const localRunner = path.resolve(this.projectRoot, "scripts", "harness", "runner.mjs");
+    if (fs.existsSync(localRunner)) {
+      return localRunner;
+    }
+    const appRoot = this.resolveDefaultAppRoot();
+    const appRunner = path.resolve(appRoot, "scripts", "harness", "runner.mjs");
+    if (fs.existsSync(appRunner)) {
+      return appRunner;
+    }
+    return null;
   }
 
   getSnapshot(): EvalHarnessSnapshot {
@@ -190,8 +224,9 @@ export class EvalHarnessService {
     });
 
     return new Promise<EvalHarnessSnapshot>((resolve, reject) => {
-      if (!fs.existsSync(this.runnerPath)) {
-        const errMsg = `Harness runner script not found at ${this.runnerPath}`;
+      const runnerPath = this.resolveRunnerPath();
+      if (!runnerPath) {
+        const errMsg = `Harness runner script not found at ${this.runnerPath} or application root`;
         this.emit({
           status: "failed",
           report: this.snapshot.report,
@@ -202,7 +237,7 @@ export class EvalHarnessService {
       }
 
       const args = [
-        this.runnerPath,
+        runnerPath,
         "--base", baseCommit,
         "--repo-root", this.projectRoot,
         "--output", this.reportPath

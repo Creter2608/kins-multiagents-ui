@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { EvalHarnessSnapshot } from "../../shared/contracts.js";
+import type { EvalHarnessSnapshot, LoopStateSnapshot } from "../../shared/contracts.js";
 import {
   FlaskConical,
   Play,
@@ -15,13 +15,15 @@ import {
 
 export interface EvalScoreboardProps {
   readonly snapshot: EvalHarnessSnapshot;
+  readonly loopState?: LoopStateSnapshot | undefined;
   readonly onRunBenchmark: () => Promise<void>;
 }
 
-export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunBenchmark }) => {
+export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopState, onRunBenchmark }) => {
   const [inFlight, setInFlight] = useState(false);
   const isRunning = snapshot.status === "running" || inFlight;
   const report = snapshot.report;
+  const architecturalCompliance = report?.architecturalCompliance ?? loopState?.architecturalCompliance;
   const hasEvaluatedTasks = Boolean(report && report.results && report.results.length > 0);
   const hasNoTasks = Boolean(report && (!report.results || report.results.length === 0));
 
@@ -181,18 +183,18 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
         )}
 
         {/* Architectural Quality Compliance Warning Banner */}
-        {report && report.architecturalCompliance && !report.architecturalCompliance.passed && (
+        {architecturalCompliance && !architecturalCompliance.passed && (
           <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 text-amber-300">
             <div className="flex items-center gap-2 font-semibold text-amber-400 text-sm">
               <AlertTriangle className="w-5 h-5" />
-              ARCHITECTURAL COMPLIANCE GATE FAILED ({report.architecturalCompliance.aqi.toFixed(1)} / 5.0)
+              ARCHITECTURAL COMPLIANCE GATE FAILED ({architecturalCompliance.aqi.toFixed(1)} / 5.0)
             </div>
             <p className="text-xs text-amber-300/80 mt-1">
               Code violates Karpathy simplicity or surgical diff invariants (minimum required threshold: 3.5).
             </p>
-            {report.architecturalCompliance.feedback && report.architecturalCompliance.feedback.length > 0 && (
+            {architecturalCompliance.feedback && architecturalCompliance.feedback.length > 0 && (
               <div className="mt-3 space-y-1.5">
-                {report.architecturalCompliance.feedback.map((item, idx) => (
+                {architecturalCompliance.feedback.map((item, idx) => (
                   <div key={idx} className="text-xs font-mono bg-black/40 p-2 rounded border border-amber-500/20 text-amber-200">
                     {item}
                   </div>
@@ -263,30 +265,30 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, onRunB
           <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</span>
-              {report?.architecturalCompliance?.taskType && (
+              {architecturalCompliance?.taskType && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
-                  {report.architecturalCompliance.taskType}
+                  {architecturalCompliance.taskType}
                 </span>
               )}
             </div>
             <div
               className={`text-2xl font-bold font-mono mt-1 ${
-                hasEvaluatedTasks && report?.architecturalCompliance && typeof report.architecturalCompliance.aqi === "number" && Number.isFinite(report.architecturalCompliance.aqi)
-                  ? report.architecturalCompliance.passed
+                architecturalCompliance && typeof architecturalCompliance.aqi === "number" && Number.isFinite(architecturalCompliance.aqi)
+                  ? architecturalCompliance.passed
                     ? "text-emerald-400"
-                    : report.architecturalCompliance.aqi >= 3.0
+                    : architecturalCompliance.aqi >= 3.0
                     ? "text-amber-400"
                     : "text-rose-400"
                   : "text-zinc-600"
               }`}
             >
-              {hasEvaluatedTasks && report?.architecturalCompliance && typeof report.architecturalCompliance.aqi === "number" && Number.isFinite(report.architecturalCompliance.aqi)
-                ? `${report.architecturalCompliance.aqi.toFixed(1)} / 5.0`
+              {architecturalCompliance && typeof architecturalCompliance.aqi === "number" && Number.isFinite(architecturalCompliance.aqi)
+                ? `${architecturalCompliance.aqi.toFixed(1)} / 5.0`
                 : "—"}
             </div>
             <div className="text-[11px] text-zinc-400 mt-1 truncate">
-              {hasEvaluatedTasks && report?.architecturalCompliance
-                ? `Surg: ${report.architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${report.architecturalCompliance.criteriaScores.simplicity} | Mod: ${report.architecturalCompliance.criteriaScores.modularity} | Maint: ${report.architecturalCompliance.criteriaScores.maintainability}`
+              {architecturalCompliance
+                ? `Surg: ${architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${architecturalCompliance.criteriaScores.simplicity} | Mod: ${architecturalCompliance.criteriaScores.modularity} | Maint: ${architecturalCompliance.criteriaScores.maintainability}`
                 : "Karpathy simplicity gate"}
             </div>
           </div>

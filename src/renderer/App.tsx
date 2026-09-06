@@ -259,7 +259,7 @@ export const App: React.FC = () => {
           <TerminalStage />
         </div>
         <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "eval" ? "" : "hidden"}`}>
-          <EvalScoreboard snapshot={evalSnapshot} onRunBenchmark={handleRunBenchmark} />
+          <EvalScoreboard snapshot={evalSnapshot} loopState={loopState} onRunBenchmark={handleRunBenchmark} />
         </div>
 
         {/* Right: Tabbed MCP & Subagents Sidebar */}

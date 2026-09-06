@@ -53,7 +53,8 @@ async function createWindow(): Promise<void> {
         loopStateService: loopService,
         mcpMonitorService: mcpService,
         rollbackService,
-        evalHarnessService: evalService
+        evalHarnessService: evalService,
+        telemetryService
       }
     );
     await projectService.initialize();

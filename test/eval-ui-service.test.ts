@@ -230,8 +230,8 @@ process.exit(0);
 
 test("EvalHarnessService: runBenchmark handles missing runner script gracefully", async () => {
   const tempDir = createTempProject();
-  // Do not create runner script
-  const service = new EvalHarnessService(tempDir);
+  // Do not create runner script in project or appRoot
+  const service = new EvalHarnessService(tempDir, tempDir);
 
   try {
     await service.start();
