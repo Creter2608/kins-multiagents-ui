@@ -279,6 +279,18 @@ export class LoopStateService {
         diffText = "";
       }
 
+      let taskType = "fix";
+      try {
+        const commitMsg = execFileSync("git", ["-c", "safe.directory=*", "log", "-1", "--pretty=%B"], {
+          cwd: repoRoot,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"]
+        }).trim().toLowerCase();
+        if (commitMsg.startsWith("refactor")) taskType = "refactor";
+        else if (commitMsg.startsWith("feat")) taskType = "feat";
+        else if (commitMsg.startsWith("bootstrap") || commitMsg.startsWith("init")) taskType = "bootstrap";
+      } catch {}
+
       let compliance: ArchitecturalCompliance;
       if (this.customJudgeFn) {
         compliance = this.customJudgeFn(diffText);
@@ -287,10 +299,17 @@ export class LoopStateService {
         if (!fs.existsSync(judgePath)) {
           return null;
         }
-        const judgeModule = (await import(pathToFileURL(judgePath).href)) as {
-          evaluateArchitecturalCompliance: (diff: string) => ArchitecturalCompliance;
+        const judgeUrl = `${pathToFileURL(judgePath).href}?t=${Date.now()}`;
+        const judgeModule = (await import(judgeUrl)) as {
+          evaluateArchitecturalCompliance: (
+            diff: string,
+            options?: { repoRoot?: string; taskType?: string }
+          ) => ArchitecturalCompliance;
         };
-        compliance = judgeModule.evaluateArchitecturalCompliance(diffText);
+        compliance = judgeModule.evaluateArchitecturalCompliance(diffText, {
+          repoRoot,
+          taskType
+        });
       }
 
       this.updateArchitecturalCompliance(compliance);
