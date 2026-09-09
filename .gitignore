@@ -5,3 +5,7 @@ dist/
 .DS_Store
 Thumbs.db
 .ai/
+.env
+.env.*
+*.pem
+*.key

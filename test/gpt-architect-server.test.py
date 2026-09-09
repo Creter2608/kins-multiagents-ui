@@ -111,19 +111,26 @@ Some architectural description here.
             cg_context=cg_oversized
         )
 
-        # Prefix invariance
+        # PITFALL-020: Unified Message 0 Prefix invariance across Stage 2 and Stage 4 (>= 1,024 tokens)
         self.assertEqual(arch_msgs[0]["role"], "system")
-        self.assertEqual(arch_msgs[0]["content"], server.STATIC_ARCHITECT_SYSTEM_PROMPT)
-        self.assertEqual(arch_msgs[1]["role"], "user")
-        self.assertEqual(arch_msgs[1]["content"], base_ctx)
+        self.assertEqual(arch_msgs[0]["content"], server.STATIC_COMMON_CORE_PROMPT)
+        self.assertGreaterEqual(len(server.STATIC_COMMON_CORE_PROMPT), 4096)
 
-        # Dynamic tail bounded
-        arch_tail = arch_msgs[2]["content"]
+        # Role-specific instruction at Message 1
+        self.assertEqual(arch_msgs[1]["role"], "system")
+        self.assertEqual(arch_msgs[1]["content"], server.STATIC_ARCHITECT_ROLE_PROMPT)
+
+        # Cacheable context at Message 2
+        self.assertEqual(arch_msgs[2]["role"], "user")
+        self.assertEqual(arch_msgs[2]["content"], base_ctx)
+
+        # Dynamic tail bounded at Message 3
+        arch_tail = arch_msgs[3]["content"]
         self.assertIn("CG_HEAD_", arch_tail)
         self.assertIn("_CG_TAIL", arch_tail)
         self.assertIn("...<TRUNCATED: HEAD/TAIL PRESERVED>...", arch_tail)
 
-        # Auditor message bounds
+        # Auditor message bounds and Token 0 match
         audit_msgs = server.build_auditor_messages(
             blueprint="Blueprint Contract",
             git_diff="clean diff",
@@ -133,9 +140,39 @@ Some architectural description here.
             tech_stack="TypeScript"
         )
         self.assertEqual(audit_msgs[0]["role"], "system")
-        self.assertEqual(audit_msgs[0]["content"], server.STATIC_AUDITOR_SYSTEM_PROMPT)
-        audit_tail = audit_msgs[2]["content"]
+        self.assertEqual(audit_msgs[0]["content"], server.STATIC_COMMON_CORE_PROMPT)
+        # Verify Token 0 identity between Stage 2 and Stage 4
+        self.assertEqual(arch_msgs[0], audit_msgs[0])
+
+        # Auditor role prompt at Message 1
+        self.assertEqual(audit_msgs[1]["role"], "system")
+        self.assertEqual(audit_msgs[1]["content"], server.STATIC_AUDITOR_ROLE_PROMPT)
+
+        audit_tail = audit_msgs[3]["content"]
         self.assertIn("...<TRUNCATED: HEAD/TAIL PRESERVED>...", audit_tail)
+
+    def test_normalize_cacheable_text(self):
+        raw = "Line 1   \r\nLine 2 \r\n\r\nLine 4  \r\n"
+        normalized = server.normalize_cacheable_text(raw)
+        self.assertEqual(normalized, "Line 1\nLine 2\n\nLine 4")
+
+    def test_normalize_opaque_payload(self):
+        raw_diff = (
+            "diff --git a/a.py b/a.py\r\n"
+            "@@ -1 +1 @@\r\n"
+            "-  old_value\t\r\n"
+            "+    new_value  \r\n"
+        )
+        expected_diff = (
+            "diff --git a/a.py b/a.py\n"
+            "@@ -1 +1 @@\n"
+            "-  old_value\t\n"
+            "+    new_value  \n"
+        )
+        self.assertEqual(
+            server.normalize_opaque_payload(raw_diff),
+            expected_diff,
+        )
 
 class AuditGitHarvestingTests(unittest.TestCase):
     def _git(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:

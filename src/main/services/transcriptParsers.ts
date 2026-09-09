@@ -168,7 +168,7 @@ export function detectPhaseWithEvidenceFromTranscriptStep(step: unknown): PhaseD
       candidates.push({ phase: p, evidence: `tag: [Phase: ${p}]` });
     }
 
-    const templateMatch = /\[Template Applied\]:\s*Loaded\s+([^\s]+\.md)/i.exec(combined);
+    const templateMatch = /\[(?:Template|Workflow)\s+Applied\]:\s*Loaded\s+([^\s]+\.md)/i.exec(combined);
     if (templateMatch && templateMatch[1]) {
       const tName = templateMatch[1].toLowerCase();
       if (tName.includes("spec-document")) {

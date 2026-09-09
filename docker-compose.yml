@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: kins-template-sandbox:latest
+    image: kins-cockpit-sandbox:latest
     container_name: kins_autonomous_sandbox
     working_dir: /workspace
     volumes:

@@ -242,6 +242,58 @@ export interface GateDecisionResult {
   readonly state?: LoopStateSnapshot | undefined;
 }
 
+export type RuleSource =
+  | "host-policy"
+  | "user-global-constraint"
+  | "workspace-sidecar"
+  | "repository-native"
+  | "user-global-preference";
+
+export interface ResolvedRuleBlock {
+  readonly source: RuleSource;
+  readonly origin: string;
+  readonly content: string;
+}
+
+export interface WorkspaceRecord {
+  readonly id: string;
+  readonly root: string;
+  readonly displayName: string;
+}
+
+export interface WorkspaceContext {
+  readonly id: string;
+  readonly root: string;
+  readonly displayName: string;
+  readonly sidecarDirectory: string;
+  readonly rules: readonly ResolvedRuleBlock[];
+}
+
+export type GlobalIdeTarget = "gemini" | "claude" | "cursor";
+export type StealthRuleTarget = "agents" | "claude";
+
+export interface GlobalIdeSyncResult {
+  readonly success: boolean;
+  readonly synced: readonly string[];
+}
+
+export interface StealthEquipResult {
+  readonly success: boolean;
+  readonly filesCreated: readonly string[];
+  readonly excluded: boolean;
+}
+
+export interface StealthUnequipResult {
+  readonly success: boolean;
+  readonly filesRemoved: readonly string[];
+}
+
+export interface WorkspaceStealthStatus {
+  readonly equipped: boolean;
+  readonly excluded: boolean;
+  readonly files: readonly string[];
+}
+
 export interface ProjectInfo {
   readonly name: string;
   readonly path: string;
@@ -257,7 +309,13 @@ export interface CockpitApi {
     readonly getState: () => Promise<ProjectState>;
     readonly switchProject: (projectPath: string) => Promise<ProjectState>;
     readonly openProjectFolder: () => Promise<ProjectState | null>;
+    readonly getWorkspaceContext?: () => Promise<WorkspaceContext | null>;
+    readonly syncGlobalIdeRules?: (options?: { targets?: readonly GlobalIdeTarget[] }) => Promise<GlobalIdeSyncResult>;
+    readonly equipStealthRules?: (options?: { targets?: readonly StealthRuleTarget[] }) => Promise<StealthEquipResult>;
+    readonly unequipStealthRules?: () => Promise<StealthUnequipResult>;
+    readonly getStealthStatus?: () => Promise<WorkspaceStealthStatus>;
     readonly onProjectChanged?: (listener: (state: ProjectState) => void) => Unsubscribe;
+    readonly onWorkspaceContextChanged?: (listener: (context: WorkspaceContext) => void) => Unsubscribe;
   };
   readonly terminal: {
     readonly start: () => Promise<void>;

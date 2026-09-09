@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
+import * as crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { computePhaseStatuses, LOOP_PHASES, nextLoopPhase, previousLoopPhase, type LoopPhase } from "../../shared/phases.js";
@@ -48,20 +50,89 @@ function parseTaskType(subject: string): string {
   return "fix";
 }
 
+export function resolveLoopStatePath(workspaceRoot: string, sidecarDirectory?: string): string {
+  const resolvedPath = path.resolve(workspaceRoot);
+  const repoAiDir = path.join(resolvedPath, ".ai");
+  let hasRepoAi = false;
+  try {
+    hasRepoAi = fs.existsSync(repoAiDir) && fs.statSync(repoAiDir).isDirectory();
+  } catch {}
+
+  if (hasRepoAi) {
+    return path.join(repoAiDir, "state.json");
+  }
+  if (sidecarDirectory) {
+    return path.join(path.resolve(sidecarDirectory), "state", "state.json");
+  }
+  // DEC-002: Foreign repository with no .ai/ and no explicit sidecarDirectory:
+  // Derive safe deterministic user sidecar path based on workspace root hash to avoid polluting external repo!
+  const safeId = crypto.createHash("sha256").update(resolvedPath).digest("hex").slice(0, 16);
+  const baseUserData = process.env.APPDATA || (process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : path.join(os.homedir(), ".config"));
+  return path.join(baseUserData, "kins-multiagents-ui", "workspaces", safeId, "sidecar", "state", "state.json");
+}
+
+export interface RunResetTransitionInput {
+  previousRunId: string;
+  nextRunId: string;
+  previousPhase: LoopPhase | string | undefined;
+  nextPhase: LoopPhase | string;
+  lastNotifiedRunId: string | null;
+}
+
+export interface RunResetTransitionResult {
+  notify: boolean;
+  lastNotifiedRunId: string | null;
+}
+
+export function evaluateRunResetTransition(
+  input: RunResetTransitionInput
+): RunResetTransitionResult {
+  const runChanged =
+    input.nextRunId !== "init" &&
+    input.nextRunId !== input.previousRunId;
+
+  const enteredInitialize =
+    input.nextRunId !== "init" &&
+    input.nextPhase === "INITIALIZE" &&
+    input.previousPhase !== undefined &&
+    input.previousPhase !== "INITIALIZE";
+
+  const candidate = runChanged || enteredInitialize;
+  const alreadyNotified =
+    input.lastNotifiedRunId === input.nextRunId;
+
+  if (!candidate || alreadyNotified) {
+    return {
+      notify: false,
+      lastNotifiedRunId: input.lastNotifiedRunId
+    };
+  }
+
+  return {
+    notify: true,
+    lastNotifiedRunId: input.nextRunId
+  };
+}
+
 export class LoopStateService {
+  private projectRoot: string;
   private stateFilePath: string;
   private appRoot: string;
   private store: JsonFileLoopStateStore;
   private lastValidSnapshot: LoopStateSnapshot;
+  private lastResetNotifiedRunId: string | null = null;
   private watcher: fs.FSWatcher | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private listeners = new Set<(snapshot: LoopStateSnapshot) => void>();
+  private onRunResetCallbacks = new Set<() => void>();
 
   constructor(
     stateFilePath: string = path.resolve(".ai/state.json"),
-    appRoot?: string
+    appRoot?: string,
+    projectRoot?: string
   ) {
     this.stateFilePath = stateFilePath;
+    this.projectRoot = projectRoot ? path.resolve(projectRoot) : path.resolve(path.dirname(this.stateFilePath), "..");
     this.appRoot = appRoot || this.resolveDefaultAppRoot();
     this.store = new JsonFileLoopStateStore(this.stateFilePath);
     const initialPhase = LOOP_PHASES[0];
@@ -85,6 +156,16 @@ export class LoopStateService {
       },
       lastUpdated: Date.now()
     };
+
+    if (fs.existsSync(this.stateFilePath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(this.stateFilePath, "utf-8")) as { runId?: string };
+        if (raw && typeof raw.runId === "string" && raw.runId !== "init") {
+          this.lastResetNotifiedRunId = raw.runId;
+        }
+      } catch {}
+      this.readState();
+    }
   }
 
   getSnapshot(): LoopStateSnapshot {
@@ -162,8 +243,22 @@ export class LoopStateService {
         resourceUsage
       };
 
+      const nextRunId = String(parsed.runId || this.lastValidSnapshot.runId);
+      const previousRunId = this.lastValidSnapshot.runId;
+      const nextPhase = parsed.currentPhase;
+      const previousPhase = this.lastValidSnapshot.currentPhase;
+
+      const transition = evaluateRunResetTransition({
+        previousRunId,
+        nextRunId,
+        previousPhase,
+        nextPhase,
+        lastNotifiedRunId: this.lastResetNotifiedRunId
+      });
+      this.lastResetNotifiedRunId = transition.lastNotifiedRunId;
+
       this.lastValidSnapshot = {
-        runId: String(parsed.runId || this.lastValidSnapshot.runId),
+        runId: nextRunId,
         schemaVersion: Number(parsed.schemaVersion || 1),
         revision: typeof (parsed as Record<string, unknown>).revision === "number" ? Number((parsed as Record<string, unknown>).revision) : (this.lastValidSnapshot.revision ?? 1),
         currentPhase: parsed.currentPhase,
@@ -189,6 +284,10 @@ export class LoopStateService {
         syncError: undefined,
         lastUpdated: Date.now()
       };
+
+      if (transition.notify) {
+        this.notifyRunReset();
+      }
     } catch (err) {
       // Assertion 2: Retain last valid state and emit sync error
       this.lastValidSnapshot = {
@@ -426,7 +525,7 @@ export class LoopStateService {
 
   async evaluateArchitecture(): Promise<ArchitecturalCompliance | null> {
     try {
-      const repoRoot = path.resolve(path.dirname(this.stateFilePath), "..");
+      const repoRoot = this.projectRoot || path.resolve(path.dirname(this.stateFilePath), "..");
       let diffText = "";
       let taskType = "fix";
 
@@ -617,6 +716,23 @@ export class LoopStateService {
         success: false,
         message: `Failed to reset loop: ${err instanceof Error ? err.message : String(err)}`
       };
+    }
+  }
+
+  onRunReset(cb: () => void): () => void {
+    this.onRunResetCallbacks.add(cb);
+    return () => {
+      this.onRunResetCallbacks.delete(cb);
+    };
+  }
+
+  notifyRunReset(): void {
+    for (const cb of this.onRunResetCallbacks) {
+      try {
+        cb();
+      } catch {
+        // Suppress subscriber failure to isolate caller
+      }
     }
   }
 
@@ -870,10 +986,16 @@ export class LoopStateService {
     };
   }
 
-  async setProjectRoot(projectPath: string): Promise<void> {
+  getStateFilePath(): string {
+    return this.stateFilePath;
+  }
+
+  async setProjectRoot(projectPath: string, sidecarDirectory?: string): Promise<void> {
     const resolvedPath = path.resolve(projectPath);
-    this.stateFilePath = path.join(resolvedPath, ".ai", "state.json");
+    this.projectRoot = resolvedPath;
+    this.stateFilePath = resolveLoopStatePath(resolvedPath, sidecarDirectory);
     this.store = new JsonFileLoopStateStore(this.stateFilePath);
+    this.lastResetNotifiedRunId = null;
 
     const initialPhase = LOOP_PHASES[0];
     this.lastValidSnapshot = {
@@ -901,16 +1023,23 @@ export class LoopStateService {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
-      const dir = path.dirname(this.stateFilePath);
-      if (!fs.existsSync(dir)) {
+    }
+
+    const dir = path.dirname(this.stateFilePath);
+    if (!fs.existsSync(dir)) {
+      if (!dir.startsWith(resolvedPath) || (sidecarDirectory && dir.startsWith(path.resolve(sidecarDirectory)))) {
         fs.mkdirSync(dir, { recursive: true });
       }
+    }
+
+    if (fs.existsSync(dir)) {
       try {
         this.watcher = fs.watch(dir, (_event, filename) => {
           if (filename && filename.includes("state.json")) {
             this.readState();
           }
         });
+        this.watcher.unref?.();
       } catch {
         // Fallback to polling
       }
@@ -941,6 +1070,7 @@ export class LoopStateService {
           this.readState();
         }
       });
+      this.watcher.unref?.();
     } catch {
       // Fallback to polling if fs.watch fails
     }
@@ -948,6 +1078,7 @@ export class LoopStateService {
     this.pollTimer = setInterval(() => {
       this.readState();
     }, 1500);
+    this.pollTimer.unref?.();
   }
 
   subscribe(listener: (snapshot: LoopStateSnapshot) => void): () => void {

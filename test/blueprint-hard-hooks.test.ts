@@ -327,7 +327,7 @@ test("BP-004: LoopCommandService default verifier unconditionally blocks PLAN->E
         status: "ready" as const,
         invocationKey: "key-1",
         invocationCount: 1 as const,
-        artifactPath: ".ai/blueprint.md" as const,
+        artifactPath: ".ai/nonexistent-blueprint.md" as const,
         plannedTreeHash: DUMMY_SHA,
         protectedEvalHash: DUMMY_SHA,
         artifactSha256: DUMMY_SHA,

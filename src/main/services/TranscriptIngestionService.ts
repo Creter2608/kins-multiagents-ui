@@ -73,6 +73,7 @@ export class TranscriptIngestionService {
   private cumulativeContextLength = 30000;
   private sessionGeneration = 0;
   private projectRoot = process.cwd();
+  private lastObservedRunId: string | null = null;
 
   constructor(
     telemetryService: TelemetryService,
@@ -91,6 +92,12 @@ export class TranscriptIngestionService {
       this.customTranscriptPath = customTranscriptPath ?? null;
     }
     this.subagentService = subagentService ?? null;
+
+    if (this.loopService && typeof this.loopService.onRunReset === "function") {
+      this.loopService.onRunReset(() => {
+        this.resetRunCounters();
+      });
+    }
   }
 
   setSubagentService(subagentService: SubagentService | null): void {
@@ -134,6 +141,31 @@ export class TranscriptIngestionService {
     this.totalGeminiPrompt = 0;
     this.totalGeminiCompletion = 0;
     this.cumulativeContextLength = 30000;
+  }
+
+  resetRunCounters(): void {
+    this.resetSessionCounters();
+    if (this.loopService) {
+      this.loopService.updateResourceUsage({
+        costMicroUsd: 0,
+        promptTokens: 0,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        oracleCalls: 0,
+        globalCycles: 0,
+        verificationRetries: 0,
+        qualityRemediations: 0
+      });
+    }
+    this.telemetryService.updateMetrics({
+      gptPromptTokens: 0,
+      gptCompletionTokens: 0,
+      geminiPromptTokens: 0,
+      geminiCompletionTokens: 0,
+      estimatedCostUsd: 0
+    });
   }
 
   findActiveTranscriptPath(): string | null {
@@ -315,6 +347,15 @@ export class TranscriptIngestionService {
       }
     }
 
+    // Check run boundary: auto-reset counters if runId has changed
+    if (this.loopService) {
+      const snap = this.loopService.getSnapshot();
+      if (this.lastObservedRunId !== null && snap.runId && snap.runId !== this.lastObservedRunId) {
+        this.resetRunCounters();
+      }
+      this.lastObservedRunId = snap.runId || null;
+    }
+
     // 2. Process GPT Token Metrics (Layer 1 Assertion 4: dedupe usage)
     const content = typeof step.content === "string" ? step.content : "";
     const thinking = typeof step.thinking === "string" ? step.thinking : "";
@@ -362,19 +403,22 @@ export class TranscriptIngestionService {
           estPrompt = step.usage.prompt_tokens;
           estComp = typeof step.usage.completion_tokens === "number"
             ? step.usage.completion_tokens
-            : Math.max(50, Math.ceil((content.length + thinking.length) / 4));
+            : Math.max(1, Math.ceil((content.length + thinking.length) / 4));
         } else if (step.usage && typeof step.usage.input_tokens === "number") {
           estPrompt = step.usage.input_tokens;
           estComp = typeof step.usage.output_tokens === "number"
             ? step.usage.output_tokens
-            : Math.max(50, Math.ceil((content.length + thinking.length) / 4));
+            : Math.max(1, Math.ceil((content.length + thinking.length) / 4));
         } else {
+          // Current active context window estimate (snapshot, never accumulated per step)
           estPrompt = Math.max(1000, Math.ceil(this.cumulativeContextLength / 4));
-          estComp = Math.max(50, Math.ceil((content.length + thinking.length) / 4));
+          estComp = Math.max(1, Math.ceil((content.length + thinking.length) / 4));
         }
 
         this.cumulativeContextLength += content.length + thinking.length;
-        this.totalGeminiPrompt += estPrompt;
+        // Invariant: Gemini prompt tokens represent the current active context window,
+        // while completion tokens represent the cumulative generation output across steps.
+        this.totalGeminiPrompt = estPrompt;
         this.totalGeminiCompletion += estComp;
 
         this.telemetryService.updateMetrics({
@@ -384,12 +428,15 @@ export class TranscriptIngestionService {
         });
 
         if (this.loopService) {
-          const totalTokens = (this.totalGptPrompt + this.totalGptCompletion) + (this.totalGeminiPrompt + this.totalGeminiCompletion);
+          // Loop resourceUsage tracks actual consumed workload tokens for the current run.
+          // It MUST NOT include the static context window size (estPrompt) of the host LLM,
+          // which would artificially deplete the 120,000 token loop run budget.
+          const totalLoopTokens = (this.totalGptPrompt + this.totalGptCompletion) + this.totalGeminiCompletion;
           this.loopService.updateResourceUsage({
-            promptTokens: this.totalGptPrompt + this.totalGeminiPrompt,
+            promptTokens: this.totalGptPrompt,
             completionTokens: this.totalGptCompletion + this.totalGeminiCompletion,
             cachedTokens: this.totalGptCacheHit,
-            totalTokens
+            totalTokens: totalLoopTokens
           });
         }
       }

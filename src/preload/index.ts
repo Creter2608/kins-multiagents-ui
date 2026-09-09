@@ -18,10 +18,20 @@ const cockpitApi: CockpitApi = {
     getState: () => ipcRenderer.invoke("project:get-state"),
     switchProject: (projectPath: string) => ipcRenderer.invoke("project:switch", projectPath),
     openProjectFolder: () => ipcRenderer.invoke("project:open-folder"),
+    getWorkspaceContext: () => ipcRenderer.invoke("project:get-workspace-context"),
+    syncGlobalIdeRules: (options) => ipcRenderer.invoke("project:sync-global-ide-rules", options),
+    equipStealthRules: (options) => ipcRenderer.invoke("project:equip-stealth-rules", options),
+    unequipStealthRules: () => ipcRenderer.invoke("project:unequip-stealth-rules"),
+    getStealthStatus: () => ipcRenderer.invoke("project:get-stealth-status"),
     onProjectChanged: (listener: (state: any) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: any) => listener(state);
       ipcRenderer.on("project:changed", handler);
       return () => ipcRenderer.removeListener("project:changed", handler);
+    },
+    onWorkspaceContextChanged: (listener: (context: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, ctx: any) => listener(ctx);
+      ipcRenderer.on("project:workspace-context-changed", handler);
+      return () => ipcRenderer.removeListener("project:workspace-context-changed", handler);
     }
   },
   terminal: {

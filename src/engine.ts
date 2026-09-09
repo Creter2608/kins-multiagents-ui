@@ -203,6 +203,15 @@ export const EMPTY_RESOURCE_USAGE: ResourceUsage = {
   qualityRemediations: 0
 };
 
+export interface AuthenticatedBlueprintApproval {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly canonicalWorkspacePath: string;
+  readonly blueprintSha256: string;
+  readonly approvedAt: string;
+  readonly signature: string;
+}
+
 export interface LoopState {
   readonly schemaVersion: 1 | 2;
   readonly revision: number;
@@ -219,6 +228,7 @@ export interface LoopState {
   };
   readonly audit?: AuditRecord | undefined;
   readonly blueprint?: BlueprintRecord | undefined;
+  readonly blueprintApproval?: AuthenticatedBlueprintApproval | undefined;
   readonly resourceBudget: ResourceBudget;
   readonly resourceUsage: ResourceUsage;
 }

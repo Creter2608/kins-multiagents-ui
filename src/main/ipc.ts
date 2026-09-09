@@ -8,7 +8,7 @@ import type { RollbackService } from "./services/RollbackService.js";
 import type { ProjectService } from "./services/ProjectService.js";
 import type { EvalHarnessService } from "./services/EvalHarnessService.js";
 import type { SubagentService } from "./services/SubagentService.js";
-import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
+import { SUBAGENT_IPC_CHANNELS, type ProjectState } from "../shared/contracts.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -23,7 +23,7 @@ export interface ServiceContainer {
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
-  const broadcastProjectSwitch = (projectState: any) => {
+  const broadcastProjectSwitch = (projectState: ProjectState) => {
     if (!window.isDestroyed()) {
       window.webContents.send("project:changed", projectState);
       window.webContents.send("loop:snapshot", services.loop.getSnapshot());
@@ -42,14 +42,39 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     broadcastProjectSwitch(projectState);
   });
 
+  services.project.setOnWorkspaceContextChanged?.((ctx) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("project:workspace-context-changed", ctx);
+    }
+  });
+
   // Project
   ipcMain.handle("project:get-state", async () => {
     return services.project.getState();
   });
 
+  ipcMain.handle("project:get-workspace-context", async () => {
+    return services.project.getWorkspaceContext?.() ?? null;
+  });
+
+  ipcMain.handle("project:sync-global-ide-rules", async (_event, options) => {
+    return services.project.syncGlobalIdeRules?.(options) ?? { success: false, synced: [] };
+  });
+
+  ipcMain.handle("project:equip-stealth-rules", async (_event, options) => {
+    return services.project.equipStealthRules?.(options) ?? { success: false, filesCreated: [], excluded: false };
+  });
+
+  ipcMain.handle("project:unequip-stealth-rules", async () => {
+    return services.project.unequipStealthRules?.() ?? { success: false, filesRemoved: [] };
+  });
+
+  ipcMain.handle("project:get-stealth-status", async () => {
+    return services.project.getStealthStatus?.() ?? { equipped: false, excluded: false, files: [] };
+  });
+
   ipcMain.handle("project:switch", async (_event, projectPath: string) => {
     const nextState = await services.project.switchProject(projectPath);
-    broadcastProjectSwitch(nextState);
     return nextState;
   });
 
@@ -61,7 +86,6 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
       return null;
     }
     const nextState = await services.project.switchProject(res.filePaths[0]);
-    broadcastProjectSwitch(nextState);
     return nextState;
   });
   // Terminal
@@ -232,6 +256,11 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
       unsub();
     }
     ipcMain.removeHandler("project:get-state");
+    ipcMain.removeHandler("project:get-workspace-context");
+    ipcMain.removeHandler("project:sync-global-ide-rules");
+    ipcMain.removeHandler("project:equip-stealth-rules");
+    ipcMain.removeHandler("project:unequip-stealth-rules");
+    ipcMain.removeHandler("project:get-stealth-status");
     ipcMain.removeHandler("project:switch");
     ipcMain.removeHandler("project:open-folder");
     ipcMain.removeHandler("terminal:start");

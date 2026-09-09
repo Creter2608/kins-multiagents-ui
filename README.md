@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.8.0](https://img.shields.io/badge/Release-v2.8.0-emerald.svg)](package.json)
-[![Tests: 314 passing](https://img.shields.io/badge/Tests-314%20passing-brightgreen.svg)](package.json)
+[![Release: v2.9.0](https://img.shields.io/badge/Release-v2.9.0-emerald.svg)](package.json)
+[![Tests: 347 passing](https://img.shields.io/badge/Tests-347%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -39,6 +39,8 @@ Deterministic state machine enforcing 10 canonical phases:
 INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN 
        ➔ EXECUTE ➔ VERIFY ➔ REALITY_CHECK ➔ RELEASE_GATE ➔ COMPLETE
 ```
+- **Physical CLI PreToolUse Hard Hook (`src/cli/preToolUseHook.ts`)**: Real-time stdio JSON interceptor registered in Antigravity CLI's `hooks.json`. Traps native `replace_file_content` and `write_to_file` mutations, cryptographically enforcing HMAC-SHA-256 signed blueprint approvals before allowing any filesystem writes. Prevents host LLM reflex bypasses without manual intervention.
+- **Universal Repository Decoupling & Zero-Pollution Sidecar**: Target client workspaces remain 100% pristine with zero foreign files (no `.agents/`, `.ai/`, or hook scripts placed in user repos). Sidecar state and workspace registry are isolated entirely inside Electron `<userData>/`.
 - **Fail-Closed Phase Barrier**: Mechanically blocks advancing from `PLAN ➔ EXECUTE` via `LoopEngine` and `LoopCommandService` unless Stage 2 Technical Blueprint is `ready`, `artifactSha256` matches `.ai/blueprint.md`, `assertionsSha256` matches the canonical assertions, and strict 3-5 golden assertions exist.
 - **Unconditional Blueprint Verification**: `FileBlueprintArtifactVerifier` performs timing-safe SHA-256 verification and golden assertions schema enforcement directly on disk before code execution is permitted.
 - **Workspace Write Guard (`WorkspaceWriteGuard`)**: Prohibits any file modifications outside `EXECUTE` (`TRANSITION_INVALID`), guarantees absolute immutability of `.eval/` across all phases (`SPECIFICATION_INTEGRITY`), and locks `.ai/blueprint.md` from runtime mutation.
@@ -46,6 +48,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **Mandatory Stage 4 Adversarial Audit**: Advance to `RELEASE_GATE` strictly requires formal audit closure (`closed`/`accepted`) via `audit_and_break_code_with_gpt`.
 - **Auto-Transition via Transcript Signals**: `TranscriptIngestionService` tails `transcript.jsonl` in real-time, detecting tool calls and template banners (`craft_technical_prompt_with_gpt` ➔ `PLAN`, `write_to_file` ➔ `EXECUTE`, `npm test` ➔ `VERIFY`).
 - **Turn & Upstream Automatic Loop Reset**: Transitioning to an upstream phase or submitting a new user turn (`USER_INPUT`) in `transcript.jsonl` automatically triggers `resetLoop()`, resetting `currentPhase` to `INITIALIZE` with a new `runId` and clearing test summaries back to `idle`.
+- **Per-Run Token Telemetry Reset**: Workload tokens (`oraclePromptTokens + oracleCompletionTokens + geminiGenerationTokens`) strictly reset on every loop run (`runId` change), preventing inherited budget exhaustion while displaying active context window size independently.
 - **Interactive Phase Control & Rollback**: Single-step rollback capability and manual override with safety confirmation dialogs for destructive actions.
 - **Zero-Token Local Verification**: Local CPU testing (`npm test`) at **$0 LLM token cost** with a hard ceiling of 1 fix retry.
 
@@ -73,7 +76,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **UI & Styling**: React 19, TypeScript 5.7, Tailwind CSS 3.4, Lucide Icons
 - **Terminal Core**: `@xterm/xterm`, `@xterm/addon-fit`, `node-pty`
 - **Build System**: Vite 6, esbuild (CommonJS preload bundling), TypeScript Compiler (`tsc`)
-- **Testing**: Node.js Native Test Runner (`node --test`), assert module (268 deterministic unit, integration, and harness tests)
+- **Testing**: Node.js Native Test Runner (`node --test`), assert module (347 deterministic unit, integration, and harness tests passing 100%)
 
 ---
 

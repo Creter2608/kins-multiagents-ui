@@ -145,3 +145,24 @@ test("transcriptParsers: backward compatibility re-exports from TranscriptIngest
   assert.equal(jestRes.passCount, 10);
   assert.equal(jestRes.failCount, 2);
 });
+
+test("transcriptParsers: handles both [Workflow Applied] and [Template Applied] markers", () => {
+  const stepTemplate = {
+    step_index: 3,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    content: "📋 [Template Applied]: Loaded implementer-prompt.md for feature execution"
+  };
+  const stepWorkflow = {
+    step_index: 4,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    content: "📋 [Workflow Applied]: Loaded implementer-prompt.md for feature execution"
+  };
+
+  const resTemplate = detectPhaseFromTranscriptStep(stepTemplate);
+  const resWorkflow = detectPhaseFromTranscriptStep(stepWorkflow);
+
+  assert.equal(resTemplate, "EXECUTE");
+  assert.equal(resWorkflow, "EXECUTE");
+});

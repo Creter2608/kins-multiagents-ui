@@ -4,6 +4,15 @@ This repository enforces an **Enterprise-Grade AI-Ready Standard (v2.0)** design
 
 ---
 
+## 📌 Project Identity & Scope
+
+- **Product Identity**: **Kin's Multi-Agents UI** (`Creter2608/kins-multiagents-ui`)
+- **System Nature**: This repository contains the **concrete production desktop application** (Electron 34 + React 19 + TypeScript 5.7 + ConPTY Terminal + Telemetry HUD). It is **NOT** a starter template, boilerplate, or framework scaffold.
+- **Mission**: Desktop mission-control cockpit for autonomous AI pair programming.
+- **Standalone Product Decoupling**: Application runtime logic resides strictly in `src/` (`src/main/`, `src/renderer/`, `src/preload/`, `src/shared/`). The AI evaluation and development harness (`.eval/`, `.ai/`, `scripts/`) are auxiliary tooling. Production builds and release packages must maintain clean architectural separation between runtime application code and dev harness artifacts.
+
+---
+
 ## 🔁 Mandatory Autonomous Loop v2.0
 
 All autonomous workflows, feature implementations, refactors, and bugfixes in this repository **MUST** strictly adhere to the normative specification:

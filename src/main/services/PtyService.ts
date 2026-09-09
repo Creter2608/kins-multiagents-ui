@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as pty from "node-pty";
-import type { PtyExitEvent } from "../../shared/contracts.js";
+import type { PtyExitEvent, WorkspaceContext } from "../../shared/contracts.js";
+import { resolveHarnessResourcePaths, type ResolveHarnessOptions } from "./harnessResourcePaths.js";
 
 const PTY_EXIT_TIMEOUT_MS = 2000;
 
@@ -30,10 +31,21 @@ export const ALLOWED_ENV_VARS = new Set([
   "NUMBER_OF_PROCESSORS",
   "PROCESSOR_ARCHITECTURE",
   "OS",
-  "PATHEXT"
+  "PATHEXT",
+  "KINS_WORKSPACE_ID",
+  "KINS_WORKSPACE_ROOT",
+  "KINS_SIDECAR_DIR",
+  "KINS_HARNESS_DIR",
+  "KINS_AQI_HARNESS",
+  "KINS_LOOP_SCRIPT",
+  "KINS_COCKPIT_ACTIVE"
 ]);
 
-export function buildSanitizedPtyEnv(rawEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function buildSanitizedPtyEnv(
+  rawEnv: NodeJS.ProcessEnv = process.env,
+  workspaceContext?: WorkspaceContext | null,
+  harnessOptions?: ResolveHarnessOptions
+): Record<string, string> {
   const sanitized: Record<string, string> = {};
   for (const [key, value] of Object.entries(rawEnv)) {
     if (typeof value !== "string") continue;
@@ -50,6 +62,19 @@ export function buildSanitizedPtyEnv(rawEnv: NodeJS.ProcessEnv = process.env): R
   }
   sanitized["COLORTERM"] = "truecolor";
   sanitized["TERM"] = "xterm-256color";
+
+  if (workspaceContext) {
+    sanitized["KINS_WORKSPACE_ID"] = workspaceContext.id;
+    sanitized["KINS_WORKSPACE_ROOT"] = workspaceContext.root;
+    sanitized["KINS_SIDECAR_DIR"] = workspaceContext.sidecarDirectory;
+    sanitized["KINS_COCKPIT_ACTIVE"] = "1";
+
+    const harnessPaths = resolveHarnessResourcePaths(harnessOptions);
+    sanitized["KINS_HARNESS_DIR"] = harnessPaths.scriptsDirectory;
+    sanitized["KINS_AQI_HARNESS"] = harnessPaths.aqiHarnessPath;
+    sanitized["KINS_LOOP_SCRIPT"] = harnessPaths.loopScriptPath;
+  }
+
   return sanitized;
 }
 
@@ -57,6 +82,7 @@ export class PtyService {
   private ptyProcess: pty.IPty | null = null;
   private projectRoot: string;
   private executablePath: string;
+  private workspaceContext: WorkspaceContext | null = null;
   private dataListeners = new Set<(data: string) => void>();
   private exitListeners = new Set<(event: PtyExitEvent) => void>();
   private currentGeneration = 0;
@@ -130,7 +156,7 @@ export class PtyService {
       }
     }
 
-    const env = buildSanitizedPtyEnv(process.env);
+    const env = buildSanitizedPtyEnv(process.env, this.workspaceContext);
 
     try {
       const proc = pty.spawn(fileToRun, args, {
@@ -212,6 +238,15 @@ export class PtyService {
         }
       }
     });
+  }
+
+  setWorkspaceContext(context: WorkspaceContext): void {
+    this.workspaceContext = context;
+    this.projectRoot = path.resolve(context.root);
+  }
+
+  getWorkspaceContext(): WorkspaceContext | null {
+    return this.workspaceContext;
   }
 
   async setProjectRoot(projectPath: string): Promise<void> {

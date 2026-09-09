@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * scripts/init-template.mjs
- * Deterministic Project Scaffolder for stamping out new AI-ready projects from this template.
+ * Auxiliary Project Scaffolder for stamping out new standalone AI-ready projects.
  * Staged atomic creation, fresh golden assertions, and cryptographic SHA-256 recalculation.
+ * (Note: This repository is the concrete Kin's Multi-Agents UI product, not a template).
  */
 
 import * as crypto from 'node:crypto';

@@ -1,5 +1,69 @@
 # Project Log
 
+## [2026-09-09] Complete Delivery: Antigravity CLI Physical PreToolUse Hard Hook & Decoupled Universal Mutation Barrier (PITFALL-021)
+
+### Summary
+Engineered and verified a physical CLI-level PreToolUse Hard Hook system (`src/cli/preToolUseHook.ts`, `src/main/services/preToolUseHookService.ts`, `src/main/services/blueprintApprovalAuthenticator.ts`, `src/shared/workspaceMutationPolicy.ts`) intercepting native Antigravity/Gemini file mutations (`replace_file_content`, `write_to_file`). Solved the root cause of the "Gemini tự tung tự tác" failure mode (`PITFALL-021`) by replacing probabilistic prompt adherence with a deterministic, fail-closed HMAC-SHA-256 cryptographic barrier. Fully maintained the Universal Repository Decoupling Invariant (zero foreign repository pollution: no `.agents/`, `.ai/`, or hook scripts placed in target workspaces). Remediated all Stage 4 Adversarial Audit findings (CONTRACT-001 array/request contract support, CONTRACT-002 packaging command integration) and validated 100% test pass rate across 347 tests with a flawless AST AQI score of **5.0/5.0**.
+
+### Key Deliverables
+1. **Physical PreToolUse CLI Hook (`src/cli/preToolUseHook.ts`)**:
+   - Implemented JSON stdio hook protocol for Antigravity CLI matching tools `replace_file_content` and `write_to_file`.
+   - Validates longest-prefix workspace matching against `<userData>/hooks/workspaces.json` without modifying foreign repos.
+   - Enforces fail-closed denial if blueprint is unapproved, HMAC signature is invalid, run ID is stale, or phase is not `EXECUTE`.
+2. **Cryptographic HMAC-SHA-256 Blueprint Approval (`blueprintApprovalAuthenticator.ts`)**:
+   - Generates and verifies timing-safe HMAC-SHA-256 signatures binding `runId`, `canonicalWorkspacePath`, and `blueprintSha256`.
+   - Installation-scoped secret key stored securely in `<userData>/hooks/auth.key` with restricted permissions (0600 on POSIX).
+3. **Pure Mutation Policy & Shared Contracts (`workspaceMutationPolicy.ts`, `WorkspaceWriteGuard.ts`)**:
+   - Extracted pure, deterministic evaluation of `.eval/` immutability, `.ai/blueprint.md` protection, and phase constraints.
+   - Preserved full backward compatibility with `WorkspaceMutationRequest` while supporting direct `readonly string[]` path arrays.
+4. **PreToolUseHookService (`src/main/services/preToolUseHookService.ts`)**:
+   - Manages idempotent merging of hook configuration into `~/.gemini/config/hooks.json` under key `kins-multiagents-ui`.
+   - Provides safe lifecycle cleanup (`equipWorkspace`, `unequipWorkspace`) leaving target repositories 100% untouched.
+5. **Deterministic Verification & Adversarial Audit**:
+   - Test suites: `test/pre-tool-use-hook.test.ts` (7/7 pass) and `test/pre-tool-use-contract.test.ts` (2/2 pass).
+   - Full suite: **347 / 347 tests pass (100%)** on Docker sandbox.
+   - TypeScript build and typecheck: 0 errors (`npm run build:node`, `npm run typecheck`).
+   - Packaging command: `npm run package` successfully produces clean distributable bundles in `dist/`.
+   - AQI Score for feature diff: **5.0 / 5.0** (passed, 0 findings, 0 hard failures, surgical diff score 5).
+
+## [2026-09-09] Complete Delivery: Universal Decoupling, Token Telemetry Reset Latch, and OpenAI Prompt Cache Unification (PITFALL-018, 019, 020)
+
+### Summary
+Executed full end-to-end implementation and verification of the three major architectural bottlenecks: Universal Workspace Decoupling (`PITFALL-018`), Per-Run Token Telemetry Reset (`PITFALL-019`), and Cross-Stage OpenAI Prompt Cache Prefix Unification (`PITFALL-020`). Resolved all Stage 4 Adversarial Audit findings (`PITFALL-019-01` false-reset latch on workspace open and `IPC-NOTIFY-01` duplicate switch broadcast). Verified 100% test pass rate across 338 Node.js tests in Docker sandbox and 10/10 Python unit tests for `gpt_architect` server. Measured AST AQI v2.0 composite score at **4.55/5.0** (passed).
+
+### Key Deliverables
+1. **Per-Run Token Telemetry Reset & Latch (`PITFALL-019`)**:
+   - Implemented `evaluateRunResetTransition()` and `lastResetNotifiedRunId` transition latch in `LoopStateService.ts`.
+   - Seeded `lastResetNotifiedRunId` from persistent disk state during constructor and `setProjectRoot()`, eliminating spurious reset emissions on cold workspace opening (`PITFALL-019-01`).
+   - Wired `resetRunCounters()` in `TranscriptIngestionService.ts` to reset step counters upon loop restart.
+   - Tests: `test/token-telemetry-fix.test.ts`, `test/remediation-audit.test.ts`, `test/run-reset-remediation.test.ts` (pass 100%).
+2. **Universal Workspace Decoupling (`PITFALL-018`)**:
+   - `DEC-001`: Isolated packaged rollback harness in `RollbackService.ts` without relying on user repo script copies.
+   - `DEC-002`: Explicit `this.projectRoot` in `LoopStateService.ts`; sidecar state stored in `<userData>/workspaces/<id>/sidecar/state/state.json` without creating `.ai/` in foreign repositories.
+   - `DEC-003`: Monotonic `switchGeneration` token in `ProjectService.ts` cancelling superseded asynchronous switches.
+   - `IPC-NOTIFY-01`: Eliminated duplicate `broadcastProjectSwitch()` invocations across IPC handlers.
+   - AST Cleanliness: Eliminated all `as any` casts and removed `console.log` in `package.json` `pack:prepare`.
+3. **OpenAI Prompt Cache Prefix Unification (`PITFALL-020`)**:
+   - Unified Message 0 across Stage 2 (`craft_technical_prompt_with_gpt`) and Stage 4 (`audit_and_break_code_with_gpt`) using immutable `STATIC_COMMON_CORE_PROMPT` (7,640 chars, ~1,700 tokens $\ge 1,024$).
+   - Relocated role-specific instructions to Message 1 (`STATIC_ARCHITECT_ROLE_PROMPT` and `STATIC_AUDITOR_ROLE_PROMPT`).
+   - Implemented `normalize_cacheable_text()` (CRLF -> LF, line-end whitespace stripping, NFC) in `build_cacheable_context()` and tech stack injection to prevent prompt cache prefix fragmentation.
+   - Tests: Expanded `test/gpt-architect-server.test.py` with Token 0 identity verification and text normalization tests (10/10 pass).
+4. **Deterministic Verification Status**:
+   - TypeScript Full Suite: **338 / 338 tests pass (100%)** on Docker sandbox.
+   - Typecheck: `tsc --noEmit` exit code 0.
+   - AQI v2.0 Score: **4.55 / 5.0** (passed, 0 hard failures, 0 debug calls).
+
+## [2026-09-09] Autonomous Audit: Workspace Decoupling, Token Telemetry, and Prompt Caching (Action Plan)
+
+### Summary
+Conducted an end-to-end architectural audit of the Cockpit ecosystem addressing three fundamental operational bottlenecks:
+1. **Universal Repository Independence**: Stage 4 GPT Adversary identified 3 Blocker defects (DEC-001: workspace-local rollback harness leakage, DEC-002: in-repo `.ai` fallback risk, DEC-003: missing `switchGeneration` token allowing async switch race conditions). Cataloged as **PITFALL-018**.
+2. **Token Telemetry & Per-Run Budget Isolation**: Diagnosed the 120,000 token exhaustion defect where Gemini's 80k-100k static context window was conflated with consumed workload, and token counters failed to reset across loop runs (`runId`), guaranteeing failure on Loop 2. Cataloged as **PITFALL-019**. Formulated the decoupling specification separating `workloadTokens` from `activeContextTokens` with atomic per-run reset hooks.
+3. **OpenAI Prompt Cache Divergence**: Diagnosed why prompt cache hit rates were low (0% to ~25%). Stage 2 (`craft_technical_prompt_with_gpt`) and Stage 4 (`audit_and_break_code_with_gpt`) diverged at token 0 with different system prompts, preventing cross-stage cache reuse. Formulated the unified `STATIC_COMMON_CORE_PROMPT` ($\ge 1,024$ tokens) architecture to target 75%–85% cache hit rates.
+4. **CodeGraph Mechanical Enforcement**: Cataloged **PITFALL-017** mandating `PreToolUse` hooks in `hooks.json` to hard-block ungrounded `view_file` calls under rapid reflex queries.
+
+All implementation remediation work is queued for the upcoming session.
+
 ## [2026-09-09] Fail-Closed Hard Hooks & Layer 2 Boundary Enforcement (Complete)
 
 ### Summary

@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { RollbackResult } from "../../shared/contracts.js";
+import { resolveHarnessResourcePaths } from "./harnessResourcePaths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,6 +14,7 @@ export type RollbackScriptResolution = {
 
 export class RollbackService {
   private projectRoot: string;
+  private sidecarDirectory?: string | undefined;
   private appRootOverride?: string | undefined;
   private inProgress: boolean = false;
 
@@ -26,40 +27,33 @@ export class RollbackService {
     this.appRootOverride = path.resolve(root);
   }
 
-  resolveDefaultAppRoot(): string {
-    if (this.appRootOverride) {
-      return this.appRootOverride;
-    }
-    let curr = path.dirname(fileURLToPath(import.meta.url));
-    while (curr !== path.dirname(curr)) {
-      if (fs.existsSync(path.join(curr, "scripts", "ai-loop.mjs"))) {
-        return curr;
-      }
-      curr = path.dirname(curr);
-    }
-    return process.cwd();
-  }
-
   resolveRollbackScript(): RollbackScriptResolution | null {
-    const localScript = path.join(this.projectRoot, "scripts", "ai-loop.mjs");
-    if (fs.existsSync(localScript)) {
-      return { scriptPath: localScript, additionalArgs: [] };
+    // DEC-001: When operating on an external workspace (sidecarDirectory is present),
+    // strictly use the packaged Kin harness, never the target workspace's internal scripts.
+    if (!this.sidecarDirectory) {
+      const localScript = path.join(this.projectRoot, "scripts", "ai-loop.mjs");
+      if (fs.existsSync(localScript)) {
+        return { scriptPath: localScript, additionalArgs: [] };
+      }
     }
 
-    const appRoot = this.resolveDefaultAppRoot();
-    const appScript = path.join(appRoot, "scripts", "ai-loop.mjs");
-    if (fs.existsSync(appScript)) {
+    const harness = resolveHarnessResourcePaths({ appRoot: this.appRootOverride });
+    if (fs.existsSync(harness.loopScriptPath)) {
+      const stateFile = this.sidecarDirectory
+        ? path.join(this.sidecarDirectory, "state", "state.json")
+        : path.join(this.projectRoot, ".ai", "state.json");
       return {
-        scriptPath: appScript,
-        additionalArgs: ["--state-file", path.join(this.projectRoot, ".ai", "state.json")]
+        scriptPath: harness.loopScriptPath,
+        additionalArgs: ["--state-file", stateFile]
       };
     }
 
     return null;
   }
 
-  async setProjectRoot(projectPath: string): Promise<void> {
+  async setProjectRoot(projectPath: string, sidecarDirectory?: string): Promise<void> {
     this.projectRoot = path.resolve(projectPath);
+    this.sidecarDirectory = sidecarDirectory ? path.resolve(sidecarDirectory) : undefined;
   }
 
   async executeRollback(): Promise<RollbackResult> {

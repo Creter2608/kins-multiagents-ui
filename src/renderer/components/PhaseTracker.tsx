@@ -162,7 +162,7 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
     ? loopState.history?.filter((h) => h.to === selectedPhase).pop()
     : null;
 
-  // Effective Tokens: Prefer loopState.resourceUsage, fallback to live telemetry
+  // Effective Tokens: Prefer loopState.resourceUsage, fallback to live workload telemetry
   const stateTokens = loopState.resourceUsage?.totalTokens ?? 0;
   const sessionGptTokens =
     (telemetry?.currentSession?.gpt?.inputTokens ?? 0) +
@@ -170,15 +170,17 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
   const directGptTokens =
     (telemetry?.gptPromptTokens ?? 0) + (telemetry?.gptCompletionTokens ?? 0);
   const gptTokens = Math.max(sessionGptTokens, directGptTokens);
-  const geminiTokens =
-    (telemetry?.currentSession?.gemini?.inputTokens ?? 0) +
-    (telemetry?.currentSession?.gemini?.outputTokens ?? 0);
-  const directGeminiTokens =
-    (telemetry?.geminiPromptTokens ?? 0) + (telemetry?.geminiCompletionTokens ?? 0);
-  const effectiveGemini = Math.max(geminiTokens, directGeminiTokens);
-  const telemetryTotalTokens = gptTokens + effectiveGemini;
-  const effectiveTokens = Math.max(stateTokens, telemetryTotalTokens);
+  const sessionGeminiOut = telemetry?.currentSession?.gemini?.outputTokens ?? 0;
+  const directGeminiOut = telemetry?.geminiCompletionTokens ?? 0;
+  const geminiOutputTokens = Math.max(sessionGeminiOut, directGeminiOut);
+  // Workload tokens: GPT Oracle calls + Gemini generation tokens (never include static context window in budget)
+  const telemetryWorkloadTokens = gptTokens + geminiOutputTokens;
+  const effectiveTokens = stateTokens > 0 ? stateTokens : telemetryWorkloadTokens;
   const maxTokens = loopState.resourceBudget?.maxTokens ?? 120_000;
+  const geminiContextTokens = Math.max(
+    telemetry?.currentSession?.gemini?.inputTokens ?? 0,
+    telemetry?.geminiPromptTokens ?? 0
+  );
 
   return (
     <aside className="w-80 bg-[#0c0c0c] border-r border-[#1f1f1f] flex flex-col h-full text-zinc-300 select-none font-mono">
@@ -552,7 +554,7 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
                 ? "text-cyan-300"
                 : "text-zinc-100"
             }`}
-            title={`LoopState: ${(loopState.resourceUsage?.totalTokens ?? 0).toLocaleString("en-US")} | Live Telemetry: ${telemetryTotalTokens.toLocaleString("en-US")}`}
+            title={`LoopState: ${(loopState.resourceUsage?.totalTokens ?? 0).toLocaleString("en-US")} | Telemetry Workload: ${telemetryWorkloadTokens.toLocaleString("en-US")} (GPT: ${gptTokens.toLocaleString("en-US")}, Gen: ${geminiOutputTokens.toLocaleString("en-US")}) | Active Context: ${geminiContextTokens.toLocaleString("en-US")}`}
           >
             {(effectiveTokens > 0 ? effectiveTokens : (loopState.resourceUsage?.totalTokens ?? 0)).toLocaleString("en-US")} / {(loopState.resourceBudget?.maxTokens ?? 120_000).toLocaleString("en-US")}
           </span>

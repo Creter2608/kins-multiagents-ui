@@ -24,6 +24,11 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-014** | Boilerplate / Hallucinated Transparency Tagging & CodeGraph MCP Bypass | `INTEGRITY_MISMATCH` | Agent outputs status tags without executing tool, or uses invisible shell workarounds instead of registered MCP tools | NEVER emit tags without execution in current turn; ALWAYS invoke `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` |
 | **PITFALL-015** | False-Negative `.codegraph/` Directory Discovery via `find_by_name` | `STATE_INVALID` | Agent claims `.codegraph/` is missing because `find_by_name` (fd) hides dotfiles | Trust `<mcp_servers>` & invoke `codegraph_explore` directly; never probe dotfiles via `find_by_name` |
 | **PITFALL-016** | Premature completion bias & "One-Shot" rule ambiguity suppressing Stage 4 adversarial audit | `STAGE_GATE_BYPASS` | Agent skips Stage 4 `audit_and_break_code_with_gpt` after CPU tests pass due to misreading "at most once" | Enforce Dual-Oracle Protocol (Stage 2 + Stage 4), decouple thinking time from token/cost ceilings, lock RELEASE_GATE |
+| **PITFALL-017** | Probabilistic Prompt Rules vs Native Heuristic Drift in CodeGraph Enforcement | `RULE_BYPASS` | Agent uses native `view_file` bypassing `codegraph_explore` during rapid reflex queries | Prompts are probabilistic; enforce mechanical `PreToolUse` hook in `hooks.json` to hard-block ungrounded source views |
+| **PITFALL-018** | Workspace-Local Harness Leaks & Async Switch Race Conditions in Multi-Project Cockpit | `COUPLING_DEFECT` | Rollback looks in user repo for scripts, missing sidecar creates `.ai/`, async switch races | Harness resolves strictly from packaged/dev app; foreign repos require sidecar; monotonic `switchGeneration` |
+| **PITFALL-019** | Conflating Active Context Window with Workload Tokens & Missing Per-Run Reset | `BUDGET_EXHAUSTED` | Gemini 80k-100k context window depletes 120k budget in 1 turn; 2nd loop run inherits tokens and crashes | Separate `workloadTokens` from `activeContextTokens`; bind usage to `runId` and reset on `INITIALIZE` |
+| **PITFALL-020** | System Prompt Divergence at Token 0 & Volatile Context Destroying Prompt Caching | `BUDGET_EXHAUSTED` | Prompt cache hit drops to 0%-25% across Stage 2 and Stage 4 due to disparate system prompts | Unify Message 0 with `STATIC_COMMON_CORE_PROMPT` (>= 1,024 tokens); normalize context strings |
+| **PITFALL-021** | Agent Reflex Bypass of Stage 2 Blueprint & Hard Hooks Absence in Host CLI Environment | `RULE_BYPASS` | Host agent (Gemini Flash) uses native file mutation tools directly, skipping 5 stages and 10 phases without GPT blueprint | Enforce physical CLI `PreToolUse` hook on `replace_file_content` and `write_to_file` intercepting mutations via HMAC-signed blueprint approval |
 
 
 ---
@@ -220,6 +225,70 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   1. **Dual-Oracle Protocol (Zero-Syntax-Loop Invariant):** GPT is invoked exactly TWICE per canonical task: ONCE at Stage 2 (`craft_technical_prompt_with_gpt` for Technical Blueprint & Compact Assertions) and ONCE at Stage 4 (`audit_and_break_code_with_gpt` for Adversarial Reality Check). Zero re-invocations are permitted for minor syntax or compiler errors.
   2. **Thinking Time as Asset:** Thinking time of reasoning models (`o1`, `o3`, `gpt-5.6-sol`) is a core feature for uncovering race conditions, contract drifts, and boundary flaws. Agents **MUST NOT** skip Stage 4 to save interaction time. Resource safety is enforced by Token/Cost ceilings, not premature shortcuts.
   3. **Mandatory Reality Gate:** Transition to `RELEASE_GATE` or `COMPLETE` is strictly invalid without an immutable audit record and verdict from `audit_and_break_code_with_gpt`.
+
+---
+
+### PITFALL-017: Probabilistic Prompt Rules vs. Native Heuristic Drift in CodeGraph Enforcement
+- **Context:** Enforcing mandatory `codegraph_explore` MCP usage across conversational turns and fast reactive queries (e.g. security audits, git checks, regression inspections).
+- **Observed Failure:** Despite explicit prompt instructions (`MUST run codegraph_explore BEFORE reading entire files`), agents repeatedly revert to native file inspection (`view_file`, `grep_search`) without invoking CodeGraph first, leading to repeated human reminders with zero behavioral convergence.
+- **Root Cause:**
+  1. *Prompt Rules are Probabilistic, Native Heuristics are Reflexive:* System instructions in prompts are guidance with intrinsic attention drift. When reacting to fast, non-architectural requests (e.g. "is an API key exposed?"), the agent's reflex triggers native grep and view tools directly, short-circuiting the prompt rule.
+  2. *Ad-Hoc Rationalization:* The agent rationalizes ad-hoc that checking a test fixture or single function does not constitute "reading architectural code," bypassing the gate.
+  3. *Absence of Mechanical Fail-Closed Hooks:* Relying solely on model discipline without a mechanical enforcement barrier (similar to how Stage 2 bypass was solved via `assertBlueprintAllowsExecution` in v2.8.0) guarantees periodic failure.
+- **Mandatory Invariants:**
+  1. **Mechanical Hook Enforcement:** Deploy Antigravity native `PreToolUse` lifecycle hook (`hooks.json`) matching `view_file` on `src/` and `test/` paths. If `codegraph_explore` has not been invoked for the target symbols in the active session, the hook deterministically rejects the tool call (`decision: deny`), physically forcing compliance.
+  2. **Pre-Flight Invariant:** Until mechanical hooks are mounted, agents MUST treat `view_file` on source code as a hard barrier requiring prior `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` execution and transparency tagging in the exact same turn.
+
+---
+
+### PITFALL-018: Workspace-Local Harness Leaks & Async Switch Race Conditions in Multi-Project Cockpit
+- **Context:** Decoupling Kin Cockpit into a universal developer cockpit for arbitrary external user repositories (empty, client apps, polyglot).
+- **Observed Failure:**
+  1. *Harness Code Leakage:* `RollbackService.resolveRollbackScript()` searched for `scripts/ai-loop.mjs` inside `this.projectRoot`, causing failures on clean client repos or running untrusted workspace code instead of Kin's packaged rollback harness.
+  2. *Repo Pollution:* `LoopStateService.resolveLoopStatePath()` fell back to `<projectRoot>/.ai/state.json` when `sidecarDirectory` was omitted on a clean repo, risking creating unwanted `.ai/` folders in client repos.
+  3. *Switch State Corruption:* `ProjectService.switchProject()` lacked monotonic switch generation tokens, allowing overlapping asynchronous switches to interleave and leave services anchored to different workspaces.
+- **Root Cause:** Residual assumptions that the active workspace being managed is `kins-multiagents-ui` itself, rather than treating the active repository as foreign untrusted workspace data.
+- **Mandatory Invariants:**
+  1. **Strict External Harness Isolation:** Harness scripts (`ai-loop.mjs`, `aqi.mjs`) must resolve exclusively through `resolveHarnessResourcePaths` from packaged resources or application dev root. Never execute or search for harness scripts under `this.projectRoot`.
+  2. **Zero-Pollution Sidecar Mandate:** Foreign repositories without an existing `.ai/` directory MUST store all state under `<userData>/workspaces/<id>/sidecar/`. If sidecar is missing and `.ai/` does not exist, throw a configuration error; never return a path creating `.ai/` in the client repo.
+  3. **Monotonic Switch Generation:** `ProjectService` must maintain an atomic `switchGeneration` token incremented on every switch. Check the token after every async step; abandon state mutations if a newer switch has superseded the current one.
+
+---
+
+### PITFALL-019: Conflating Active Context Window with Workload Tokens & Missing Per-Run Reset
+- **Context:** Enforcing the `MAX_TOKENS_PER_RUN = 120,000` ceiling and telemetry display (`TOKENS: ... / 120,000`) in the Autonomous Loop Engine and Cockpit UI.
+- **Observed Failure:**
+  1. *Immediate Budget Exhaustion:* The host LLM's (Gemini) static context window (consisting of system prompt, rules, tools, and transcripts, reaching 80,000–100,000 tokens per turn) is treated as consumed workload and accumulated against the 120,000 budget, causing the run to hit the ceiling after 1-2 turns even when minimal new code was generated.
+  2. *Guaranteed Loop 2 Failure:* Token counters in `TranscriptIngestionService` and `LoopStateService` accumulate across turns and do NOT reset when a new loop run starts (new `runId` or transition to `INITIALIZE`). Consequently, the second loop run begins with 100k+ inherited tokens and fails immediately on its very first step.
+- **Root Cause:** Conflating two fundamentally different concepts: static *Active Context* (RAM/capacity of the model) versus *Consumed Workload* (actual tokens spent on this run: Oracle prompt/completion + Gemini generation). Furthermore, failing to bind `resourceUsage` lifecycle to `runId`.
+- **Mandatory Invariants:**
+  1. **Decouple Workload from Context Window:** Define `workloadTokens = oraclePromptTokens + oracleCompletionTokens + geminiGenerationTokens`. Only `workloadTokens` counts against the 120,000 limit. The host model's static prompt size is recorded as an informational gauge (`activeContextTokens`) and NEVER deducted from the budget.
+  2. **Atomic Per-Run Reset Hook:** When `next.runId !== previous.runId` or when transitioning to `INITIALIZE`, immediately reset `resourceUsage` to `EMPTY_RESOURCE_USAGE` and execute `TranscriptIngestionService.resetRunCounters()`.
+  3. **Cockpit UI Attribution:** Display `TOKENS: <workloadTokens> / <maxTokens>` with color-coded safety thresholds (<70% normal, 70-90% warning, >90% danger) and provide detailed subtext/tooltip for Oracle, Generation, and Active Context.
+
+---
+
+### PITFALL-020: System Prompt Divergence at Token 0 & Volatile Context Destroying OpenAI Prompt Caching
+- **Context:** Invoking `gpt_architect` MCP tools (`craft_technical_prompt_with_gpt` at Stage 2 and `audit_and_break_code_with_gpt` at Stage 4) under OpenAI Chat Completions API with automatic prompt caching ($\ge 1,024$ tokens prefix threshold).
+- **Observed Failure:** The prompt cache hit rate across the Dual-Oracle pipeline drops to 0% on initial/cross-stage runs, and reaches only ~25% during warm turns, causing excessive token expenditure ($0.05+ per call) and high turnaround latency.
+- **Root Cause:**
+  1. *Token-0 Divergence Across Roles:* `build_architect_messages()` starts with `STATIC_ARCHITECT_SYSTEM_PROMPT` (~1,294 tokens) while `build_auditor_messages()` starts with `STATIC_AUDITOR_SYSTEM_PROMPT` (~1,100 tokens, completely different text from character 0). Because OpenAI prompt caching strictly requires an identical prefix from token 0, the Stage 4 auditor cannot reuse any cached prefix from Stage 2, resulting in a 100% cache miss.
+  2. *Volatile Middle Context:* The second message (`stable_context`) contains `sp_template` and `tech_stack` strings. Inconsistent whitespace, varied template path aliases, or line-ending differences terminate cache prefix continuation immediately after the system prompt, capping warm cache reuse at ~25%.
+- **Mandatory Invariants:**
+  1. **Unified Common Core Prefix (Message 0):** Both Stage 2 and Stage 4 message builders MUST emit an identical, invariant first system message: `STATIC_COMMON_CORE_PROMPT` containing cross-role policy (Karpathy invariants, circuit breakers, 10 canonical phases, `.eval/` immutability) exceeding the 1,024-token cache threshold.
+  2. **Role-Specific Instructions at Message 1:** Place role-specific instructions (`STATIC_ARCHITECT_SYSTEM_PROMPT` or `STATIC_AUDITOR_SYSTEM_PROMPT`) as the second message, preserving the shared prefix across all calls.
+  3. **Canonical Text Normalization:** Strip trailing whitespace, convert `CRLF` to `LF`, and normalize Unicode NFC in template and tech stack strings via `normalize_cacheable_text()` to prevent accidental prefix invalidation.
+
+---
+
+### PITFALL-021: Agent Reflex Bypass of Stage 2 Blueprint & Hard Hooks Absence in Host CLI Environment
+- **Context:** Autonomous pair programming where the host agent (e.g., Antigravity CLI / Gemini 3.8 Flash) receives user bug reports or feature requests and has access to native tools (`replace_file_content`, `write_to_file`).
+- **Observed Failure:** The agent attempts to solve the problem immediately with rapid reflex code mutations, skipping the mandatory 5-stage / 10-phase loop (specifically bypassing Stage 2 Prompt Architect `craft_technical_prompt_with_gpt`). Although internal in-process guards exist in `WorkspaceWriteGuard.ts`, the host agent's native tools bypass the Cockpit runner and interact directly with the filesystem, nullifying the loop.
+- **Root Cause:** In-process software checks only protect actions routed through the internal loop engine. In the absence of an OS/CLI-level tool execution hook (`PreToolUse`), prompt instructions ("You must not edit files without GPT blueprint") are probabilistic and vulnerable to LLM reflex inertia.
+- **Mandatory Invariants:**
+  1. **Physical PreToolUse CLI Hard Hook:** Install a physical hook in `~/.gemini/config/hooks.json` intercepting `replace_file_content` and `write_to_file` via stdio JSON pipe protocol to `dist/src/cli/preToolUseHook.js`.
+  2. **HMAC-SHA-256 Signed Approval Barrier:** Require an explicit, cryptographically signed `blueprintApproval` payload (binding `runId`, `canonicalWorkspacePath`, and `blueprintSha256` using installation-scoped `auth.key`) in the sidecar `state.json`. Mutations fail-closed with `{"decision": "deny"}` if the signature or hash is invalid or if the phase is not `EXECUTE`.
+  3. **Universal Repository Decoupling:** Never create `.agents/`, `.ai/`, or hook scripts inside target repositories. All workspace registrations must reside exclusively in `<userData>/hooks/workspaces.json`.
 
 ---
 
