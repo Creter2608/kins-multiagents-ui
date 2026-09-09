@@ -13,7 +13,7 @@ import {
 export const MCP_TOOLS_LIST = [
   {
     name: "agent_loop_status",
-    description: "Query current state snapshot of the Canonical Autonomous Loop v2.0",
+    description: "Query current state snapshot of the Canonical Autonomous Loop v3.0",
     inputSchema: {
       type: "object",
       properties: {
@@ -38,6 +38,10 @@ export const MCP_TOOLS_LIST = [
           type: "string",
           description: "Expected current phase before transition (anti-race condition)"
         },
+        expectedRevision: {
+          type: "number",
+          description: "Expected monotonic revision number to prevent stale concurrent transitions"
+        },
         action: {
           type: "string",
           enum: ["advance", "approve", "reject"],
@@ -52,7 +56,7 @@ export const MCP_TOOLS_LIST = [
           description: "Required reason when action is 'reject'"
         }
       },
-      required: ["runId", "expectedPhase", "action"]
+      required: ["runId", "expectedPhase", "expectedRevision", "action"]
     }
   }
 ];
@@ -85,7 +89,7 @@ export function handleJsonRpcMessage(
         },
         serverInfo: {
           name: "kins-agent-loop",
-          version: "2.7.2"
+          version: "3.0.0"
         }
       }
     });

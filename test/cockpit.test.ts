@@ -1643,4 +1643,62 @@ test("critical log: clear populated logs produces empty snapshot, subsequent new
   }
 });
 
+test("telemetry ingestion: updates both TelemetryService and LoopStateService.resourceUsage in real-time", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cockpit-token-telemetry-"));
+  const transcriptPath = path.join(tempDir, "transcript.jsonl");
+  const statePath = path.join(tempDir, "state.json");
+  const telemetryPath = path.join(tempDir, "telemetry.json");
+
+  try {
+    fs.writeFileSync(statePath, JSON.stringify({
+      schemaVersion: 1,
+      runId: "run-tokens-1",
+      currentPhase: "EXECUTE",
+      status: "running",
+      resourceBudget: { maxCostMicroUsd: 1000000, maxTokens: 120000, maxOracleCalls: 2, maxGlobalCycles: 2, maxVerificationRetries: 1, maxQualityRemediations: 1 },
+      resourceUsage: { costMicroUsd: 0, promptTokens: 0, cachedTokens: 0, reasoningTokens: 0, completionTokens: 0, totalTokens: 0, oracleCalls: 0, globalCycles: 0, verificationRetries: 0, qualityRemediations: 0 }
+    }), "utf-8");
+
+    const telemetry = new TelemetryService(telemetryPath);
+    const mcp = new McpMonitorService();
+    const loopService = new LoopStateService(statePath);
+    const ingestion = new TranscriptIngestionService(telemetry, mcp, loopService, transcriptPath);
+
+    // Initial state has 0 tokens
+    assert.equal(loopService.getSnapshot().resourceUsage.totalTokens, 0);
+
+    // Append GPT token usage line to transcript
+    const stepWithTokens = {
+      step_index: 1,
+      source: "TOOL_OUTPUT",
+      content: "Here is the response.\n\n---\n📊 [GPT Token Usage]: Input: 5,000 (Cached: 2,000) | Output: Content: 1,500 | Total: 6,500 | Cost: $0.0250 (25000 µUSD)"
+    };
+    fs.writeFileSync(transcriptPath, JSON.stringify(stepWithTokens) + "\n", "utf-8");
+
+    ingestion.processFile();
+
+    // 1. TelemetryService must have the tokens
+    const telSnap = telemetry.getSnapshot();
+    assert.equal(telSnap.gptPromptTokens, 5000);
+    assert.equal(telSnap.gptCompletionTokens, 1500);
+    assert.equal(telSnap.gptCacheHitTokens, 2000);
+
+    // 2. LoopStateService must have the updated resourceUsage.totalTokens (previously stuck at 0)
+    const loopSnap = loopService.getSnapshot();
+    assert.equal(loopSnap.resourceUsage.totalTokens, 6500);
+    assert.equal(loopSnap.resourceUsage.promptTokens, 5000);
+    assert.equal(loopSnap.resourceUsage.completionTokens, 1500);
+    assert.equal(loopSnap.resourceUsage.cachedTokens, 2000);
+
+    // 3. Disk state.json must also have persisted resourceUsage
+    const rawDisk = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    assert.equal(rawDisk.resourceUsage.totalTokens, 6500);
+
+    loopService.dispose();
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+
 

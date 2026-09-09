@@ -22,6 +22,8 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-012** | Terminal session destruction via conditional React unmounting | `STATE_INVALID` | Switching Cockpit tabs kills running PTY and clears terminal history | Keep terminal mounted and toggle view visibility via CSS `hidden` |
 | **PITFALL-013** | Arbitrary `HEAD~1` base commit in evaluation harness triggering false-positive anti-gaming disqualification | `INTEGRITY_MISMATCH` | Benchmark run fails with `SPECIFICATION INTEGRITY VIOLATION` on release commits | Default `baseCommit` to `HEAD` (or explicit customBaseCommit), never hardcoded `HEAD~1` |
 | **PITFALL-014** | Boilerplate / Hallucinated Transparency Tagging & CodeGraph MCP Bypass | `INTEGRITY_MISMATCH` | Agent outputs status tags without executing tool, or uses invisible shell workarounds instead of registered MCP tools | NEVER emit tags without execution in current turn; ALWAYS invoke `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` |
+| **PITFALL-015** | False-Negative `.codegraph/` Directory Discovery via `find_by_name` | `STATE_INVALID` | Agent claims `.codegraph/` is missing because `find_by_name` (fd) hides dotfiles | Trust `<mcp_servers>` & invoke `codegraph_explore` directly; never probe dotfiles via `find_by_name` |
+| **PITFALL-016** | Premature completion bias & "One-Shot" rule ambiguity suppressing Stage 4 adversarial audit | `STAGE_GATE_BYPASS` | Agent skips Stage 4 `audit_and_break_code_with_gpt` after CPU tests pass due to misreading "at most once" | Enforce Dual-Oracle Protocol (Stage 2 + Stage 4), decouple thinking time from token/cost ceilings, lock RELEASE_GATE |
 
 
 ---
@@ -131,8 +133,8 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   3. *Immediate Prefix Divergence*: Mixing dynamic elements (`task`, random timestamps, variable codebase paths) before stable templates breaks prefix continuity across turns.
 - **Mandatory Invariant:**
   - Enforce `STATIC_SYSTEM_PROMPT` $\ge 1,024$ tokens with zero volatile metadata (no timestamps, run IDs, or counters).
-  - Adopt **Multi-Zone Message Architecture**: Message 0 (`system` invariant platform head), Message 1 (`user` stable repository/template context), Message 2 (`user` dynamic task & pruned context).
-  - Enforce surgical **CodeGraph Context Pruning**: Transmit only symbol signatures, interfaces, and call paths (300–800 tokens max) to keep total input around ~2,000–2,500 tokens and maintain an $80\%+$ cache hit rate.
+  - Adopt **Multi-Zone Message Architecture**: Message 0 (`system` invariant platform head), Message 1 (`user` stable repository/template context), Message 2 (`user` dynamic task & architectural context).
+  - Enforce **High-Signal Architectural Context (3,000–6,000 tokens)**: Transmit full data schemas, type interfaces, and CodeGraph topological call paths (skeletons and signatures only, omitting raw implementation bodies). This prevents "Architecture in a Vacuum" while avoiding unpruned 20k+ token dumps, keeping input within the optimal caching window.
 
 ---
 
@@ -194,6 +196,30 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 - **Mandatory Invariants:**
   1. **Strict Tagging Grounding:** An agent **MUST NEVER** output `🔍 [CodeGraph Context]: Extracted <N> symbols...` unless an actual CodeGraph query was executed IN THAT VERY TURN. If no query occurred, omit the tag entirely or explicitly state: `🔍 [CodeGraph Context]: None (No symbols queried this turn)`.
   2. **MCP-First Routing:** When MCP servers are available (see `<mcp_servers>`), the agent **MUST** call `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` as the primary interface so the tool execution is rendered transparently on the user's client UI.
+
+---
+
+### PITFALL-015: False-Negative `.codegraph/` Directory Discovery via `find_by_name`
+- **Context:** Detecting whether CodeGraph is initialized in a repository before triggering context exploration.
+- **Observed Failure:** Agents call `find_by_name(Pattern: ".codegraph")`, which returns 0 results because the underlying `fd` engine ignores hidden directories (starting with `.`) and gitignored paths by default. The agent then falsely assumes `.codegraph/` does not exist and outputs misleading disclaimer messages claiming CodeGraph context was skipped.
+- **Root Cause:** Using standard filesystem walk tools (`fd`, `find_by_name`) without hidden-file flags to probe dot-prefixed (`.`) infrastructure folders.
+- **Mandatory Invariants:**
+  1. **Trust Registered MCP:** If `codegraph` is present in `<mcp_servers>`, CodeGraph is active and ready. Directly call `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore")` without probing the filesystem.
+  2. **Do Not Probe Dotfiles with `find_by_name`**: Never execute `find_by_name(Pattern: ".codegraph")`. If manual filesystem verification is strictly needed, use `Test-Path .codegraph` or `Get-ChildItem -Force`.
+
+---
+
+### PITFALL-016: Premature Completion Bias & "One-Shot" Rule Ambiguity Suppressing Stage 4 Adversarial Audit
+- **Context:** Autonomous Loop V3 execution flow spanning Stage 2 (`craft_technical_prompt_with_gpt`) and Stage 4 (`audit_and_break_code_with_gpt`).
+- **Observed Failure:** Layer 2 agent synthesizes code, runs CPU tests, observes 100% pass, and then immediately terminates or marks the task complete, completely bypassing the Stage 4 Adversarial Audit (`audit_and_break_code_with_gpt`).
+- **Root Cause:**
+  1. *Rule Semantic Ambiguity*: The directive *"GPT must be invoked AT MOST ONCE per task"* was drafted to prevent infinite compiler-error retry loops, but LLM agents misinterpret it as an absolute session-level quota ($1/1$). After calling Stage 2 for the blueprint, agents assume any subsequent call to Stage 4 violates system policy.
+  2. *Early Completion Bias & Latency Avoidance*: Agents conflate local CPU test passes with production readiness, prematurely concluding tasks to minimize turnaround time and avoiding 1–3 minute reasoning pauses.
+  3. *Unfounded Latency Fear*: Agents treat reasoning model thinking time as an operational risk, ignoring that Token and Cost circuit breakers (`MAX_TOKENS_PER_RUN`, `MAX_COST_USD`) already provide deterministic financial and resource guarantees.
+- **Mandatory Invariants:**
+  1. **Dual-Oracle Protocol (Zero-Syntax-Loop Invariant):** GPT is invoked exactly TWICE per canonical task: ONCE at Stage 2 (`craft_technical_prompt_with_gpt` for Technical Blueprint & Compact Assertions) and ONCE at Stage 4 (`audit_and_break_code_with_gpt` for Adversarial Reality Check). Zero re-invocations are permitted for minor syntax or compiler errors.
+  2. **Thinking Time as Asset:** Thinking time of reasoning models (`o1`, `o3`, `gpt-5.6-sol`) is a core feature for uncovering race conditions, contract drifts, and boundary flaws. Agents **MUST NOT** skip Stage 4 to save interaction time. Resource safety is enforced by Token/Cost ceilings, not premature shortcuts.
+  3. **Mandatory Reality Gate:** Transition to `RELEASE_GATE` or `COMPLETE` is strictly invalid without an immutable audit record and verdict from `audit_and_break_code_with_gpt`.
 
 ---
 

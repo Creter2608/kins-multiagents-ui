@@ -336,6 +336,17 @@ export class TranscriptIngestionService {
           gptCacheHitTokens: this.totalGptCacheHit,
           gptCacheMissTokens: this.totalGptCacheMiss
         });
+
+        if (this.loopService) {
+          const totalGpt = this.totalGptPrompt + this.totalGptCompletion;
+          this.loopService.updateResourceUsage({
+            promptTokens: this.totalGptPrompt,
+            completionTokens: this.totalGptCompletion,
+            cachedTokens: this.totalGptCacheHit,
+            totalTokens: totalGpt,
+            oracleCalls: this.seenGptEventKeys.size
+          });
+        }
       }
     }
 
@@ -371,6 +382,16 @@ export class TranscriptIngestionService {
           geminiCompletionTokens: this.totalGeminiCompletion,
           geminiCacheStatus: "Active"
         });
+
+        if (this.loopService) {
+          const totalTokens = (this.totalGptPrompt + this.totalGptCompletion) + (this.totalGeminiPrompt + this.totalGeminiCompletion);
+          this.loopService.updateResourceUsage({
+            promptTokens: this.totalGptPrompt + this.totalGeminiPrompt,
+            completionTokens: this.totalGptCompletion + this.totalGeminiCompletion,
+            cachedTokens: this.totalGptCacheHit,
+            totalTokens
+          });
+        }
       }
     }
 

@@ -21,6 +21,28 @@ export interface LoopBudgetSnapshot {
   readonly maxOperations: number;
 }
 
+export interface ResourceBudget {
+  readonly maxCostMicroUsd: number;
+  readonly maxTokens: number;
+  readonly maxOracleCalls: number;
+  readonly maxGlobalCycles: number;
+  readonly maxVerificationRetries: number;
+  readonly maxQualityRemediations: number;
+}
+
+export interface ResourceUsage {
+  readonly costMicroUsd: number;
+  readonly promptTokens: number;
+  readonly cachedTokens: number;
+  readonly reasoningTokens: number;
+  readonly completionTokens: number;
+  readonly totalTokens: number;
+  readonly oracleCalls: number;
+  readonly globalCycles: number;
+  readonly verificationRetries: number;
+  readonly qualityRemediations: number;
+}
+
 export interface LoopHistoryEntry {
   readonly sequence: number;
   readonly from: string;
@@ -42,17 +64,71 @@ export interface LoopTestSummary {
   readonly lastRunAt: string | null;
 }
 
+export type AuditStatus =
+  | "pending"
+  | "running"
+  | "accepted"
+  | "remediation_required"
+  | "closure_pending"
+  | "closed"
+  | "failed";
+
+export interface AuditFinding {
+  readonly id: string;
+  readonly category: string;
+  readonly severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  readonly description: string;
+  readonly failingTestAssertion?: string | undefined;
+  readonly resolved?: boolean | undefined;
+}
+
+export interface AuditRecord {
+  readonly status: AuditStatus;
+  readonly invocationKey?: string | undefined;
+  readonly auditedTreeHash?: string | undefined;
+  readonly findings?: readonly AuditFinding[] | undefined;
+  readonly remediationCount: number;
+  readonly report?: string | undefined;
+  readonly completedAt?: number | undefined;
+}
+
+export type BlueprintStatus = "pending" | "running" | "ready" | "failed";
+
+export interface GoldenAssertionSnapshot {
+  readonly in: string;
+  readonly out: string;
+}
+
+export interface BlueprintRecordSnapshot {
+  readonly status: BlueprintStatus;
+  readonly invocationKey: string;
+  readonly invocationCount: 0 | 1;
+  readonly artifactPath: ".ai/blueprint.md";
+  readonly plannedTreeHash: string;
+  readonly protectedEvalHash?: string | undefined;
+  readonly artifactSha256?: string | undefined;
+  readonly assertionsSha256?: string | undefined;
+  readonly goldenAssertions?: readonly GoldenAssertionSnapshot[] | undefined;
+  readonly completedAt?: number | undefined;
+  readonly failureCode?: string | undefined;
+}
+
 export interface LoopStateSnapshot {
   readonly runId: string;
   readonly schemaVersion: number;
+  readonly revision: number;
   readonly currentPhase: LoopPhase | string;
   readonly status: "ready" | "running" | "succeeded" | "failed" | "blocked";
   readonly usage: LoopUsageSnapshot;
   readonly budget: LoopBudgetSnapshot;
+  readonly resourceBudget: ResourceBudget;
+  readonly resourceUsage: ResourceUsage;
   readonly phases: readonly PhaseDisplayItem[];
   readonly history?: readonly LoopHistoryEntry[] | undefined;
   readonly testSummary?: LoopTestSummary | undefined;
   readonly architecturalCompliance?: ArchitecturalCompliance | undefined;
+  readonly blueprint?: BlueprintRecordSnapshot | undefined;
+  readonly audit?: AuditRecord | undefined;
   readonly lastError?: { readonly code: string; readonly message: string } | undefined;
   readonly syncError?: string | undefined;
   readonly lastUpdated: number;

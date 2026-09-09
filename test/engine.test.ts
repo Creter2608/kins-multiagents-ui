@@ -6,6 +6,23 @@ import { parseSha256Hex } from "../src/checksum.js";
 
 const DUMMY_SHA = parseSha256Hex("c9e3edcf9d3c16427221490a55e17de7414cb77b3c6653ffa63073cacf81889c");
 
+const DUMMY_READY_BLUEPRINT = {
+  status: "ready" as const,
+  invocationKey: "key-1",
+  invocationCount: 1 as const,
+  artifactPath: ".ai/blueprint.md" as const,
+  plannedTreeHash: DUMMY_SHA,
+  protectedEvalHash: DUMMY_SHA,
+  artifactSha256: DUMMY_SHA,
+  assertionsSha256: DUMMY_SHA,
+  goldenAssertions: [
+    { in: "a", out: "b" },
+    { in: "c", out: "d" },
+    { in: "e", out: "f" }
+  ],
+  completedAt: 1234567890
+};
+
 const CANONICAL_PHASES: readonly PhaseDefinition[] = [
   { id: "INITIALIZE", allowedNext: ["SPEC_GATE", "FAILED"] },
   { id: "SPEC_GATE", allowedNext: ["ISOLATE", "BLOCKED"] },
@@ -35,9 +52,11 @@ test("engine: full canonical path reaches COMPLETE status", () => {
   engine.transition("ISOLATE");
   engine.transition("DETECT_STACKS");
   engine.transition("PLAN");
+  engine.setBlueprint(DUMMY_READY_BLUEPRINT);
   engine.transition("EXECUTE");
   engine.transition("VERIFY");
   engine.transition("REALITY_CHECK");
+  engine.closeAudit();
   engine.transition("RELEASE_GATE");
   const finalState = engine.transition("COMPLETE");
 
@@ -164,9 +183,11 @@ test("engine: rollback from terminal states is rejected without mutation", () =>
   engineSucceeded.transition("ISOLATE");
   engineSucceeded.transition("DETECT_STACKS");
   engineSucceeded.transition("PLAN");
+  engineSucceeded.setBlueprint(DUMMY_READY_BLUEPRINT);
   engineSucceeded.transition("EXECUTE");
   engineSucceeded.transition("VERIFY");
   engineSucceeded.transition("REALITY_CHECK");
+  engineSucceeded.closeAudit();
   engineSucceeded.transition("RELEASE_GATE");
   engineSucceeded.transition("COMPLETE");
   assert.equal(engineSucceeded.snapshot().status, "succeeded");
@@ -196,6 +217,30 @@ test("engine: rollback from terminal states is rejected without mutation", () =>
   assert.equal(rolledBack.status, "running");
 });
 
+test("engine: transition from PLAN to EXECUTE without ready blueprint throws TRANSITION_INVALID", () => {
+  const engine = new LoopEngine({
+    phases: CANONICAL_PHASES,
+    initialPhase: "INITIALIZE",
+    terminalPhase: "COMPLETE",
+    budget: { maxTransitions: 10, maxRetries: 2, maxOperations: 5 },
+    goldenSha256: DUMMY_SHA,
+    runId: "run-plan-fail"
+  });
+  engine.transition("SPEC_GATE");
+  engine.transition("ISOLATE");
+  engine.transition("DETECT_STACKS");
+  engine.transition("PLAN");
+
+  assert.throws(
+    () => engine.transition("EXECUTE"),
+    (err: unknown) => {
+      assert.ok(err instanceof LoopError);
+      assert.equal(err.code, "TRANSITION_INVALID");
+      return true;
+    }
+  );
+});
+
 test("engine: FAILED, phase=EXECUTE, transitions=0 -> rollback allowed to prior canonical phase", () => {
   const engine = new LoopEngine(
     {
@@ -208,12 +253,15 @@ test("engine: FAILED, phase=EXECUTE, transitions=0 -> rollback allowed to prior 
     },
     {
       schemaVersion: 1,
+      revision: 1,
       runId: "run-rollback-zero-trans",
       currentPhase: "EXECUTE",
       status: "failed",
       goldenSha256: DUMMY_SHA,
       budget: { maxTransitions: 10, maxRetries: 2, maxOperations: 5 },
       usage: { transitions: 0, retries: 0, operations: 0 },
+      resourceBudget: { maxCostMicroUsd: 1000000, maxTokens: 120000, maxOracleCalls: 2, maxGlobalCycles: 2, maxVerificationRetries: 1, maxQualityRemediations: 1 },
+      resourceUsage: { costMicroUsd: 0, promptTokens: 0, cachedTokens: 0, reasoningTokens: 0, completionTokens: 0, totalTokens: 0, oracleCalls: 0, globalCycles: 0, verificationRetries: 0, qualityRemediations: 0 },
       history: []
     }
   );

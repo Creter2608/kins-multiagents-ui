@@ -1,5 +1,62 @@
 # Project Log
 
+## [2026-09-09] Fail-Closed Hard Hooks & Layer 2 Boundary Enforcement (Complete)
+
+### Summary
+Implemented mechanical fail-closed hard hooks in the Autonomous Loop Engine (`engine.ts`, `LoopCommandService.ts`, `WorkspaceWriteGuard.ts`, `BlueprintArtifactVerifier.ts`, `BlueprintOracleService.ts`) preventing Layer 2 (Gemini Flash) from bypassing Stage 2 Prompt Architect (`craft_technical_prompt_with_gpt`) or mutating workspace files without an authenticated blueprint. Resolved the "Layer 2 tự tiện giành sửa" failure mode where soft prompt instructions were ignored. The blueprint barrier is now enforced unconditionally by the engine and state machine. Completed the single permitted remediation for Stage 4 Adversarial Audit findings (BP-001 through BP-005), expanded tests to 314 passing 100% on local CPU ($0 LLM cost), and received formal audit verdict `ACCEPTED` from GPT Adversary (`audit_and_break_code_with_gpt`).
+
+### Key Deliverables
+1. **Hard Phase Barrier & State Invariant (`src/engine.ts`, `src/loop/LoopCommandService.ts`)**:
+   - `assertBlueprintAllowsExecution(state)` in `src/engine.ts` enforces `status === "ready"`, `invocationCount === 1`, valid `artifactSha256`, valid `assertionsSha256`, and a strict 3-5 JSON golden assertions array.
+   - `LoopCommandService.ts` unconditionally executes `verifyReadyBlueprint` via default `FileBlueprintArtifactVerifier` during `PLAN -> EXECUTE` transitions, closing bypass holes.
+2. **Workspace Mutation Guard (`src/loop/WorkspaceWriteGuard.ts`)**:
+   - `assertWorkspaceMutationAllowed` blocks all source file mutations outside `EXECUTE` phase (`TRANSITION_INVALID`).
+   - Strictly protects `.eval/` across all phases (`SPECIFICATION_INTEGRITY`).
+   - Prevents modifications to `.ai/blueprint.md` during `EXECUTE` to prevent runtime spec tampering.
+3. **Artifact Verifier & One-Shot Oracle Service (`src/loop/BlueprintArtifactVerifier.ts`, `src/loop/BlueprintOracleService.ts`)**:
+   - `BlueprintArtifactVerifier` parses and validates golden assertions schema (exactly 3-5 items, strictly `in`/`out`, terminal substantive section) and verifies file and assertion digests using timing-safe comparisons.
+   - `BlueprintOracleService` enforces atomic one-shot invocation count reservation (`0 -> 1`), preventing double-spending or token drain.
+4. **Adversarial Audit & Deterministic Verification**:
+   - Remediated findings BP-001 through BP-005 (git tracking, unconditional verifier, assertionsSha256 check).
+   - Received official Stage 4 audit verdict: **`ACCEPTED`** with zero blocking defects from GPT Adversary.
+   - Test suite expanded from 301 to 314 tests passing 100% on local CPU. All 5 Stage 2 Golden Assertions deterministically verified.
+
+## [2026-09-09] Context Pruning & Dual-Oracle Stage 4 Mandate (Complete)
+
+### Summary
+Hardened `gpt_architect` MCP server with deterministic context pruning guards (`safe_truncate`, `_filter_git_diff`, and bounded ceilings across CodeGraph context, git diff, modified files, AQI findings, and test outputs). Connected canonical compact test assertions suffix to architect responses. Cataloged **PITFALL-016** resolving the semantic ambiguity of the "One-Shot Rule" that previously caused Layer 2 agents to skip Stage 4 adversarial audit (`audit_and_break_code_with_gpt`). Formalized the **Dual-Oracle Protocol (Zero-Syntax-Loop Invariant)**: GPT is invoked exactly twice per canonical task (Stage 2 for Planning/Blueprint, Stage 4 for Adversarial Reality Check), with thinking time explicitly decoupled from token/cost ceilings.
+
+### Key Deliverables
+1. **Context Pruning & Guard System (`server.py`)**:
+   - Implemented `safe_truncate` preserving 60% head and 40% tail with sentinel markers.
+   - Enforced hard ceilings: CodeGraph context (24k chars), git diff (20k chars), modified files (50k chars), test/AQI (6k chars).
+   - Implemented `_filter_git_diff` dropping lockfiles and minified/coverage artifacts.
+   - Connected `extract_compact_test_assertions` canonical response suffix.
+2. **Knowledge Compounding & Pitfall Resolution (`wiki/pitfalls.md`)**:
+   - Added `PITFALL-016` addressing premature completion bias and rule ambiguity.
+   - Formulated the Dual-Oracle Protocol removing artificial barriers to Stage 4 invocation.
+
+## [2026-09-09] Autonomous Loop V3 & Cockpit Telemetry Synchronization (Complete)
+
+### Summary
+Executed full 5-stage Autonomous Loop V3 cycle to synchronize Cockpit UI with State Engine V3 contracts and telemetry. Layer 1 GPT Prompt Architect formulated specifications and compact test assertions via MCP `gpt_architect` (`craft_technical_prompt_with_gpt`), synthesized by Layer 2 Gemini 3.8 Flash, audited by Stage 4 Adversarial Oracle (`audit_and_break_code_with_gpt`), and verified deterministically on local CPU ($0 LLM cost) in Docker sandbox (`kins_autonomous_sandbox`). Synchronized Loop Revision `REV: #<num>`, Token Telemetry (`<used>/<max>`), micro-USD cost tracking, and Oracle counters into `PhaseTracker` and `App`. Eliminated unsafe type cast `nextUsage as any` in `LoopCommandService.ts` using immutable `EMPTY_RESOURCE_USAGE`. Fixed GPT token telemetry extraction in `transcriptParsers.ts` to recognize both `Content:` and `Blueprint:` log prefixes. Enforced snapshot immutability in `LoopStateService.ts` to satisfy adversarial audit assertions. Total project test suite expanded to 301 tests passing 100% with AQI 10/10 and V3 Contract 3/3. Protected evaluation zone `.eval/` strictly preserved.
+
+### Key Deliverables
+1. **Cockpit UI & Telemetry Synchronization (`src/renderer/components/PhaseTracker.tsx`, `src/renderer/App.tsx`)**:
+   - Rendered Loop Revision badge `REV: #{loopState.revision ?? 1}` in header.
+   - Integrated Token Usage Telemetry `TOKENS: <used> / <max>` alongside micro-USD cost and Oracle invocation counters.
+   - Updated default loop state with baseline revision (1) and default budget/usage.
+2. **Type Safety & State Engine Immutability (`src/loop/LoopCommandService.ts`, `src/main/services/LoopStateService.ts`)**:
+   - Replaced unsafe `as any` casting with immutable fallback `{ ...EMPTY_RESOURCE_USAGE }`.
+   - Explicitly cloned resource snapshot objects (`resourceBudget`, `resourceUsage`) in `LoopStateService.ts` guaranteeing snapshot isolation.
+   - Harmonized `ResourceBudget` and `ResourceUsage` contracts in `src/shared/contracts.ts` and `src/engine.ts`.
+3. **GPT Telemetry Parser Fix (`src/main/services/transcriptParsers.ts`)**:
+   - Expanded `parseGptTokenUsageLine` regex to capture both `Content:` and `Blueprint:` prefixes emitted by `gpt_architect`.
+4. **Deterministic Verification & Non-Regression**:
+   - Added Stage 4 adversarial audit test suite to `test/loop-command-service.test.ts`.
+   - All 301 tests passing 100% in Docker sandbox.
+   - AQI suite 10/10 PASS; V3 Contract suite 3/3 PASS.
+
 ## [2026-09-06] Architecture Score Blind Spot Resolution & Code-Bearing Commit Extraction (Complete)
 
 ### Summary

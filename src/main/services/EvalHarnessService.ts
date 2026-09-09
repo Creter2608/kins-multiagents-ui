@@ -207,9 +207,23 @@ export class EvalHarnessService {
       baseCommit = rawBase;
     }
 
-    // If external project does not have an .eval directory, write and emit a clean empty report gracefully
+    const runnerPath = this.resolveRunnerPath();
+    if (!runnerPath) {
+      const errMsg = `Harness runner script not found at ${this.runnerPath} or application root`;
+      this.emit({
+        status: "failed",
+        report: this.snapshot.report,
+        updatedAt: new Date().toISOString(),
+        error: errMsg
+      });
+      throw new Error(errMsg);
+    }
+
+    // If external project lacks an .eval directory and is using the appRoot runner fallback,
+    // write and emit a clean empty report gracefully. If the project has its own runner, execute it.
     const evalDir = path.resolve(this.projectRoot, ".eval");
-    if (!fs.existsSync(evalDir)) {
+    const localRunner = path.resolve(this.projectRoot, "scripts", "harness", "runner.mjs");
+    if (!fs.existsSync(evalDir) && runnerPath !== localRunner) {
       const emptyReport: EvaluationReport = {
         schemaVersion: 1,
         baseCommit,

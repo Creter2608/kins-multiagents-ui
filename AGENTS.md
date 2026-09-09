@@ -10,8 +10,8 @@ All autonomous workflows, feature implementations, refactors, and bugfixes in th
 👉 **[Autonomous Loop Specification v2.0 (docs/LOOP.md)](docs/LOOP.md)**
 
 ```text
-INITIALIZE ➔ SPEC_GATE ➔ ISOLATE (Git Worktree) ➔ DETECT_STACKS ➔ PLAN (Layer 1 GPT) 
-       ➔ EXECUTE (Layer 2 Gemini) ➔ VERIFY (Local CPU $0) ➔ REALITY_CHECK (Agency Squad) 
+INITIALIZE ➔ SPEC_GATE ➔ ISOLATE (Git Worktree) ➔ DETECT_STACKS ➔ PLAN (Stage 2 GPT Architect) 
+       ➔ EXECUTE (Layer 2 Gemini) ➔ VERIFY (Local CPU $0) ➔ REALITY_CHECK (Stage 4 GPT Adversary) 
        ➔ RELEASE_GATE (Human Sign-off) ➔ COMPLETE
 ```
 
@@ -44,7 +44,9 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE (Git Worktree) ➔ DETECT_STACKS ➔ PLAN (
 - Verification is **Diff-First** (`git diff -U3`); full-file re-reading after edits is prohibited.
 - Only the compact `RunRecord` JSON is transferred across phases.
 
-### 6. Human-in-the-Loop (HITL) Proactive Gates
+### 6. Dual-Oracle Protocol & Human-in-the-Loop (HITL) Gates
+- **`STAGE_2_PLAN_ORACLE`**: Call `craft_technical_prompt_with_gpt` ONCE to create Blueprint & Golden Assertions.
+- **`STAGE_4_AUDIT_ORACLE`**: Call `audit_and_break_code_with_gpt` ONCE during `REALITY_CHECK`. Cấm advance sang `RELEASE_GATE` hoặc `COMPLETE` nếu chưa có audit verdict. Zero re-invocations permitted for syntax errors. Thinking time of reasoning models is an asset; never skip Stage 4 to save latency.
 - **`SPEC_SIGN_OFF`**: Major architecture/schema changes require explicit user approval after planning.
 - **`DESTRUCTIVE_ACTION`**: File deletions (`rm`), database drops, or secret changes require interactive confirmation.
 - **`FINAL_RELEASE`**: Reality Checker evidence must be submitted for user sign-off before merge.
@@ -54,11 +56,13 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE (Git Worktree) ➔ DETECT_STACKS ➔ PLAN (
 <!-- CODEGRAPH_START -->
 ## CodeGraph & Context Extraction
 
-In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root):
-1. **Mandatory Usage**: Run `codegraph explore "<query>"` before reading entire files. Extract only the exact symbols, interfaces, and call graphs needed.
-2. **Transparency Tag**: Whenever `.codegraph/` is used, output:
+In repositories with CodeGraph (when `codegraph` MCP server is registered, or `.codegraph/` exists at the repo root):
+1. **Mandatory MCP Usage**: Run `call_mcp_tool(ServerName: "codegraph", ToolName: "codegraph_explore", Arguments: { query: "<query>" })` before reading entire files. Extract only the exact symbols, interfaces, and call graphs needed.
+2. **Never Probe `.codegraph/` with `find_by_name`**: Because `.codegraph/` is dot-prefixed and gitignored, standard file search tools (`fd`, `find_by_name`) ignore it and falsely return 0 results. If `codegraph` is in `<mcp_servers>`, ALWAYS assume CodeGraph is active and invoke the tool directly.
+3. **Stage 2 Architectural Sizing**: Extract **3,000 – 6,000 tokens** of rich architectural context for Layer 1 (full schemas, interfaces, and caller topologies, omitting raw method bodies) to prevent generic textbook designs.
+4. **Transparency Tag**: Whenever `.codegraph/` is used, output:
    `🔍 [CodeGraph Context]: Extracted <N> symbols (<symbol names>) from .codegraph/`
-3. If no `.codegraph/` directory exists, proceed using targeted search tools and notify the user to run `codegraph init` when ready.
+5. If `codegraph` is NOT in `<mcp_servers>` and no `.codegraph/` directory exists (verified via `Test-Path .codegraph`), proceed using targeted search tools and notify the user to run `codegraph init` when ready.
 <!-- CODEGRAPH_END -->
 
 <!-- SUPERPOWERS_TEMPLATES_START -->

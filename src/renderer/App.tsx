@@ -20,10 +20,31 @@ import { EvalScoreboard } from "./components/EvalScoreboard.js";
 const DEFAULT_LOOP_STATE: LoopStateSnapshot = {
   runId: "init",
   schemaVersion: 1,
+  revision: 1,
   currentPhase: LOOP_PHASES[0],
   status: "ready",
   usage: { transitions: 0, retries: 0, operations: 0 },
   budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+  resourceBudget: {
+    maxCostMicroUsd: 1_000_000,
+    maxTokens: 120_000,
+    maxOracleCalls: 2,
+    maxGlobalCycles: 2,
+    maxVerificationRetries: 1,
+    maxQualityRemediations: 1
+  },
+  resourceUsage: {
+    costMicroUsd: 0,
+    promptTokens: 0,
+    cachedTokens: 0,
+    reasoningTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    oracleCalls: 0,
+    globalCycles: 0,
+    verificationRetries: 0,
+    qualityRemediations: 0
+  },
   phases: computePhaseStatuses(LOOP_PHASES[0]),
   lastUpdated: Date.now()
 };
@@ -249,6 +270,7 @@ export const App: React.FC = () => {
         {/* Left: Autonomous Loop Tracker */}
         <PhaseTracker
           loopState={loopState}
+          telemetry={telemetry}
           onRollback={handleRollback}
           onStepForward={handleStepForward}
           onReset={handleReset}

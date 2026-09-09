@@ -96,6 +96,26 @@ test("transcriptParsers: valid GPT token usage lines parsed identically to legac
   assert.equal(parsed.missTokens, 567);
   assert.equal(parsed.totalTokens, 5862);
 
+  // gpt_architect format with Content: and Thinking:
+  const gptArchLineWithThinking = "📊 [GPT Token Usage]: Input: 5,218 (Cached: 2,048) | Output: Content: 4,574 | Thinking: 2,916 | Total: 12,708 | Cost: $0.0512 (51200 µUSD)";
+  const parsedGptArch = parseGptTokenUsageLine(gptArchLineWithThinking);
+  assert.ok(parsedGptArch);
+  assert.equal(parsedGptArch.inputTokens, 5218);
+  assert.equal(parsedGptArch.cachedTokens, 2048);
+  assert.equal(parsedGptArch.outputTokens, 7490); // 4574 + 2916
+  assert.equal(parsedGptArch.missTokens, 3170);
+  assert.equal(parsedGptArch.totalTokens, 12708);
+
+  // gpt_architect format with Content: only
+  const gptArchLineNoThinking = "📊 [GPT Token Usage]: Input: 5,218 (Cached: 2,048) | Output: Content: 1,877 | Total: 7,095 | Cost: $0.0212 (21200 µUSD)";
+  const parsedGptArchNoThinking = parseGptTokenUsageLine(gptArchLineNoThinking);
+  assert.ok(parsedGptArchNoThinking);
+  assert.equal(parsedGptArchNoThinking.inputTokens, 5218);
+  assert.equal(parsedGptArchNoThinking.cachedTokens, 2048);
+  assert.equal(parsedGptArchNoThinking.outputTokens, 1877);
+  assert.equal(parsedGptArchNoThinking.missTokens, 3170);
+  assert.equal(parsedGptArchNoThinking.totalTokens, 7095);
+
   // Invalid usage line
   assert.equal(parseGptTokenUsageLine("No token data here"), null);
 });

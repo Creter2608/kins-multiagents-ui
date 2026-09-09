@@ -77,7 +77,7 @@ export class JsonFileLoopStateStore implements LoopStateStore {
     try {
       const content = fs.readFileSync(this.stateFilePath, "utf-8");
       const parsed = JSON.parse(content);
-      if (!parsed || typeof parsed !== "object" || parsed.schemaVersion !== 1) {
+      if (!parsed || typeof parsed !== "object" || (parsed.schemaVersion !== 1 && parsed.schemaVersion !== 2)) {
         throw new LoopError(
           "STATE_INVALID",
           "state",

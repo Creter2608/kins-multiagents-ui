@@ -8,7 +8,11 @@ export type LoopErrorCode =
   | "STATE_INVALID"
   | "STATE_CONFLICT"
   | "EXECUTION_FAILED"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "BLUEPRINT_REQUIRED"
+  | "BLUEPRINT_INTEGRITY"
+  | "PLAN_TREE_DRIFT"
+  | "SPECIFICATION_INTEGRITY";
 
 export type ErrorClass =
   | "configuration"
@@ -18,7 +22,8 @@ export type ErrorClass =
   | "budget"
   | "state"
   | "execution"
-  | "internal";
+  | "internal"
+  | "security";
 
 export class LoopError extends Error {
   readonly code: LoopErrorCode;

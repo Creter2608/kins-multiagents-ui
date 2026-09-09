@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * scripts/ai-loop.mjs
- * Deterministic, persistent runner for the 10-phase Canonical Autonomous Loop v2.0.
+ * Deterministic, persistent runner for the 10-phase Canonical Autonomous Loop v3.0.
  * Enforces atomic state persistence, file locking, budget ceilings, and golden verification.
  */
 
@@ -183,7 +183,7 @@ function loadState(stateFile) {
   }
   try {
     const parsed = JSON.parse(content);
-    if (!parsed || parsed.schemaVersion !== 1 || !parsed.currentPhase) {
+    if (!parsed || (parsed.schemaVersion !== 1 && parsed.schemaVersion !== 2) || !parsed.currentPhase) {
       throw new Error('Invalid state schema');
     }
     return parsed;
@@ -358,6 +358,15 @@ async function main() {
 
           if (savedState.architecturalCompliance) {
             nextState.architecturalCompliance = savedState.architecturalCompliance;
+          }
+
+          if (savedState.audit && !nextState.audit) {
+            nextState.audit = savedState.audit;
+          } else if (savedState.audit && nextState.audit) {
+            nextState.audit = {
+              ...savedState.audit,
+              ...nextState.audit
+            };
           }
 
           if (nextState.currentPhase === 'REALITY_CHECK' || nextState.currentPhase === 'COMPLETE') {

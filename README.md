@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.7.2](https://img.shields.io/badge/Release-v2.7.2-emerald.svg)](package.json)
-[![Tests: 275 passing](https://img.shields.io/badge/Tests-275%20passing-brightgreen.svg)](package.json)
+[![Release: v2.8.0](https://img.shields.io/badge/Release-v2.8.0-emerald.svg)](package.json)
+[![Tests: 314 passing](https://img.shields.io/badge/Tests-314%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -33,14 +33,19 @@ Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github
 - **Session vs. All-Time Scopes**: Toggle between current active session metrics and persistent all-time cumulative counters (`telemetry_alltime.json`). Includes an instant 1-click `Reset` button for session counters.
 - **Cost & Budget Circuit Breaker**: Real-time USD spend tracking against a hard configurable ceiling (`$0.50` default) alongside an autonomous token budget indicator that evaluates **strictly Layer 1 GPT tokens** against the 50k (warning) and 60k (exceeded) limits. Unbilled or flat-rate Layer 2 tokens (Gemini) are explicitly excluded from tripping this budget threshold.
 
-### 3. Canonical Autonomous Loop v2.0 ([docs/LOOP.md](docs/LOOP.md))
+### 3. Canonical Autonomous Loop & Fail-Closed Hard Hooks ([docs/LOOP.md](docs/LOOP.md))
 Deterministic state machine enforcing 10 canonical phases:
 ```text
 INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN 
        ➔ EXECUTE ➔ VERIFY ➔ REALITY_CHECK ➔ RELEASE_GATE ➔ COMPLETE
 ```
+- **Fail-Closed Phase Barrier**: Mechanically blocks advancing from `PLAN ➔ EXECUTE` via `LoopEngine` and `LoopCommandService` unless Stage 2 Technical Blueprint is `ready`, `artifactSha256` matches `.ai/blueprint.md`, `assertionsSha256` matches the canonical assertions, and strict 3-5 golden assertions exist.
+- **Unconditional Blueprint Verification**: `FileBlueprintArtifactVerifier` performs timing-safe SHA-256 verification and golden assertions schema enforcement directly on disk before code execution is permitted.
+- **Workspace Write Guard (`WorkspaceWriteGuard`)**: Prohibits any file modifications outside `EXECUTE` (`TRANSITION_INVALID`), guarantees absolute immutability of `.eval/` across all phases (`SPECIFICATION_INTEGRITY`), and locks `.ai/blueprint.md` from runtime mutation.
+- **One-Shot Oracle Reservation (`BlueprintOracleService`)**: Enforces atomic single-invocation reservation (`0 ➔ 1`), preventing token drain or duplicate Stage 2 calls.
+- **Mandatory Stage 4 Adversarial Audit**: Advance to `RELEASE_GATE` strictly requires formal audit closure (`closed`/`accepted`) via `audit_and_break_code_with_gpt`.
 - **Auto-Transition via Transcript Signals**: `TranscriptIngestionService` tails `transcript.jsonl` in real-time, detecting tool calls and template banners (`craft_technical_prompt_with_gpt` ➔ `PLAN`, `write_to_file` ➔ `EXECUTE`, `npm test` ➔ `VERIFY`).
-- **Turn & Upstream Automatic Loop Reset**: Seamlessly transition without restarting the app. Transitioning to an upstream phase or submitting a new user turn (`USER_INPUT`) / new task prompt in `transcript.jsonl` automatically triggers `resetLoop()`, resetting `currentPhase` back to `INITIALIZE` with a new `runId` and clearing test summaries back to `idle`.
+- **Turn & Upstream Automatic Loop Reset**: Transitioning to an upstream phase or submitting a new user turn (`USER_INPUT`) in `transcript.jsonl` automatically triggers `resetLoop()`, resetting `currentPhase` to `INITIALIZE` with a new `runId` and clearing test summaries back to `idle`.
 - **Interactive Phase Control & Rollback**: Single-step rollback capability and manual override with safety confirmation dialogs for destructive actions.
 - **Zero-Token Local Verification**: Local CPU testing (`npm test`) at **$0 LLM token cost** with a hard ceiling of 1 fix retry.
 
@@ -116,7 +121,7 @@ npm install
 
 All verification commands are CPU-bound ($0 LLM token spend):
 
-- **Run Full Deterministic Test Suite (268 tests)**:
+- **Run Full Deterministic Test Suite (314 tests)**:
   ```bash
   npm test
   node scripts/harness/aqi.test.mjs
@@ -162,7 +167,7 @@ kins-multiagents-ui/
 │   ├── decisions/             # Architecture Decision Records (ADR-001, ADR-002, ADR-003)
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry
 │   └── log.md                 # Autonomous execution log
-├── test/                      # 265 automated unit and integration tests
+├── test/                      # 314 automated unit and integration tests
 ├── scripts/                   # harness (aqi/, aqi.mjs, judge, runner), ai-loop.mjs, ai-exec.mjs, init-template.mjs
 ├── start-cockpit.bat          # 1-click Windows desktop batch launcher
 └── .eval/                     # Read-only golden assertions locked by SHA-256

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import type { LoopStateSnapshot } from "../../shared/contracts.js";
+import type { LoopStateSnapshot, TelemetrySnapshot } from "../../shared/contracts.js";
 import { computePhaseStatuses, LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
 import {
   RefreshCw,
@@ -17,6 +17,7 @@ import {
 
 interface PhaseTrackerProps {
   readonly loopState: LoopStateSnapshot;
+  readonly telemetry?: TelemetrySnapshot | undefined;
   readonly onRollback: () => Promise<void>;
   readonly onStepForward?: () => Promise<void>;
   readonly onReset?: () => Promise<void>;
@@ -24,6 +25,7 @@ interface PhaseTrackerProps {
 
 const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
   loopState,
+  telemetry,
   onRollback,
   onStepForward,
   onReset
@@ -160,6 +162,24 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
     ? loopState.history?.filter((h) => h.to === selectedPhase).pop()
     : null;
 
+  // Effective Tokens: Prefer loopState.resourceUsage, fallback to live telemetry
+  const stateTokens = loopState.resourceUsage?.totalTokens ?? 0;
+  const sessionGptTokens =
+    (telemetry?.currentSession?.gpt?.inputTokens ?? 0) +
+    (telemetry?.currentSession?.gpt?.outputTokens ?? 0);
+  const directGptTokens =
+    (telemetry?.gptPromptTokens ?? 0) + (telemetry?.gptCompletionTokens ?? 0);
+  const gptTokens = Math.max(sessionGptTokens, directGptTokens);
+  const geminiTokens =
+    (telemetry?.currentSession?.gemini?.inputTokens ?? 0) +
+    (telemetry?.currentSession?.gemini?.outputTokens ?? 0);
+  const directGeminiTokens =
+    (telemetry?.geminiPromptTokens ?? 0) + (telemetry?.geminiCompletionTokens ?? 0);
+  const effectiveGemini = Math.max(geminiTokens, directGeminiTokens);
+  const telemetryTotalTokens = gptTokens + effectiveGemini;
+  const effectiveTokens = Math.max(stateTokens, telemetryTotalTokens);
+  const maxTokens = loopState.resourceBudget?.maxTokens ?? 120_000;
+
   return (
     <aside className="w-80 bg-[#0c0c0c] border-r border-[#1f1f1f] flex flex-col h-full text-zinc-300 select-none font-mono">
       {/* Header */}
@@ -168,6 +188,9 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
           <RefreshCw className="w-4 h-4 text-zinc-400 animate-spin-slow" />
           <span className="font-bold text-sm tracking-wide uppercase text-zinc-100">
             Autonomous Loop
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-[#18181b] text-cyan-400 border border-[#27272a]">
+            REV: #{loopState.revision ?? 1}
           </span>
         </div>
         <span
@@ -402,6 +425,48 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
         </div>
       )}
 
+      {/* Adversarial Audit (GPT QA) Card */}
+      {loopState.audit && (
+        <div className="px-3 py-2.5 border-t border-[#1f1f1f] bg-[#0c0c0c] space-y-1.5 font-mono">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                Adversarial Audit
+              </span>
+              {loopState.audit.remediationCount > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-amber-950/60 text-amber-300 border border-amber-800/40">
+                  Fix #{loopState.audit.remediationCount}
+                </span>
+              )}
+            </div>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded font-mono uppercase font-bold border ${
+                loopState.audit.status === "accepted" || loopState.audit.status === "closed"
+                  ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/60"
+                  : loopState.audit.status === "remediation_required"
+                  ? "bg-rose-950/40 text-rose-400 border-rose-800/60"
+                  : loopState.audit.status === "running"
+                  ? "bg-cyan-950/40 text-cyan-400 border-cyan-800/60"
+                  : "bg-[#141414] text-zinc-400 border-[#27272a]"
+              }`}
+            >
+              {loopState.audit.status.replace("_", " ").toUpperCase()}
+            </span>
+          </div>
+
+          <div className="bg-[#141414] p-2 rounded border border-[#27272a] flex items-center justify-between text-xs font-mono">
+            <span className="text-zinc-300">
+              {loopState.audit.findings?.length ?? 0} Finding{(loopState.audit.findings?.length ?? 0) === 1 ? "" : "s"}
+            </span>
+            {loopState.audit.auditedTreeHash && (
+              <span className="text-zinc-500 text-[10px]">
+                Tree: {loopState.audit.auditedTreeHash.slice(0, 7)}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Phase Evidence Inspector Drawer */}
       {selectedPhase && (
         <div className="p-3 border-t border-[#1f1f1f] bg-[#111114] space-y-1.5 animate-fadeIn">
@@ -474,6 +539,23 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
               {loopState.budget.maxRetries}
             </span>
           </div>
+        </div>
+
+        {/* Resource Token Telemetry */}
+        <div className="bg-[#141414] p-2 rounded border border-[#27272a] text-xs font-mono flex items-center justify-between">
+          <span className="text-xs text-zinc-500 font-medium">TOKENS:</span>
+          <span
+            className={`text-xs font-bold ${
+              effectiveTokens >= maxTokens
+                ? "text-rose-400"
+                : effectiveTokens > 0
+                ? "text-cyan-300"
+                : "text-zinc-100"
+            }`}
+            title={`LoopState: ${(loopState.resourceUsage?.totalTokens ?? 0).toLocaleString("en-US")} | Live Telemetry: ${telemetryTotalTokens.toLocaleString("en-US")}`}
+          >
+            {(effectiveTokens > 0 ? effectiveTokens : (loopState.resourceUsage?.totalTokens ?? 0)).toLocaleString("en-US")} / {(loopState.resourceBudget?.maxTokens ?? 120_000).toLocaleString("en-US")}
+          </span>
         </div>
 
         {/* Action Controls: Step Forward, Rollback, Reset */}

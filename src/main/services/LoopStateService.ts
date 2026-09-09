@@ -13,8 +13,12 @@ import type {
   GateDecisionResult,
   LoopTestSummary,
   LoopTestStatus,
-  ArchitecturalCompliance
+  ArchitecturalCompliance,
+  AuditRecord,
+  ResourceBudget,
+  ResourceUsage
 } from "../../shared/contracts.js";
+import { DEFAULT_RESOURCE_BUDGET, EMPTY_RESOURCE_USAGE } from "../../engine.js";
 import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
@@ -64,10 +68,13 @@ export class LoopStateService {
     this.lastValidSnapshot = {
       runId: "init",
       schemaVersion: 1,
+      revision: 1,
       currentPhase: initialPhase,
       status: "ready",
       usage: { transitions: 0, retries: 0, operations: 0 },
       budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+      resourceBudget: { ...DEFAULT_RESOURCE_BUDGET },
+      resourceUsage: { ...EMPTY_RESOURCE_USAGE },
       phases: computePhaseStatuses(initialPhase),
       history: [],
       testSummary: {
@@ -137,9 +144,28 @@ export class LoopStateService {
       const rawCompliance = (parsed as Record<string, unknown>).architecturalCompliance as ArchitecturalCompliance | undefined;
       const architecturalCompliance = rawCompliance ?? this.lastValidSnapshot.architecturalCompliance;
 
+      const rawAudit = (parsed as Record<string, unknown>).audit as AuditRecord | undefined;
+      const audit = rawAudit ?? this.lastValidSnapshot.audit;
+
+      const rawResourceBudget = (parsed as Record<string, unknown>).resourceBudget as ResourceBudget | undefined;
+      const resourceBudget: ResourceBudget = rawResourceBudget
+        ? { ...rawResourceBudget }
+        : { ...this.lastValidSnapshot.resourceBudget };
+
+      const rawResourceUsage = (parsed as Record<string, unknown>).resourceUsage as ResourceUsage | undefined;
+      const resourceUsage: ResourceUsage = rawResourceUsage
+        ? { ...rawResourceUsage }
+        : { ...this.lastValidSnapshot.resourceUsage };
+
+      const resolvedSnapshot = {
+        resourceBudget,
+        resourceUsage
+      };
+
       this.lastValidSnapshot = {
         runId: String(parsed.runId || this.lastValidSnapshot.runId),
         schemaVersion: Number(parsed.schemaVersion || 1),
+        revision: typeof (parsed as Record<string, unknown>).revision === "number" ? Number((parsed as Record<string, unknown>).revision) : (this.lastValidSnapshot.revision ?? 1),
         currentPhase: parsed.currentPhase,
         status: (parsed.status as LoopStateSnapshot["status"]) || "running",
         usage: {
@@ -152,10 +178,13 @@ export class LoopStateService {
           maxRetries: Number(parsed.budget?.maxRetries ?? this.lastValidSnapshot.budget.maxRetries),
           maxOperations: Number(parsed.budget?.maxOperations ?? this.lastValidSnapshot.budget.maxOperations)
         },
+        resourceBudget: { ...resolvedSnapshot.resourceBudget },
+        resourceUsage: { ...resolvedSnapshot.resourceUsage },
         phases: phaseStatuses,
         history,
         testSummary,
         architecturalCompliance,
+        audit,
         lastError: parsed.lastError,
         syncError: undefined,
         lastUpdated: Date.now()
@@ -287,6 +316,106 @@ export class LoopStateService {
       this.lastValidSnapshot = {
         ...this.lastValidSnapshot,
         architecturalCompliance: compliance,
+        lastUpdated: Date.now()
+      };
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    }
+  }
+
+  updateAudit(audit: AuditRecord): void {
+    try {
+      this.readState();
+      let stateData: Record<string, unknown> = {};
+      if (fs.existsSync(this.stateFilePath)) {
+        try {
+          stateData = JSON.parse(fs.readFileSync(this.stateFilePath, "utf-8")) as Record<string, unknown>;
+        } catch {
+          stateData = {};
+        }
+      }
+
+      const updatedState = {
+        runId: this.lastValidSnapshot.runId,
+        schemaVersion: this.lastValidSnapshot.schemaVersion,
+        currentPhase: this.lastValidSnapshot.currentPhase,
+        status: this.lastValidSnapshot.status,
+        usage: this.lastValidSnapshot.usage,
+        budget: this.lastValidSnapshot.budget,
+        ...stateData,
+        audit
+      };
+
+      this.store.writeSync(updatedState);
+
+      this.readState();
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    } catch {
+      // Retain in memory if write fails
+      this.lastValidSnapshot = {
+        ...this.lastValidSnapshot,
+        audit,
+        lastUpdated: Date.now()
+      };
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    }
+  }
+
+  updateResourceUsage(usage: Partial<ResourceUsage>): void {
+    try {
+      this.readState();
+      let stateData: Record<string, unknown> = {};
+      if (fs.existsSync(this.stateFilePath)) {
+        try {
+          stateData = JSON.parse(fs.readFileSync(this.stateFilePath, "utf-8")) as Record<string, unknown>;
+        } catch {
+          stateData = {};
+        }
+      }
+
+      const curUsage = this.lastValidSnapshot.resourceUsage || { ...EMPTY_RESOURCE_USAGE };
+      const updatedUsage: ResourceUsage = {
+        costMicroUsd: typeof usage.costMicroUsd === "number" ? usage.costMicroUsd : curUsage.costMicroUsd,
+        promptTokens: typeof usage.promptTokens === "number" ? usage.promptTokens : curUsage.promptTokens,
+        cachedTokens: typeof usage.cachedTokens === "number" ? usage.cachedTokens : curUsage.cachedTokens,
+        reasoningTokens: typeof usage.reasoningTokens === "number" ? usage.reasoningTokens : curUsage.reasoningTokens,
+        completionTokens: typeof usage.completionTokens === "number" ? usage.completionTokens : curUsage.completionTokens,
+        totalTokens: typeof usage.totalTokens === "number" ? usage.totalTokens : curUsage.totalTokens,
+        oracleCalls: typeof usage.oracleCalls === "number" ? usage.oracleCalls : curUsage.oracleCalls,
+        globalCycles: typeof usage.globalCycles === "number" ? usage.globalCycles : curUsage.globalCycles,
+        verificationRetries: typeof usage.verificationRetries === "number" ? usage.verificationRetries : curUsage.verificationRetries,
+        qualityRemediations: typeof usage.qualityRemediations === "number" ? usage.qualityRemediations : curUsage.qualityRemediations
+      };
+
+      const updatedState = {
+        ...stateData,
+        runId: this.lastValidSnapshot.runId,
+        schemaVersion: this.lastValidSnapshot.schemaVersion,
+        currentPhase: this.lastValidSnapshot.currentPhase,
+        status: this.lastValidSnapshot.status,
+        usage: this.lastValidSnapshot.usage,
+        budget: this.lastValidSnapshot.budget,
+        resourceBudget: this.lastValidSnapshot.resourceBudget,
+        resourceUsage: updatedUsage
+      };
+
+      this.store.writeSync(updatedState);
+      this.readState();
+      for (const listener of this.listeners) {
+        listener(this.lastValidSnapshot);
+      }
+    } catch {
+      this.lastValidSnapshot = {
+        ...this.lastValidSnapshot,
+        resourceUsage: {
+          ...this.lastValidSnapshot.resourceUsage,
+          ...usage
+        },
         lastUpdated: Date.now()
       };
       for (const listener of this.listeners) {
@@ -448,6 +577,7 @@ export class LoopStateService {
       const runId = customRunId || `run-${Date.now()}`;
       const freshState = {
         schemaVersion: 1,
+        revision: 1,
         runId,
         currentPhase: initialPhase,
         status: "ready" as const,
@@ -461,6 +591,8 @@ export class LoopStateService {
           retries: 0,
           operations: 0
         },
+        resourceBudget: { ...DEFAULT_RESOURCE_BUDGET },
+        resourceUsage: { ...EMPTY_RESOURCE_USAGE },
         history: [],
         testSummary: {
           status: "idle" as const,
@@ -507,6 +639,7 @@ export class LoopStateService {
       await commandService.transition({
         runId: input.runId,
         expectedPhase: input.expectedPhase,
+        expectedRevision: this.lastValidSnapshot.revision ?? 1,
         action: input.decision,
         reason: input.reason,
         actor: "human"
@@ -746,10 +879,13 @@ export class LoopStateService {
     this.lastValidSnapshot = {
       runId: "init",
       schemaVersion: 1,
+      revision: 1,
       currentPhase: initialPhase,
       status: "ready",
       usage: { transitions: 0, retries: 0, operations: 0 },
       budget: { maxTransitions: 25, maxRetries: 2, maxOperations: 50 },
+      resourceBudget: { ...DEFAULT_RESOURCE_BUDGET },
+      resourceUsage: { ...EMPTY_RESOURCE_USAGE },
       phases: computePhaseStatuses(initialPhase),
       history: [],
       testSummary: {

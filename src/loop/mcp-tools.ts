@@ -2,6 +2,7 @@ import type { PhaseId, LoopState } from "../engine.js";
 import {
   LoopCommandService,
   LoopPhaseConflictError,
+  LoopRevisionConflictError,
   type LoopTransitionAction
 } from "./LoopCommandService.js";
 import { LoopError } from "../errors.js";
@@ -30,6 +31,7 @@ export type AgentLoopStatusResult =
 export interface AgentLoopTransitionInput {
   readonly runId: string;
   readonly expectedPhase: PhaseId;
+  readonly expectedRevision: number;
   readonly action: LoopTransitionAction;
   readonly targetPhase?: PhaseId | undefined;
   readonly reason?: string | undefined;
@@ -44,10 +46,12 @@ export interface AgentLoopTransitionSuccess {
 export interface AgentLoopTransitionConflict {
   readonly ok: false;
   readonly error: {
-    readonly code: "PHASE_CONFLICT" | "INVALID_ACTION" | "RUN_ID_MISMATCH" | string;
+    readonly code: "PHASE_CONFLICT" | "OPTIMISTIC_CONCURRENCY_CONFLICT" | "INVALID_ACTION" | "RUN_ID_MISMATCH" | string;
     readonly message: string;
     readonly expectedPhase?: string;
     readonly actualPhase?: string;
+    readonly expectedRevision?: number;
+    readonly actualRevision?: number;
   };
 }
 
@@ -130,9 +134,24 @@ export async function handleAgentLoopTransition(
       };
     }
 
+    if (
+      typeof input.expectedRevision !== "number" ||
+      !Number.isInteger(input.expectedRevision) ||
+      input.expectedRevision < 1
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "CONFIG_INVALID",
+          message: `Invalid expectedRevision: '${input.expectedRevision}'. Monotonic positive integer required.`
+        }
+      };
+    }
+
     const res = await commands.transition({
       runId: input.runId,
       expectedPhase: input.expectedPhase,
+      expectedRevision: input.expectedRevision,
       action: input.action,
       targetPhase: input.targetPhase,
       reason: input.reason,
@@ -153,6 +172,18 @@ export async function handleAgentLoopTransition(
           message: err.message,
           expectedPhase: err.expectedPhase,
           actualPhase: err.actualPhase
+        }
+      };
+    }
+
+    if (err instanceof LoopRevisionConflictError) {
+      return {
+        ok: false,
+        error: {
+          code: "OPTIMISTIC_CONCURRENCY_CONFLICT",
+          message: err.message,
+          expectedRevision: err.expectedRevision,
+          actualRevision: err.actualRevision
         }
       };
     }

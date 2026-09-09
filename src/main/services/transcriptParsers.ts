@@ -258,7 +258,7 @@ export interface ParsedGptTokenUsage {
 }
 
 export function parseGptTokenUsageLine(text: string): ParsedGptTokenUsage | null {
-  const regex = /(?:[\[(]?(?:GPT Token Usage|Usage)[\])]?:\s*)?Input:\s*([\d,]+)(?:\s*\(Cached:\s*([\d,]+)\))?\s*\|\s*Output:\s*(?:(?:Blueprint:\s*([\d,]+)(?:\s*\|\s*Thinking:\s*([\d,]+))?)|([\d,]+))\s*\|\s*Total:\s*([\d,]+)/i;
+  const regex = /(?:[\[(]?(?:GPT Token Usage|Usage)[\])]?:\s*)?Input:\s*([\d,]+)(?:\s*\(Cached:\s*([\d,]+)\))?\s*\|\s*Output:\s*(?:(?:(?:Blueprint|Content):\s*([\d,]+)(?:\s*\|\s*Thinking:\s*([\d,]+))?)|([\d,]+))\s*\|\s*Total:\s*([\d,]+)/i;
   const match = regex.exec(text);
   if (!match) {
     return null;
@@ -269,10 +269,10 @@ export function parseGptTokenUsageLine(text: string): ParsedGptTokenUsage | null
   const inputTokens = parseNum(match[1]);
   const rawCached = parseNum(match[2]);
   const cachedTokens = Math.min(inputTokens, Math.max(0, rawCached));
-  const blueprint = parseNum(match[3]);
+  const blueprintOrContent = parseNum(match[3]);
   const thinking = parseNum(match[4]);
   const rawOutput = parseNum(match[5]);
-  const outputTokens = rawOutput > 0 ? rawOutput : blueprint + thinking;
+  const outputTokens = rawOutput > 0 ? rawOutput : blueprintOrContent + thinking;
   const totalTokens = parseNum(match[6]);
   const missTokens = Math.max(0, inputTokens - cachedTokens);
 
