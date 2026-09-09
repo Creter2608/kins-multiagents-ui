@@ -15,6 +15,8 @@ import {
   X
 } from "lucide-react";
 
+import { QualityGateDecisionModal } from "./QualityGateDecisionModal.js";
+
 interface PhaseTrackerProps {
   readonly loopState: LoopStateSnapshot;
   readonly telemetry?: TelemetrySnapshot | undefined;
@@ -36,12 +38,19 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
   const [confirmRollback, setConfirmRollback] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [showGateModal, setShowGateModal] = useState(false);
+  const [showQualityModal, setShowQualityModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [gateDecisionError, setGateDecisionError] = useState<string | null>(null);
   const [scoreExpanded, setScoreExpanded] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isGate = loopState.currentPhase === "SPEC_GATE" || loopState.currentPhase === "RELEASE_GATE";
+
+  useEffect(() => {
+    if (loopState.currentPhase === "BLOCKED") {
+      setShowQualityModal(true);
+    }
+  }, [loopState.currentPhase]);
 
   const handleGateAction = async (decision: "approve" | "reject") => {
     if (decision === "reject" && !rejectionReason.trim()) {
@@ -69,6 +78,44 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
       setGateDecisionError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsOperating(false);
+    }
+  };
+
+  const handleQualityRemediate = async (reason: string, feedback: string) => {
+    if (window.cockpitApi?.loop?.decideGate) {
+      const res = await window.cockpitApi.loop.decideGate({
+        runId: loopState.runId,
+        expectedPhase: "BLOCKED",
+        decision: "remediate",
+        reason,
+        feedback
+      });
+      if (!res.success) throw new Error(res.message);
+    }
+  };
+
+  const handleQualityOverride = async (reason: string, ticketReference?: string) => {
+    if (window.cockpitApi?.loop?.decideGate) {
+      const res = await window.cockpitApi.loop.decideGate({
+        runId: loopState.runId,
+        expectedPhase: "BLOCKED",
+        decision: "override_quality_gate",
+        reason,
+        ticketReference
+      });
+      if (!res.success) throw new Error(res.message);
+    }
+  };
+
+  const handleQualityReject = async (reason: string) => {
+    if (window.cockpitApi?.loop?.decideGate) {
+      const res = await window.cockpitApi.loop.decideGate({
+        runId: loopState.runId,
+        expectedPhase: "BLOCKED",
+        decision: "reject",
+        reason
+      });
+      if (!res.success) throw new Error(res.message);
     }
   };
 
@@ -711,6 +758,16 @@ const PhaseTrackerComponent: React.FC<PhaseTrackerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Quality Gate Decision Modal (HITL 3-Way Triage) */}
+      <QualityGateDecisionModal
+        open={showQualityModal}
+        loopState={loopState}
+        onRemediate={handleQualityRemediate}
+        onOverride={handleQualityOverride}
+        onReject={handleQualityReject}
+        onClose={() => setShowQualityModal(false)}
+      />
     </aside>
   );
 };

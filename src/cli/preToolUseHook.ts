@@ -9,8 +9,16 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { canonicalizePath, verifyBlueprintApproval } from "../main/services/blueprintApprovalAuthenticator.js";
-import { evaluateWorkspaceMutationPolicy } from "../shared/workspaceMutationPolicy.js";
-import { PreToolUseHookService } from "../main/services/preToolUseHookService.js";
+import {
+  evaluateWorkspaceMutationPolicy,
+  type WorkspaceMutationPolicyMode
+} from "../shared/workspaceMutationPolicy.js";
+import {
+  PreToolUseHookService,
+  verifyModeHmac,
+  verifyRegistryEntryHmac,
+  type WorkspaceRegistryEntry
+} from "../main/services/preToolUseHookService.js";
 import type { LoopState } from "../engine.js";
 
 export interface PreToolUseHookInput {
@@ -29,14 +37,21 @@ export interface PreToolUseHookOutput {
   readonly reason: string;
 }
 
+export type PreToolUseHookDecision = PreToolUseHookOutput;
+
+export interface PreToolUseHookOptions {
+  readonly registryPath?: string;
+  readonly authKeyPath?: string;
+}
+
 export function isMutationTool(name?: string): boolean {
   return name === "replace_file_content" || name === "write_to_file";
 }
 
 export async function evaluatePreToolUseHook(
-  input: unknown,
-  environment: NodeJS.ProcessEnv = process.env
-): Promise<PreToolUseHookOutput> {
+  input: PreToolUseHookInput | unknown,
+  optionsOrEnv?: PreToolUseHookOptions | NodeJS.ProcessEnv
+): Promise<PreToolUseHookDecision> {
   // Fail-closed by default
   if (!input || typeof input !== "object") {
     return { decision: "deny", reason: "Invalid hook input payload: expected JSON object" };
@@ -63,11 +78,24 @@ export async function evaluatePreToolUseHook(
   }
   const canonicalTarget = canonicalizePath(resolvedTarget);
 
-  // Determine userDataPath
-  const userDataPath = environment.ANTIGRAVITY_HOOK_USER_DATA ?? path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
-  const registryPath = path.join(userDataPath, "hooks", "workspaces.json");
+  // Determine paths and options
+  let customRegistryPath: string | undefined;
+  let customAuthKeyPath: string | undefined;
+  let env: NodeJS.ProcessEnv = process.env;
 
-  let registry: { workspaces?: Record<string, { canonicalWorkspacePath: string; sidecarStatePath: string }> } = {};
+  if (optionsOrEnv && typeof optionsOrEnv === "object") {
+    if ("registryPath" in optionsOrEnv || "authKeyPath" in optionsOrEnv) {
+      customRegistryPath = optionsOrEnv.registryPath;
+      customAuthKeyPath = optionsOrEnv.authKeyPath;
+    } else {
+      env = optionsOrEnv as NodeJS.ProcessEnv;
+    }
+  }
+
+  const userDataPath = env.ANTIGRAVITY_HOOK_USER_DATA ?? path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
+  const registryPath = customRegistryPath ?? path.join(userDataPath, "hooks", "workspaces.json");
+
+  let registry: { workspaces?: Record<string, WorkspaceRegistryEntry> } = {};
   try {
     const raw = await fs.readFile(registryPath, "utf-8");
     registry = JSON.parse(raw);
@@ -79,7 +107,7 @@ export async function evaluatePreToolUseHook(
   }
 
   // Find containing workspace with longest prefix match
-  let matchedWorkspace: { canonicalWorkspacePath: string; sidecarStatePath: string } | null = null;
+  let matchedWorkspace: WorkspaceRegistryEntry | null = null;
   let longestMatchLen = -1;
 
   for (const [wsPath, entry] of Object.entries(registry.workspaces ?? {})) {
@@ -99,7 +127,58 @@ export async function evaluatePreToolUseHook(
     };
   }
 
-  // Load sidecar state.json
+  // Load signing key before inspecting state
+  let signingKey: Buffer;
+  try {
+    if (customAuthKeyPath) {
+      signingKey = await fs.readFile(customAuthKeyPath);
+    } else {
+      signingKey = await PreToolUseHookService.getOrCreateSigningKey(userDataPath);
+    }
+  } catch (err) {
+    return {
+      decision: "deny",
+      reason: `Hook denied: failed to access installation signing key: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+
+  // AUTH-001: Authenticate registry entry before reading sidecar state
+  if (matchedWorkspace.entryHmac) {
+    const isEntryValid = verifyRegistryEntryHmac(matchedWorkspace, signingKey);
+    if (!isEntryValid) {
+      return {
+        decision: "deny",
+        reason: "Hook denied: workspace registry entry HMAC signature verification failed (tampered registry entry)"
+      };
+    }
+  } else if (matchedWorkspace.modeHmac) {
+    const isModeValid = verifyModeHmac(
+      matchedWorkspace.mutationPolicyMode ?? "strict",
+      matchedWorkspace.canonicalWorkspacePath,
+      matchedWorkspace.modeHmac,
+      signingKey
+    );
+    if (!isModeValid) {
+      return {
+        decision: "deny",
+        reason: "Hook denied: mutation policy mode HMAC signature verification failed (tampered registry entry)"
+      };
+    }
+  }
+
+  let mode: WorkspaceMutationPolicyMode = "strict";
+  if (matchedWorkspace.mutationPolicyMode !== undefined) {
+    const rawMode = matchedWorkspace.mutationPolicyMode;
+    if (rawMode !== "strict" && rawMode !== "documentation-fast-path") {
+      return {
+        decision: "deny",
+        reason: `Hook denied: invalid mutation policy mode '${String(rawMode)}' in workspace registry`
+      };
+    }
+    mode = rawMode;
+  }
+
+  // Load sidecar state.json after verifying registry authentication
   let state: LoopState;
   try {
     const stateRaw = await fs.readFile(matchedWorkspace.sidecarStatePath, "utf-8");
@@ -111,18 +190,23 @@ export async function evaluatePreToolUseHook(
     };
   }
 
-  // Load signing key
-  let signingKey: Buffer;
-  try {
-    signingKey = await PreToolUseHookService.getOrCreateSigningKey(userDataPath);
-  } catch (err) {
-    return {
-      decision: "deny",
-      reason: `Hook denied: failed to access installation signing key: ${err instanceof Error ? err.message : String(err)}`
-    };
+  // 1. If fast-path mode is active, check if target is an inert documentation file
+  if (mode === "documentation-fast-path") {
+    const fastPathResult = evaluateWorkspaceMutationPolicy(
+      state,
+      [canonicalTarget],
+      matchedWorkspace.canonicalWorkspacePath,
+      mode
+    );
+    if (fastPathResult.allowed && fastPathResult.isFastPath) {
+      return {
+        decision: "allow",
+        reason: fastPathResult.reason
+      };
+    }
   }
 
-  // Verify HMAC Blueprint approval
+  // 2. For non-fast-path mutations, verify HMAC Blueprint approval first
   const isApproved = verifyBlueprintApproval(state, matchedWorkspace.canonicalWorkspacePath, signingKey);
   if (!isApproved) {
     return {
@@ -131,8 +215,13 @@ export async function evaluatePreToolUseHook(
     };
   }
 
-  // Verify shared mutation policy (phase, .eval, blueprint immutability)
-  const policyResult = evaluateWorkspaceMutationPolicy(state, [canonicalTarget], matchedWorkspace.canonicalWorkspacePath);
+  // 3. Verify shared mutation policy (phase, .eval, blueprint immutability)
+  const policyResult = evaluateWorkspaceMutationPolicy(
+    state,
+    [canonicalTarget],
+    matchedWorkspace.canonicalWorkspacePath,
+    mode
+  );
   if (!policyResult.allowed) {
     return {
       decision: "deny",

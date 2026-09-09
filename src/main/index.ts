@@ -13,6 +13,7 @@ import { TranscriptIngestionService } from "./services/TranscriptIngestionServic
 import { ProjectService } from "./services/ProjectService.js";
 import { EvalHarnessService } from "./services/EvalHarnessService.js";
 import { SubagentService } from "./services/SubagentService.js";
+import { PreToolUseHookService } from "./services/preToolUseHookService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
@@ -35,6 +36,7 @@ const dockerService = new DockerStatusService();
 const rollbackService = new RollbackService(projectRoot, projectRoot);
 const evalService = new EvalHarnessService(projectRoot, projectRoot);
 const subagentService = new SubagentService();
+const preToolUseHookService = new PreToolUseHookService();
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 let projectService: ProjectService | null = null;
 
@@ -57,7 +59,8 @@ async function createWindow(): Promise<void> {
         telemetryService,
         transcriptService,
         subagentService,
-        logService
+        logService,
+        preToolUseHookService
       }
     );
     await projectService.initialize();

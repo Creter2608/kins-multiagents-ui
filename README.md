@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.9.0](https://img.shields.io/badge/Release-v2.9.0-emerald.svg)](package.json)
-[![Tests: 347 passing](https://img.shields.io/badge/Tests-347%20passing-brightgreen.svg)](package.json)
+[![Release: v2.10.0](https://img.shields.io/badge/Release-v2.10.0-emerald.svg)](package.json)
+[![Tests: 372 passing](https://img.shields.io/badge/Tests-372%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -39,7 +39,14 @@ Deterministic state machine enforcing 10 canonical phases:
 INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN 
        ➔ EXECUTE ➔ VERIFY ➔ REALITY_CHECK ➔ RELEASE_GATE ➔ COMPLETE
 ```
-- **Physical CLI PreToolUse Hard Hook (`src/cli/preToolUseHook.ts`)**: Real-time stdio JSON interceptor registered in Antigravity CLI's `hooks.json`. Traps native `replace_file_content` and `write_to_file` mutations, cryptographically enforcing HMAC-SHA-256 signed blueprint approvals before allowing any filesystem writes. Prevents host LLM reflex bypasses without manual intervention.
+- **Hybrid Mutation Policy & CLI PreToolUse Hard Hook (`src/cli/preToolUseHook.ts`)**: Real-time stdio JSON interceptor registered in Antigravity CLI's `hooks.json`. Supports a **Strict-by-Default** architecture with a **Hardened Documentation Fast Path** (`WorkspaceMutationPolicyMode`): allows $0-token edits for safe documentation (`README.md`, `LICENSE*`, `docs/**/*.md|txt`), while strictly blocking any tampering with prompt governance files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `docs/LOOP.md`) and production code (`src/**`, `test/**`) without an HMAC-SHA-256 signed blueprint approval from Stage 2.
+- **Complete Canonical Registry HMAC Binding (`src/main/services/preToolUseHookService.ts`)**: Binds `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion` into `entryHmac`, verified before reading sidecar state to eliminate path-hijacking vulnerabilities.
+- **Automatic Multi-Project Lifecycle Wiring (`src/main/services/ProjectService.ts`)**: `initialize()` equips active workspace hooks automatically on Cockpit launch, while `switchProject()` executes transactional handoffs across client workspaces with zero foreign repo pollution.
+- **Human-in-the-Loop (HITL) 3-Way Quality Gate Triage Modal (`QualityGateDecisionModal.tsx`)**: When Architectural Quality Index (AQI) falls below threshold, execution suspends into a durable `BLOCKED` state rather than discarding workspace changes. The cockpit modal presents 3 deterministic choices:
+  1. *Loop Again to Improve*: Re-enters the autonomous loop for targeted remediation.
+  2. *Override Quality Gate*: Explicitly waives the gate with recorded operator audit trail.
+  3. *Reject & Revert*: Safely cleans up the candidate working tree back to baseline.
+- **Fail-Closed Release Gate (`src/engine.ts`)**: Mechanically prohibits transitioning from `REALITY_CHECK ➔ RELEASE_GATE` without verified audit closure and passing architectural compliance (`aqi >= minAqi`), unless an active human override bound to the block's `artifactHash` is present.
 - **Universal Repository Decoupling & Zero-Pollution Sidecar**: Target client workspaces remain 100% pristine with zero foreign files (no `.agents/`, `.ai/`, or hook scripts placed in user repos). Sidecar state and workspace registry are isolated entirely inside Electron `<userData>/`.
 - **Fail-Closed Phase Barrier**: Mechanically blocks advancing from `PLAN ➔ EXECUTE` via `LoopEngine` and `LoopCommandService` unless Stage 2 Technical Blueprint is `ready`, `artifactSha256` matches `.ai/blueprint.md`, `assertionsSha256` matches the canonical assertions, and strict 3-5 golden assertions exist.
 - **Unconditional Blueprint Verification**: `FileBlueprintArtifactVerifier` performs timing-safe SHA-256 verification and golden assertions schema enforcement directly on disk before code execution is permitted.
@@ -58,6 +65,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 
 ### 5. Architectural Quality Index (AQI v2.0) & Compliance Engine
 - **Modular Single-Responsibility Engine (`scripts/harness/aqi/`)**: Decomposed into focused submodules (`diff-parser.mjs`, `cycle-detector.mjs`, `contract-rules.mjs`, `scoring.mjs`) with `aqi.mjs` serving as a lightweight façade (<250 lines) adhering strictly to `aqi.d.mts`.
+- **Working-Tree Task-Type Topology Inference**: Computes active `taskType` (`feat`, `refactor`, `fix`, `bootstrap`) directly from working-tree topology (`git status --porcelain`) and active blueprint, completely eliminating commit-header drift from stale historical commits.
 - **Tarjan's Strongly Connected Components (SCC)**: Deterministic module cycle detection identifying newly introduced circular dependencies between files in patch diffs.
 - **AST Companion Declaration & JSDoc Typing**: Verifies companion `.d.mts`/`.d.ts` declarations and typed JSDoc comments to eliminate false `WEAK_PUBLIC_CONTRACT` penalties on pure ESM JavaScript modules.
 - **Precise Directive Suppression & Scope Filtering**: Eliminates false `UNSAFE_SUPPRESSION` by distinguishing directive comments (`// @ts-ignore`) from documentation prose, and scopes debug output penalties strictly to non-test production code.
@@ -65,7 +73,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **Monotonic Churn Calculation**: Computes `semanticChurn = addedLines + deletedLines`, neutralizing dummy deletion offset gaming.
 - **Public Contract Validation**: Verifies exported functions, methods, and classes retain strict TypeScript argument and return type signatures.
 - **God-Module Concentration Detector**: Penalizes monolithic patches that concentrate >65% churn and >500 lines into single files.
-- **Context-Aware Task Profiles & Dynamic Cockpit Inference**: Tailored evaluation profiles (`fix`, `feat`, `refactor`, `bootstrap`) dynamically inferred by `LoopStateService` from commit context, paired with cache-busted judge loading.
+- **Context-Aware Task Profiles & Dynamic Cockpit Inference**: Tailored evaluation profiles (`fix`, `feat`, `refactor`, `bootstrap`) dynamically inferred by `LoopStateService`, paired with cache-busted judge loading.
 - **Visualized in Kins Cockpit**: Rendered natively in `PhaseTracker` and `EvalScoreboard` with task profile tags, criteria breakdowns (`Surg`, `Simp`, `Mod`, `Maint`), and prominent hard-failure alerts.
 
 ---
@@ -76,7 +84,7 @@ INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN
 - **UI & Styling**: React 19, TypeScript 5.7, Tailwind CSS 3.4, Lucide Icons
 - **Terminal Core**: `@xterm/xterm`, `@xterm/addon-fit`, `node-pty`
 - **Build System**: Vite 6, esbuild (CommonJS preload bundling), TypeScript Compiler (`tsc`)
-- **Testing**: Node.js Native Test Runner (`node --test`), assert module (347 deterministic unit, integration, and harness tests passing 100%)
+- **Testing**: Node.js Native Test Runner (`node --test`), assert module (372 deterministic unit, integration, and harness tests passing 100%)
 
 ---
 

@@ -113,6 +113,7 @@ export interface ArchitecturalCompliance {
   readonly feedback: readonly string[];
   readonly taskType?: string | undefined;
   readonly threshold?: number | undefined;
+  readonly minAqi?: number | undefined;
   readonly hardFailures?: readonly string[] | undefined;
   readonly findings?: readonly object[] | undefined;
 }

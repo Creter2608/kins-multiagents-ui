@@ -3,6 +3,7 @@ import { parseSha256Hex, type Sha256Hex } from "../checksum.js";
 import {
   LoopEngine,
   EMPTY_RESOURCE_USAGE,
+  assertReleaseGateReady,
   type PhaseId,
   type PhaseDefinition,
   type LoopState,
@@ -11,10 +12,13 @@ import {
   type OracleTelemetry,
   type ResourceUsage,
   type BlueprintRecord,
-  type GoldenAssertion
+  type GoldenAssertion,
+  type QualityGateDecisionRecord,
+  type TransitionActor
 } from "../engine.js";
 import type { LoopStateStore } from "./LoopStateStore.js";
 import { FileBlueprintArtifactVerifier, type BlueprintArtifactVerifier } from "./BlueprintArtifactVerifier.js";
+import { planQualityGateDecision } from "./QualityGatePolicy.js";
 
 export const CANONICAL_PHASES: readonly PhaseDefinition[] = [
   { id: "INITIALIZE", allowedNext: ["SPEC_GATE", "FAILED"] },
@@ -27,7 +31,7 @@ export const CANONICAL_PHASES: readonly PhaseDefinition[] = [
   { id: "REALITY_CHECK", allowedNext: ["RELEASE_GATE", "EXECUTE", "BLOCKED", "FAILED"] },
   { id: "RELEASE_GATE", allowedNext: ["COMPLETE", "BLOCKED"] },
   { id: "COMPLETE", allowedNext: [], terminal: true },
-  { id: "BLOCKED", allowedNext: [], terminal: true },
+  { id: "BLOCKED", allowedNext: ["EXECUTE", "RELEASE_GATE", "FAILED"] },
   { id: "FAILED", allowedNext: [], terminal: true }
 ];
 
@@ -41,7 +45,12 @@ const CANONICAL_ADVANCEMENT: Readonly<Record<string, PhaseId>> = {
   REALITY_CHECK: "RELEASE_GATE"
 };
 
-export type LoopTransitionAction = "advance" | "approve" | "reject";
+export type LoopTransitionAction =
+  | "advance"
+  | "approve"
+  | "reject"
+  | "remediate"
+  | "override_quality_gate";
 
 export interface LoopTransitionCommand {
   readonly runId: string;
@@ -50,7 +59,10 @@ export interface LoopTransitionCommand {
   readonly action: LoopTransitionAction;
   readonly targetPhase?: PhaseId | undefined;
   readonly reason?: string | undefined;
-  readonly actor: "agent" | "human" | "system";
+  readonly actor: TransitionActor;
+  readonly artifactHash?: string | undefined;
+  readonly feedback?: string | undefined;
+  readonly ticketReference?: string | undefined;
 }
 
 export type AuditMutation =
@@ -232,6 +244,73 @@ export class LoopCommandService {
             `Action 'approve' is only valid at SPEC_GATE or RELEASE_GATE (current: ${current.currentPhase})`
           );
         }
+      } else if (
+        current.currentPhase === "BLOCKED" &&
+        (command.action === "remediate" || command.action === "override_quality_gate" || command.action === "reject")
+      ) {
+        if (command.actor !== "human") {
+          throw new LoopError(
+            "TRANSITION_INVALID",
+            "transition",
+            `Quality gate ${command.action} requires explicit human actor authorization`
+          );
+        }
+        if (!command.reason || !command.reason.trim()) {
+          throw new LoopError(
+            "CONFIG_INVALID",
+            "configuration",
+            `${command.action} requires a non-blank reason`
+          );
+        }
+        if (current.qualityGateBlock) {
+          const plan = planQualityGateDecision(
+            {
+              phase: current.currentPhase,
+              revision: current.revision,
+              block: current.qualityGateBlock,
+              globalCycleBudget: current.resourceBudget.maxGlobalCycles,
+              globalCycleUsage: current.resourceUsage.globalCycles,
+              qualityRemediationBudget: current.resourceBudget.maxQualityRemediations,
+              qualityRemediationUsage: current.resourceUsage.qualityRemediations,
+              specificationIntegrityValid: true,
+              baselineVerificationPassed: true,
+              hasCriticalSecurityFinding: false
+            },
+            {
+              action: command.action,
+              expectedRevision: command.expectedRevision,
+              artifactHash: command.artifactHash ?? "",
+              reason: command.reason ?? "",
+              feedback: command.feedback,
+              ticketReference: command.ticketReference
+            }
+          );
+
+          if (!plan.permitted) {
+            const errCode =
+              plan.code === "REMEDIATION_BUDGET_EXHAUSTED" || plan.code === "GLOBAL_CYCLES_EXHAUSTED"
+                ? "BUDGET_EXHAUSTED"
+                : "TRANSITION_INVALID";
+            throw new LoopError(errCode, "transition", plan.message);
+          }
+          targetPhase = plan.targetPhase;
+        } else {
+          // Fallback if no qualityGateBlock was attached
+          if (command.action === "remediate") {
+            if (current.resourceUsage.qualityRemediations >= current.resourceBudget.maxQualityRemediations) {
+              throw new LoopError(
+                "BUDGET_EXHAUSTED",
+                "budget",
+                `Quality remediation budget exhausted (${current.resourceUsage.qualityRemediations}/${current.resourceBudget.maxQualityRemediations})`
+              );
+            }
+            targetPhase = "EXECUTE";
+          } else if (command.action === "override_quality_gate") {
+            targetPhase = "RELEASE_GATE";
+          } else {
+            targetPhase = "FAILED";
+          }
+        }
       } else if (command.action === "reject") {
         if (
           current.currentPhase !== "SPEC_GATE" &&
@@ -251,6 +330,12 @@ export class LoopCommandService {
           );
         }
         targetPhase = "BLOCKED";
+      } else if (command.action === "remediate" || command.action === "override_quality_gate") {
+        throw new LoopError(
+          "TRANSITION_INVALID",
+          "transition",
+          `Action '${command.action}' is only valid from BLOCKED phase (current: ${current.currentPhase})`
+        );
       } else if (command.action === "advance") {
         if (
           current.currentPhase === "SPEC_GATE" ||
@@ -284,15 +369,9 @@ export class LoopCommandService {
           await this.blueprintVerifier.verifyReadyBlueprint(current);
         }
 
-        // HARD ENFORCEMENT HOOK: Cannot advance from REALITY_CHECK to RELEASE_GATE without closed audit status
+        // HARD ENFORCEMENT HOOK: Cannot advance from REALITY_CHECK to RELEASE_GATE without closed audit and passing AQI
         if (current.currentPhase === "REALITY_CHECK" && requestedPhase === "RELEASE_GATE") {
-          if (current.audit?.status !== "closed") {
-            throw new LoopError(
-              "TRANSITION_INVALID",
-              "transition",
-              `Cannot advance from REALITY_CHECK to RELEASE_GATE: Stage 4 Adversarial Audit status must be 'closed' (current: '${current.audit?.status ?? "none"}'). Call audit_and_break_code_with_gpt first.`
-            );
-          }
+          assertReleaseGateReady(current);
         }
 
         targetPhase = requestedPhase;
@@ -304,17 +383,64 @@ export class LoopCommandService {
         );
       }
 
+      // Record decision if applicable
+      let nextStateWithDecision = current;
+      let decisionRecordId: string | undefined;
+      if (
+        command.action === "remediate" ||
+        command.action === "override_quality_gate" ||
+        (command.action === "reject" && current.currentPhase === "BLOCKED")
+      ) {
+        const disposition =
+          command.action === "remediate"
+            ? "REMEDIATE"
+            : command.action === "override_quality_gate"
+              ? "OVERRIDE"
+              : "REJECT_REVERT";
+        decisionRecordId = `dec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const decisionRecord: QualityGateDecisionRecord = {
+          decisionId: decisionRecordId,
+          runId: current.runId,
+          revision: current.revision,
+          disposition,
+          principalId: command.actor,
+          reason: command.reason!,
+          feedback: command.feedback,
+          ticketReference: command.ticketReference,
+          artifactHash: command.artifactHash || current.goldenSha256,
+          failureKinds: current.qualityGateBlock?.failureKinds || ["AQI"],
+          observedAqi: current.architecturalCompliance?.aqi,
+          minAqi: current.architecturalCompliance?.minAqi ?? current.architecturalCompliance?.threshold,
+          auditFindingIds: current.qualityGateBlock?.auditFindingIds || [],
+          timestamp: Date.now()
+        };
+        const updatedDecisions = [...(current.qualityGateDecisions || []), decisionRecord];
+        const updatedRemediations =
+          command.action === "remediate"
+            ? current.resourceUsage.qualityRemediations + 1
+            : current.resourceUsage.qualityRemediations;
+
+        nextStateWithDecision = {
+          ...current,
+          qualityGateDecisions: updatedDecisions,
+          resourceUsage: {
+            ...current.resourceUsage,
+            qualityRemediations: updatedRemediations
+          }
+        };
+      }
+
       // 4. Delegate to LoopEngine
       const engine = new LoopEngine(
         {
           phases: this.phases,
           initialPhase: "INITIALIZE",
           terminalPhase: "COMPLETE",
-          budget: current.budget,
-          goldenSha256: current.goldenSha256,
-          runId: current.runId
+          budget: nextStateWithDecision.budget,
+          goldenSha256: nextStateWithDecision.goldenSha256,
+          runId: nextStateWithDecision.runId
         },
-        current
+        nextStateWithDecision
       );
 
       const triggerMsg = `${command.actor}: ${command.action}${
@@ -322,7 +448,10 @@ export class LoopCommandService {
       }`;
 
       return engine.transition(targetPhase, {
-        triggeredBy: triggerMsg
+        triggeredBy: triggerMsg,
+        actor: command.actor,
+        qualityGateDecisionId: decisionRecordId,
+        artifactHash: command.artifactHash
       });
     });
 

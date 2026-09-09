@@ -1,5 +1,57 @@
 # Project Log
 
+## [2026-09-09] Complete Delivery: PreToolUse Hybrid Policy, Complete-Entry HMAC Authentication, and ProjectService Wiring (PITFALL-023)
+
+### Summary
+Engineered, hardened, and verified the production integration of the physical CLI `PreToolUse` Hook system into the Cockpit application lifecycle (`ProjectService.initialize`, `ProjectService.switchProject`, and `src/main/index.ts`). Resolved the trade-off dilemma between Strict Zero-Bypass and Pragmatic Whitelist by establishing a **Strict-by-Default Hybrid Architecture with Hardened Documentation Fast Path** (`WorkspaceMutationPolicyMode`). Eliminated the critical vulnerability where documentation allowlists could be exploited to manipulate agent governance files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`) or system specifications (`docs/LOOP.md`). Remediated all Stage 4 Adversarial Audit findings (`AUTH-001` complete canonical registry HMAC, `API-001` injectable path options contract, and `GATE-001` override block binding and rejection revocation). Achieved a 100% pass rate across all 372 automated tests in Docker sandbox and a spotless AST AQI score of **4.88/5.0** (refactor) / **4.43/5.0** (feat) with 0 hard failures and 0 AST code smells.
+
+### Key Deliverables
+1. **Hardened Documentation Fast Path (`workspaceMutationPolicy.ts`)**:
+   - Supports `strict` and `documentation-fast-path` modes.
+   - Allows $0-token edits for inert documentation: `README.md`, `LICENSE*`, and standard `docs/**/*.md|txt`.
+   - Hard-blocks sensitive prompt/governance files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`) and core specifications (`docs/LOOP.md`).
+   - Enforces "All-or-Nothing" atomic batch checks: any request containing mixed code and documentation requires full GPT blueprint approval in `EXECUTE`.
+2. **Complete Canonical Registry HMAC Binding (`preToolUseHookService.ts`, `preToolUseHook.ts`)**:
+   - Binds `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion` into `entryHmac`.
+   - Verifies HMAC signature before reading `sidecarStatePath` or inspecting workspace state.
+3. **Application Lifecycle Wiring (`ProjectService.ts`, `src/main/index.ts`)**:
+   - `initialize()` automatically equips the active workspace into `~/.gemini/config/hooks.json`.
+   - `switchProject()` equips candidate workspaces transactionally and unequips old workspaces only after state commit, with rollback cleanup on error.
+4. **Adversarial Hardening (`src/engine.ts`)**:
+   - Fixed `assertReleaseGateReady`: quality overrides strictly require an active `qualityGateBlock` matching the block's `artifactHash`.
+   - Subsequent `REJECT_REVERT` decisions revoke prior overrides.
+5. **Deterministic Verification**:
+   - 372 / 372 unit tests pass (100%) on Docker sandbox (`kins_autonomous_sandbox`).
+   - Verified all 5 Stage 2 GPT Golden Assertions.
+
+## [2026-09-09] Complete Delivery: HITL 3-Way Quality Gate Triage Modal & Fail-Closed Release Gate Hardening (PITFALL-022)
+
+### Summary
+Diagnosed, engineered, and verified the architectural solution for AQI task type drift and release-gate enforcement (`PITFALL-022`). Resolved the root cause of the previous "AQI drop to 3.0" (false classification of feature additions as bug fixes due to reliance on stale `git log -1` headers) and eliminated the quality gate bypass vulnerability (where `assertReleaseGateReady` only verified audit closure without checking AQI compliance). Implemented the durable Human-in-the-Loop (HITL) 3-Way Quality Gate Triage pattern (`Loop Again to Improve`, `Override Quality Gate`, `Reject & Revert`), preserving working-tree compute and tokens upon quality failure rather than discarding workspace artifacts. Implemented pure policy verification (`QualityGatePolicy.ts`), state-machine transition invariants in `LoopEngine`, deep freezing of immutable block records, and a mission-control HUD triage modal (`QualityGateDecisionModal.tsx`). Successfully executed Dual-Oracle Stage 4 Adversarial Audit (`audit_and_break_code_with_gpt`) and remediated all findings (QG-001 through QG-008), achieving a 100% pass rate across all 360 tests and an AST AQI score of **4.64/5.0**.
+
+### Key Deliverables
+1. **Working-Tree Task Type Inference (`inferArchitectureTaskType`)**:
+   - Eliminated reliance on previous commit headers (`git log -1 --format=%s`).
+   - Prioritizes active blueprint `taskType`, followed by porcelain status analysis of working-tree file additions (`feat` for newly introduced code files, `bootstrap` for untracked base repositories, `fix` for in-place modifications).
+2. **Hardened Fail-Closed Release Gate (`assertReleaseGateReady`)**:
+   - Transitions from `REALITY_CHECK` (or `BLOCKED`) to `RELEASE_GATE` now strictly require BOTH closed audit status AND passing architectural compliance (`passed === true` and `aqi >= minAqi`).
+   - Historical overrides are invalidated if the active quality block's artifact hash does not match, preventing stale approvals from surviving workspace mutation.
+3. **Pure Quality Gate Policy Engine (`src/loop/QualityGatePolicy.ts`)**:
+   - Extracted deterministic pure function `planQualityGateDecision(context, input)` evaluating revisions, non-blank reasons, artifact hash matching, specification integrity, baseline tests, and budget quotas without I/O or side effects.
+4. **Durable BLOCKED State & Engine Transition Guards (`src/engine.ts`, `LoopCommandService.ts`)**:
+   - Quality failures transition to durable non-terminal `BLOCKED` state, suspending autonomous execution while preserving workspace files.
+   - Autonomous actors (`agent`, `system`, `autoAdvanced: true`) are strictly forbidden from leaving `BLOCKED`. Exits require an explicit linked human decision record.
+   - Deep freezing (`deepFreezeQualityGateBlock`, `deepFreezeQualityGateDecisions`) ensures runtime immutability of quality block metadata and failure findings.
+5. **Mission-Control HUD Triage Modal (`QualityGateDecisionModal.tsx`)**:
+   - Interactive dialog with full ARIA dialog semantics (`role="dialog"`, `aria-modal`, `aria-live` error announcements).
+   - Displays truncated artifact hash tooltip, AQI comparison (`3.1 / 4.5 FAIL`), remaining remediation quota, and defect findings.
+   - Disables controls during submission (`isBusy`) and requires explicit confirmation checkboxes for quality waivers and destructive rejections.
+6. **Comprehensive Verification & Adversarial Test Suites**:
+   - `test/quality-gate-triage.test.ts` (10/10 pass): covers task type inference, gate assertions, and 3-way triage dispatch.
+   - `test/quality-gate-adversarial.test.ts` (3/3 pass): verifies autonomous exit rejection, stale override invalidation, and hash-checked rejections.
+   - Full test suite: **360 / 360 tests pass (100%)** on Docker sandbox.
+   - AST AQI composite score: **4.64 / 5.0** (Surgical Diff 4.8, Simplicity 5.0, Maintainability 5.0, 0 hard failures).
+
 ## [2026-09-09] Complete Delivery: Antigravity CLI Physical PreToolUse Hard Hook & Decoupled Universal Mutation Barrier (PITFALL-021)
 
 ### Summary

@@ -99,6 +99,43 @@ export interface GoldenAssertionSnapshot {
   readonly out: string;
 }
 
+export type ArchitectureTaskType = "fix" | "feat" | "refactor" | "bootstrap";
+
+export type QualityGateFailureKind = "AQI" | "AUDIT";
+
+export type QualityGateDisposition =
+  | "REMEDIATE"
+  | "OVERRIDE"
+  | "REJECT_REVERT";
+
+export interface QualityGateBlock {
+  readonly blockedFrom: "REALITY_CHECK";
+  readonly artifactHash: string;
+  readonly failureKinds: readonly QualityGateFailureKind[];
+  readonly observedAqi?: number | undefined;
+  readonly minAqi?: number | undefined;
+  readonly auditFindingIds: readonly string[];
+  readonly remediationRemaining: boolean;
+  readonly overridePermitted: boolean;
+}
+
+export interface QualityGateDecisionRecord {
+  readonly decisionId: string;
+  readonly runId: string;
+  readonly revision: number;
+  readonly disposition: QualityGateDisposition;
+  readonly principalId: string;
+  readonly reason: string;
+  readonly feedback?: string | undefined;
+  readonly ticketReference?: string | undefined;
+  readonly artifactHash: string;
+  readonly failureKinds: readonly QualityGateFailureKind[];
+  readonly observedAqi?: number | undefined;
+  readonly minAqi?: number | undefined;
+  readonly auditFindingIds: readonly string[];
+  readonly timestamp: number;
+}
+
 export interface BlueprintRecordSnapshot {
   readonly status: BlueprintStatus;
   readonly invocationKey: string;
@@ -111,6 +148,7 @@ export interface BlueprintRecordSnapshot {
   readonly goldenAssertions?: readonly GoldenAssertionSnapshot[] | undefined;
   readonly completedAt?: number | undefined;
   readonly failureCode?: string | undefined;
+  readonly taskType?: ArchitectureTaskType | undefined;
 }
 
 export interface LoopStateSnapshot {
@@ -129,6 +167,8 @@ export interface LoopStateSnapshot {
   readonly architecturalCompliance?: ArchitecturalCompliance | undefined;
   readonly blueprint?: BlueprintRecordSnapshot | undefined;
   readonly audit?: AuditRecord | undefined;
+  readonly qualityGateBlock?: QualityGateBlock | undefined;
+  readonly qualityGateDecisions?: readonly QualityGateDecisionRecord[] | undefined;
   readonly lastError?: { readonly code: string; readonly message: string } | undefined;
   readonly syncError?: string | undefined;
   readonly lastUpdated: number;
@@ -231,9 +271,12 @@ export interface StepForwardResult {
 
 export interface GateDecisionInput {
   readonly runId: string;
-  readonly expectedPhase: "SPEC_GATE" | "RELEASE_GATE";
-  readonly decision: "approve" | "reject";
+  readonly expectedPhase: "SPEC_GATE" | "RELEASE_GATE" | "BLOCKED";
+  readonly decision: "approve" | "reject" | "remediate" | "override_quality_gate";
   readonly reason?: string | undefined;
+  readonly feedback?: string | undefined;
+  readonly ticketReference?: string | undefined;
+  readonly artifactHash?: string | undefined;
 }
 
 export interface GateDecisionResult {

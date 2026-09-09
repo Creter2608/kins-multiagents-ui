@@ -20,6 +20,8 @@ import { ProjectSandboxService } from "./projectSandboxService.js";
 import { RuleBundleCompilerService } from "./ruleBundleCompilerService.js";
 import { GlobalIdeSyncService } from "./globalIdeSyncService.js";
 import { WorkspaceStealthRuleService } from "./workspaceStealthRuleService.js";
+import { PreToolUseHookService } from "./preToolUseHookService.js";
+import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
 
 export interface ProjectScopedServices {
   readonly ptyService: {
@@ -43,6 +45,7 @@ export interface ProjectScopedServices {
   readonly sandboxService?: ProjectSandboxService;
   readonly globalIdeSyncService?: GlobalIdeSyncService;
   readonly stealthRuleService?: WorkspaceStealthRuleService;
+  readonly preToolUseHookService?: PreToolUseHookService;
 }
 
 interface PersistedProjectState {
@@ -63,6 +66,8 @@ export class ProjectService {
   private sandboxService: ProjectSandboxService;
   private globalIdeSyncService: GlobalIdeSyncService;
   private stealthRuleService: WorkspaceStealthRuleService;
+  private preToolUseHookService: PreToolUseHookService | null = null;
+  private mutationPolicyMode: WorkspaceMutationPolicyMode = "documentation-fast-path";
   private activeContext: WorkspaceContext | null = null;
   private isSwitching = false;
   private switchGeneration = 0;
@@ -86,6 +91,15 @@ export class ProjectService {
     const compiler = new RuleBundleCompilerService();
     this.globalIdeSyncService = services.globalIdeSyncService ?? new GlobalIdeSyncService(compiler);
     this.stealthRuleService = services.stealthRuleService ?? new WorkspaceStealthRuleService(compiler);
+    this.preToolUseHookService = services.preToolUseHookService ?? null;
+  }
+
+  getMutationPolicyMode(): WorkspaceMutationPolicyMode {
+    return this.mutationPolicyMode;
+  }
+
+  setMutationPolicyMode(mode: WorkspaceMutationPolicyMode): void {
+    this.mutationPolicyMode = mode;
   }
 
   private toProjectInfo(dirPath: string): ProjectInfo {
@@ -223,6 +237,15 @@ export class ProjectService {
       };
 
       await this.sandboxService.prepare(this.activeContext);
+      if (this.preToolUseHookService) {
+        const sidecarStatePath = path.join(sidecarDir, "state.json");
+        await this.preToolUseHookService.equipWorkspace({
+          workspaceRoot: this.currentPath,
+          sidecarStatePath,
+          userDataPath: userDataDir,
+          mutationPolicyMode: this.mutationPolicyMode
+        });
+      }
     } catch {
       // Non-fatal: proceed with default workspace context
     }
@@ -288,10 +311,20 @@ export class ProjectService {
         rules
       };
 
-      // 3. Prepare sandbox for the candidate workspace
+      // 3. Prepare sandbox and equip hook for the candidate workspace
       await this.sandboxService.prepare(candidateContext);
       if (this.switchGeneration !== currentGen) {
         throw new Error("Project switch superseded by newer request");
+      }
+
+      if (this.preToolUseHookService) {
+        const candidateStatePath = path.join(sidecarDir, "state.json");
+        await this.preToolUseHookService.equipWorkspace({
+          workspaceRoot: canonicalRoot,
+          sidecarStatePath: candidateStatePath,
+          userDataPath: userDataDir,
+          mutationPolicyMode: this.mutationPolicyMode
+        });
       }
 
       // 4. Re-anchor all dependent services atomically
@@ -322,11 +355,35 @@ export class ProjectService {
       this.services.logService?.clearLogs();
 
       this.persist();
+
+      // Unequip old workspace after successful commit
+      if (this.preToolUseHookService && previousPath !== canonicalRoot) {
+        try {
+          await this.preToolUseHookService.unequipWorkspace(previousPath, userDataDir);
+        } catch {
+          // Best-effort cleanup of previous workspace hook
+        }
+      }
+
       const state = this.getState();
       this.onProjectSwitchedCallback?.(state);
       this.onWorkspaceContextChangedCallback?.(candidateContext);
       return state;
     } catch (err) {
+      const userDataDir = path.dirname(this.configFilePath);
+      if (this.preToolUseHookService) {
+        try {
+          // If candidate failed, unequip it
+          const record = await this.registryService.resolve(targetPath).catch(() => null);
+          const candidateRoot = record?.root ?? targetPath;
+          if (candidateRoot !== previousPath) {
+            await this.preToolUseHookService.unequipWorkspace(candidateRoot, userDataDir);
+          }
+        } catch (rollbackHookErr) {
+          console.error("[ProjectService] Failed to unequip candidate workspace hook on failure:", rollbackHookErr);
+        }
+      }
+
       // Transactional rollback to previous context if services were touched
       if (servicesTouched && previousContext) {
         try {

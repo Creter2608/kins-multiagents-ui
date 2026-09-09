@@ -29,6 +29,8 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-019** | Conflating Active Context Window with Workload Tokens & Missing Per-Run Reset | `BUDGET_EXHAUSTED` | Gemini 80k-100k context window depletes 120k budget in 1 turn; 2nd loop run inherits tokens and crashes | Separate `workloadTokens` from `activeContextTokens`; bind usage to `runId` and reset on `INITIALIZE` |
 | **PITFALL-020** | System Prompt Divergence at Token 0 & Volatile Context Destroying Prompt Caching | `BUDGET_EXHAUSTED` | Prompt cache hit drops to 0%-25% across Stage 2 and Stage 4 due to disparate system prompts | Unify Message 0 with `STATIC_COMMON_CORE_PROMPT` (>= 1,024 tokens); normalize context strings |
 | **PITFALL-021** | Agent Reflex Bypass of Stage 2 Blueprint & Hard Hooks Absence in Host CLI Environment | `RULE_BYPASS` | Host agent (Gemini Flash) uses native file mutation tools directly, skipping 5 stages and 10 phases without GPT blueprint | Enforce physical CLI `PreToolUse` hook on `replace_file_content` and `write_to_file` intercepting mutations via HMAC-signed blueprint approval |
+| **PITFALL-022** | Conflation of Quality Failure with Artifact Disposal & Commit-Header Drift in AQI Task Inference | `QUALITY_GATE_BYPASS` | Code accepted despite low AQI (3.0); feature evaluated as fix due to stale git log header; quality failure prematurely destroys workspace | Enforce `assertReleaseGateReady`, pure 3-way triage via `BLOCKED` state, and working-tree topology task inference |
+| **PITFALL-023** | Partial HMAC Registry Binding & Historical Quality Override Replay Bypass | `SECURITY_BREACH` | Partial MAC signs only mode/workspace allowing path hijacking; historical overrides survive block deletion or revoking rejections | Enforce full canonical registry entry HMAC (`computeRegistryEntryHmac`) and strict active block hash binding in `assertReleaseGateReady` |
 
 
 ---
@@ -289,6 +291,38 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   1. **Physical PreToolUse CLI Hard Hook:** Install a physical hook in `~/.gemini/config/hooks.json` intercepting `replace_file_content` and `write_to_file` via stdio JSON pipe protocol to `dist/src/cli/preToolUseHook.js`.
   2. **HMAC-SHA-256 Signed Approval Barrier:** Require an explicit, cryptographically signed `blueprintApproval` payload (binding `runId`, `canonicalWorkspacePath`, and `blueprintSha256` using installation-scoped `auth.key`) in the sidecar `state.json`. Mutations fail-closed with `{"decision": "deny"}` if the signature or hash is invalid or if the phase is not `EXECUTE`.
   3. **Universal Repository Decoupling:** Never create `.agents/`, `.ai/`, or hook scripts inside target repositories. All workspace registrations must reside exclusively in `<userData>/hooks/workspaces.json`.
+
+---
+
+### PITFALL-022: Conflation of Quality Failure with Artifact Disposal & Commit-Header Drift in AQI Task Inference
+- **Context:** Autonomous quality gate evaluation (`evaluateArchitecturalCompliance`, `assertReleaseGateReady`) during `REALITY_CHECK` before transition to `RELEASE_GATE`.
+- **Observed Failure:**
+  1. *Sub-Threshold Acceptance:* Code with sub-threshold AQI (e.g., 3.0-3.2) was accepted and allowed to advance to `RELEASE_GATE` because `LoopEngine` and `LoopCommandService` previously verified only `audit.status === "closed"`, completely ignoring `state.architecturalCompliance`.
+  2. *Evaluation Profile Drift:* Feature changes introducing new files were evaluated under strict `fix` constraints (max 4 files, 120 lines churn), triggering catastrophic AQI penalties (surgical diff dropping to 1.0, simplicity dropping to 3.0), because `LoopStateService.evaluateArchitecture()` read `git log -1 --format=%s` from historical commits.
+  3. *Unnecessary Token & Work Waste:* Quality gate evaluation failure was conflated with artifact disposal, auto-reverting changes instead of pausing execution for operator triage.
+- **Root Cause:**
+  - Transition guard in `engine.ts` lacked deterministic compliance checks (`passed === true` and `aqi >= minAqi`).
+  - Relying on previous commit subject lines instead of inspecting the active blueprint `taskType` and porcelain working-tree addition topology.
+  - Conflating quality evaluation failure with artifact disposal, rather than suspending execution into a durable `BLOCKED` state.
+- **Mandatory Invariants:**
+  1. **Fail-Closed Gate Enforcement:** `assertReleaseGateReady` MUST reject `REALITY_CHECK -> RELEASE_GATE` transitions unless audit is closed AND architectural compliance passed (`aqi >= minAqi`), unless an active matching human override is verified.
+  2. **Durable Execution Suspension via BLOCKED:** Failed quality gates transition from `REALITY_CHECK` to `BLOCKED`. Workspaces are preserved. Autonomous agents cannot exit `BLOCKED` (`autoAdvanced` and non-human actors are rejected).
+  3. **Centralized Pure Policy & 3-Way Triage:** All quality gate decisions (`remediate`, `override_quality_gate`, `reject`) MUST route through `planQualityGateDecision()` in `QualityGatePolicy.ts`.
+  4. **Working-Tree Task Inference:** `inferArchitectureTaskType()` MUST prioritize explicit blueprint `taskType`, followed by file addition topology in `git status --porcelain` (`feat` for new code, `bootstrap` for untracked baseline, `fix` for in-place modifications), ignoring previous commit headers.
+
+---
+
+### PITFALL-023: Partial HMAC Registry Binding & Historical Quality Override Replay Bypass
+- **Context:** Hard PreToolUse hook configuration and state-machine release gate validation under multi-stage autonomous loops.
+- **Observed Failure:**
+  1. *Registry Tampering:* Computing HMAC solely across `canonicalWorkspace:mode` left `sidecarStatePath` and `schemaVersion` unauthenticated, allowing an attacker or rogue script to redirect sidecars without invalidating the cryptographic signature.
+  2. *Historical Override Leak:* When `qualityGateBlock` was undefined, `assertReleaseGateReady` accepted any same-run historical `OVERRIDE` record without verifying that an active block exists or checking if a subsequent `REJECT_REVERT` revoked the waiver.
+- **Root Cause:**
+  - Authenticating partial metadata rather than the complete canonical serialization of the registry entry before inspecting sidecar files.
+  - Allowing historical quality waivers to outlive the block lifecycle or survive explicit operator rejection.
+- **Mandatory Invariants:**
+  1. **Full Registry Entry HMAC:** Compute and verify cryptographic HMAC across all security-critical entry fields: `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion`. Verify the MAC *before* touching or reading `sidecarStatePath`.
+  2. **Active Block Binding & Revocation:** In `assertReleaseGateReady`, an override is strictly valid ONLY if an active `qualityGateBlock` is present and the latest decision for that block's exact `artifactHash` is `OVERRIDE`. Subsequent `REJECT_REVERT` records or missing blocks immediately invalidate prior waivers.
 
 ---
 

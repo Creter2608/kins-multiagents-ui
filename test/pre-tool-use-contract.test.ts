@@ -6,6 +6,11 @@ import { LoopError } from "../src/errors.js";
 import type { LoopState } from "../src/engine.js";
 import { assertWorkspaceMutationAllowed } from "../src/loop/WorkspaceWriteGuard.js";
 import { evaluateWorkspaceMutationPolicy } from "../src/shared/workspaceMutationPolicy.js";
+import {
+  evaluatePreToolUseHook,
+  type PreToolUseHookInput,
+  type PreToolUseHookDecision
+} from "../src/cli/preToolUseHook.js";
 
 function createInitializeState(): LoopState {
   return JSON.parse(JSON.stringify({
@@ -78,4 +83,16 @@ test("package.json exposes the required Electron packaging command", () => {
     packageCommand.trim().length > 0,
     "the Electron packaging command must not be empty"
   );
+});
+
+test("evaluatePreToolUseHook preserves the architected injectable-path API", () => {
+  const evaluator: (
+    input: PreToolUseHookInput,
+    options?: {
+      registryPath?: string;
+      authKeyPath?: string;
+    }
+  ) => Promise<PreToolUseHookDecision> = evaluatePreToolUseHook;
+
+  assert.equal(typeof evaluator, "function");
 });

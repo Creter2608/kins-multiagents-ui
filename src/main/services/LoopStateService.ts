@@ -20,7 +20,7 @@ import type {
   ResourceBudget,
   ResourceUsage
 } from "../../shared/contracts.js";
-import { DEFAULT_RESOURCE_BUDGET, EMPTY_RESOURCE_USAGE } from "../../engine.js";
+import { DEFAULT_RESOURCE_BUDGET, EMPTY_RESOURCE_USAGE, type ArchitectureTaskType } from "../../engine.js";
 import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
@@ -40,6 +40,44 @@ function isDocumentationPath(filePath: string): boolean {
   if (!filePath || typeof filePath !== "string") return false;
   const normalized = filePath.trim().toLowerCase();
   return normalized.endsWith(".md") || normalized.endsWith(".txt");
+}
+
+export interface ArchitectureChange {
+  readonly status: string;
+  readonly path: string;
+}
+
+export function inferArchitectureTaskType(
+  blueprintTaskType: ArchitectureTaskType | undefined,
+  changes: readonly ArchitectureChange[],
+  hasTrackedProductionBaseline: boolean = true
+): ArchitectureTaskType {
+  // 1. Explicit active blueprint taskType takes precedence
+  if (blueprintTaskType) {
+    return blueprintTaskType;
+  }
+
+  // 2. Inspect changed file topology
+  const hasAddedProductionFiles = changes.some((c) => {
+    const isAdded = c.status.startsWith("A") || c.status.startsWith("?") || c.status.includes("A");
+    const p = c.path.trim().toLowerCase();
+    if (!isAdded) return false;
+    // Exclude documentation, tests, eval, configs
+    if (isDocumentationPath(p)) return false;
+    if (p.includes("test") || p.includes("spec") || p.endsWith(".test.ts") || p.endsWith(".test.js")) return false;
+    if (p.startsWith(".eval") || p.startsWith(".ai") || p.startsWith("wiki/")) return false;
+    // Must be code files
+    return p.startsWith("src/") || p.endsWith(".ts") || p.endsWith(".tsx") || p.endsWith(".js") || p.endsWith(".py");
+  });
+
+  if (hasAddedProductionFiles) {
+    if (!hasTrackedProductionBaseline) {
+      return "bootstrap";
+    }
+    return "feat";
+  }
+
+  return "fix";
 }
 
 function parseTaskType(subject: string): string {
@@ -571,12 +609,21 @@ export class LoopStateService {
           }
 
           try {
-            const headSubject = execFileSync(
+            const statusOutput = execFileSync(
               "git",
-              ["-c", "safe.directory=*", "log", "-1", "--format=%s"],
+              ["-c", "safe.directory=*", "status", "--porcelain"],
               { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
-            ).trim();
-            taskType = parseTaskType(headSubject);
+            );
+            const changes: ArchitectureChange[] = statusOutput
+              .split("\n")
+              .filter(Boolean)
+              .map((line) => {
+                const status = line.slice(0, 2).trim();
+                const pathStr = line.slice(3).trim();
+                return { status, path: pathStr };
+              });
+            const blueprintTaskType = this.lastValidSnapshot?.blueprint?.taskType;
+            taskType = inferArchitectureTaskType(blueprintTaskType, changes, true);
           } catch {
             taskType = "fix";
           }
@@ -662,8 +709,17 @@ export class LoopStateService {
         });
       }
 
-      this.updateArchitecturalCompliance(compliance);
-      return compliance;
+      let enrichedCompliance: ArchitecturalCompliance | null = compliance;
+      if (compliance) {
+        enrichedCompliance = {
+          ...compliance,
+          taskType: compliance.taskType || taskType,
+          minAqi: compliance.minAqi ?? compliance.threshold ?? 3.5
+        };
+      }
+
+      this.updateArchitecturalCompliance(enrichedCompliance);
+      return enrichedCompliance;
     } catch (err) {
       console.warn("[LoopStateService] evaluateArchitecture failed:", err);
       return null;
@@ -740,14 +796,16 @@ export class LoopStateService {
     if (!input || typeof input !== "object") {
       return { success: false, message: "Invalid input payload" };
     }
-    if (input.expectedPhase !== "SPEC_GATE" && input.expectedPhase !== "RELEASE_GATE") {
+    const validPhases = ["SPEC_GATE", "RELEASE_GATE", "BLOCKED"];
+    if (!validPhases.includes(input.expectedPhase)) {
       return { success: false, message: `Invalid gate phase: '${input.expectedPhase}'` };
     }
-    if (input.decision !== "approve" && input.decision !== "reject") {
-      return { success: false, message: `Invalid decision: '${input.decision}'. Must be 'approve' or 'reject'` };
+    const validDecisions = ["approve", "reject", "remediate", "override_quality_gate"];
+    if (!validDecisions.includes(input.decision)) {
+      return { success: false, message: `Invalid decision: '${input.decision}'. Must be one of: ${validDecisions.join(", ")}` };
     }
-    if (input.decision === "reject" && (!input.reason || !input.reason.trim())) {
-      return { success: false, message: "Rejection requires a non-blank reason" };
+    if ((input.decision === "reject" || input.decision === "override_quality_gate" || input.decision === "remediate") && (!input.reason || !input.reason.trim())) {
+      return { success: false, message: `Decision '${input.decision}' requires a non-blank justification reason` };
     }
 
     try {
@@ -758,12 +816,15 @@ export class LoopStateService {
         expectedRevision: this.lastValidSnapshot.revision ?? 1,
         action: input.decision,
         reason: input.reason,
+        feedback: input.feedback,
+        ticketReference: input.ticketReference,
+        artifactHash: input.artifactHash,
         actor: "human"
       });
       const updated = this.readState();
       return {
         success: true,
-        message: `Gate ${input.expectedPhase} ${input.decision}d successfully`,
+        message: `Gate ${input.expectedPhase} ${input.decision} executed successfully`,
         state: updated
       };
     } catch (err: unknown) {

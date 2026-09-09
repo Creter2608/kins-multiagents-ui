@@ -9,12 +9,67 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { canonicalizePath } from "./blueprintApprovalAuthenticator.js";
+import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
+
+export function computeModeHmac(
+  mode: WorkspaceMutationPolicyMode,
+  canonicalWorkspace: string,
+  signingKey: Buffer
+): string {
+  return crypto
+    .createHmac("sha256", signingKey)
+    .update(`${canonicalWorkspace}:${mode}`)
+    .digest("hex");
+}
+
+export function verifyModeHmac(
+  mode: WorkspaceMutationPolicyMode,
+  canonicalWorkspace: string,
+  modeHmac: string | undefined,
+  signingKey: Buffer
+): boolean {
+  if (!modeHmac || typeof modeHmac !== "string") return false;
+  const expected = computeModeHmac(mode, canonicalWorkspace, signingKey);
+  if (expected.length !== modeHmac.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(modeHmac, "hex"));
+}
+
+export function computeRegistryEntryHmac(
+  entry: {
+    readonly canonicalWorkspacePath: string;
+    readonly sidecarStatePath: string;
+    readonly schemaVersion: number;
+    readonly mutationPolicyMode?: WorkspaceMutationPolicyMode;
+  },
+  signingKey: Buffer
+): string {
+  const payload = [
+    entry.canonicalWorkspacePath,
+    entry.sidecarStatePath,
+    entry.mutationPolicyMode ?? "strict",
+    String(entry.schemaVersion)
+  ].join("::");
+  return crypto.createHmac("sha256", signingKey).update(payload).digest("hex");
+}
+
+export function verifyRegistryEntryHmac(
+  entry: WorkspaceRegistryEntry,
+  signingKey: Buffer
+): boolean {
+  if (!entry.entryHmac || typeof entry.entryHmac !== "string") return false;
+  const expected = computeRegistryEntryHmac(entry, signingKey);
+  if (expected.length !== entry.entryHmac.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(entry.entryHmac, "hex"));
+}
 
 export interface WorkspaceRegistryEntry {
   readonly canonicalWorkspacePath: string;
   readonly sidecarStatePath: string;
   readonly schemaVersion: 1;
   readonly registeredAt: string;
+  readonly mutationPolicyMode?: WorkspaceMutationPolicyMode;
+  readonly modeHmac?: string;
+  readonly entryHmac?: string;
 }
 
 export interface WorkspaceRegistryFile {
@@ -28,6 +83,7 @@ export interface EquipPreToolUseHookOptions {
   readonly userDataPath: string;
   readonly runtimeCommand?: string | undefined;
   readonly hooksConfigPath?: string | undefined;
+  readonly mutationPolicyMode?: WorkspaceMutationPolicyMode | undefined;
 }
 
 export interface EquippedPreToolUseHook {
@@ -76,11 +132,23 @@ export class PreToolUseHookService {
       registry = { version: 1, workspaces: {} };
     }
 
-    registry.workspaces[canonicalWorkspace] = {
+    const mode: WorkspaceMutationPolicyMode = options.mutationPolicyMode ?? "strict";
+    const sidecarStatePath = path.resolve(options.sidecarStatePath);
+    const modeHmac = computeModeHmac(mode, canonicalWorkspace, signingKey);
+
+    const baseEntry = {
       canonicalWorkspacePath: canonicalWorkspace,
-      sidecarStatePath: path.resolve(options.sidecarStatePath),
-      schemaVersion: 1,
-      registeredAt: new Date().toISOString()
+      sidecarStatePath,
+      schemaVersion: 1 as const,
+      registeredAt: new Date().toISOString(),
+      mutationPolicyMode: mode
+    };
+    const entryHmac = computeRegistryEntryHmac(baseEntry, signingKey);
+
+    registry.workspaces[canonicalWorkspace] = {
+      ...baseEntry,
+      modeHmac,
+      entryHmac
     };
 
     const tmpRegistry = `${registryPath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
