@@ -19,6 +19,15 @@ import {
 import type { LoopStateStore } from "./LoopStateStore.js";
 import { FileBlueprintArtifactVerifier, type BlueprintArtifactVerifier } from "./BlueprintArtifactVerifier.js";
 import { planQualityGateDecision } from "./QualityGatePolicy.js";
+import * as syncFs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import {
+  createBlueprintApproval,
+  canonicalizePath
+} from "../main/services/blueprintApprovalAuthenticator.js";
+import { PreToolUseHookService } from "../main/services/preToolUseHookService.js";
+import type { AuthenticatedBlueprintApproval } from "../engine.js";
 
 export const CANONICAL_PHASES: readonly PhaseDefinition[] = [
   { id: "INITIALIZE", allowedNext: ["SPEC_GATE", "FAILED"] },
@@ -195,9 +204,55 @@ export class LoopCommandService {
   constructor(
     private readonly store: LoopStateStore,
     private readonly phases: readonly PhaseDefinition[] = CANONICAL_PHASES,
-    blueprintVerifier?: BlueprintArtifactVerifier | undefined
+    blueprintVerifier?: BlueprintArtifactVerifier | undefined,
+    private readonly workspaceRoot?: string | undefined,
+    private readonly signingKeyProvider?: (() => Promise<Buffer | null> | Buffer | null) | undefined
   ) {
     this.blueprintVerifier = blueprintVerifier ?? new FileBlueprintArtifactVerifier();
+  }
+
+  private async resolveSigningKey(): Promise<Buffer | null> {
+    if (this.signingKeyProvider) {
+      try {
+        const key = await this.signingKeyProvider();
+        return key ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    const envUserData = process.env.ANTIGRAVITY_HOOK_USER_DATA;
+    const candidates: string[] = [];
+    if (envUserData) {
+      candidates.push(envUserData);
+    }
+    if (process.platform === "win32" && process.env.APPDATA) {
+      candidates.push(path.join(process.env.APPDATA, "kins-multiagents-ui"));
+    } else if (process.platform === "darwin") {
+      candidates.push(path.join(os.homedir(), "Library", "Application Support", "kins-multiagents-ui"));
+    } else if (process.platform === "linux") {
+      const xdg = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+      candidates.push(path.join(xdg, "kins-multiagents-ui"));
+    }
+    candidates.push(path.join(os.homedir(), ".gemini", "antigravity-cli", "userData"));
+
+    for (const candidate of candidates) {
+      const keyPath = path.join(candidate, "hooks", "auth.key");
+      if (syncFs.existsSync(keyPath)) {
+        try {
+          return syncFs.readFileSync(keyPath);
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    const primaryUserData = candidates[0] ?? path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
+    try {
+      return PreToolUseHookService.getOrCreateSigningKeySync(primaryUserData);
+    } catch {
+      return null;
+    }
   }
 
   async status(): Promise<LoopState> {
@@ -383,8 +438,42 @@ export class LoopCommandService {
         );
       }
 
+      // Generate or invalidate blueprint approval (Fail-Closed Atomic Transaction)
+      let blueprintApproval: AuthenticatedBlueprintApproval | undefined = current.blueprintApproval;
+      if (current.currentPhase === "PLAN" && targetPhase === "EXECUTE") {
+        const signingKey = await this.resolveSigningKey();
+        if (!signingKey) {
+          throw new LoopError(
+            "STATE_INVALID",
+            "state",
+            `Cannot advance from PLAN to EXECUTE: Signing key could not be resolved for blueprint approval`
+          );
+        }
+        if (!current.blueprint || !current.blueprint.artifactSha256) {
+          throw new LoopError(
+            "STATE_INVALID",
+            "state",
+            `Cannot advance from PLAN to EXECUTE: Ready blueprint with artifactSha256 is required`
+          );
+        }
+        const effectiveWorkspace = this.workspaceRoot ?? process.cwd();
+        blueprintApproval = createBlueprintApproval(
+          {
+            runId: current.runId,
+            canonicalWorkspacePath: effectiveWorkspace,
+            blueprintSha256: current.blueprint.artifactSha256
+          },
+          signingKey
+        );
+      } else if (targetPhase === "PLAN" || targetPhase === "INITIALIZE" || command.action === "reject") {
+        blueprintApproval = undefined;
+      }
+
       // Record decision if applicable
-      let nextStateWithDecision = current;
+      let nextStateWithDecision: LoopState = {
+        ...current,
+        blueprintApproval
+      };
       let decisionRecordId: string | undefined;
       if (
         command.action === "remediate" ||
@@ -565,7 +654,8 @@ export class LoopCommandService {
       return {
         ...current,
         revision: nextRevision,
-        blueprint: nextBlueprint
+        blueprint: nextBlueprint,
+        blueprintApproval: undefined
       };
     });
   }

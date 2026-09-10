@@ -21,6 +21,7 @@ import { RuleBundleCompilerService } from "./ruleBundleCompilerService.js";
 import { GlobalIdeSyncService } from "./globalIdeSyncService.js";
 import { WorkspaceStealthRuleService } from "./workspaceStealthRuleService.js";
 import { PreToolUseHookService } from "./preToolUseHookService.js";
+import { resolveLoopStatePath } from "./LoopStateService.js";
 import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
 
 export interface ProjectScopedServices {
@@ -30,6 +31,7 @@ export interface ProjectScopedServices {
   };
   readonly loopStateService: {
     setProjectRoot(p: string, sidecarDirectory?: string): Promise<void>;
+    setUserDataPath?(p: string): void;
   };
   readonly mcpMonitorService: { setProjectRoot(p: string): Promise<void> };
   readonly rollbackService: {
@@ -238,9 +240,9 @@ export class ProjectService {
 
       await this.sandboxService.prepare(this.activeContext);
       if (this.preToolUseHookService) {
-        const sidecarStatePath = path.join(sidecarDir, "state.json");
+        const sidecarStatePath = resolveLoopStatePath(record.root, sidecarDir);
         await this.preToolUseHookService.equipWorkspace({
-          workspaceRoot: this.currentPath,
+          workspaceRoot: record.root,
           sidecarStatePath,
           userDataPath: userDataDir,
           mutationPolicyMode: this.mutationPolicyMode
@@ -255,6 +257,8 @@ export class ProjectService {
     if (this.activeContext) {
       this.services.ptyService.setWorkspaceContext?.(this.activeContext);
     }
+    const defaultUserDataDir = path.dirname(this.configFilePath);
+    this.services.loopStateService.setUserDataPath?.(defaultUserDataDir);
     await this.services.loopStateService.setProjectRoot(this.currentPath, this.activeContext?.sidecarDirectory);
     await this.services.mcpMonitorService.setProjectRoot(this.currentPath);
     await this.services.rollbackService.setProjectRoot(this.currentPath, this.activeContext?.sidecarDirectory);
@@ -318,7 +322,7 @@ export class ProjectService {
       }
 
       if (this.preToolUseHookService) {
-        const candidateStatePath = path.join(sidecarDir, "state.json");
+        const candidateStatePath = resolveLoopStatePath(canonicalRoot, sidecarDir);
         await this.preToolUseHookService.equipWorkspace({
           workspaceRoot: canonicalRoot,
           sidecarStatePath: candidateStatePath,
@@ -331,6 +335,7 @@ export class ProjectService {
       servicesTouched = true;
       await this.services.ptyService.setProjectRoot(canonicalRoot);
       this.services.ptyService.setWorkspaceContext?.(candidateContext);
+      this.services.loopStateService.setUserDataPath?.(userDataDir);
       await this.services.loopStateService.setProjectRoot(canonicalRoot, sidecarDir);
       await this.services.mcpMonitorService.setProjectRoot(canonicalRoot);
       await this.services.rollbackService.setProjectRoot(canonicalRoot, sidecarDir);

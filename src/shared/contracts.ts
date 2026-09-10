@@ -151,6 +151,15 @@ export interface BlueprintRecordSnapshot {
   readonly taskType?: ArchitectureTaskType | undefined;
 }
 
+export interface AuthenticatedBlueprintApproval {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly canonicalWorkspacePath: string;
+  readonly blueprintSha256: string;
+  readonly approvedAt: string;
+  readonly signature: string;
+}
+
 export interface LoopStateSnapshot {
   readonly runId: string;
   readonly schemaVersion: number;
@@ -165,7 +174,9 @@ export interface LoopStateSnapshot {
   readonly history?: readonly LoopHistoryEntry[] | undefined;
   readonly testSummary?: LoopTestSummary | undefined;
   readonly architecturalCompliance?: ArchitecturalCompliance | undefined;
+  readonly goldenSha256?: string | undefined;
   readonly blueprint?: BlueprintRecordSnapshot | undefined;
+  readonly blueprintApproval?: AuthenticatedBlueprintApproval | undefined;
   readonly audit?: AuditRecord | undefined;
   readonly qualityGateBlock?: QualityGateBlock | undefined;
   readonly qualityGateDecisions?: readonly QualityGateDecisionRecord[] | undefined;

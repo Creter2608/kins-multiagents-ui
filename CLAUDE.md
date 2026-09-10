@@ -1,6 +1,6 @@
 # Claude Code Guidelines
 
-Repository follows **Autonomous Loop v2.0**.
+Repository follows **Autonomous Loop v3.0**.
 Canonical rules: 👉 [AGENTS.md](AGENTS.md) and [docs/LOOP.md](docs/LOOP.md).
 
 ## Operational Invariants

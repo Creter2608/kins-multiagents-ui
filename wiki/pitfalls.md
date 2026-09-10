@@ -31,6 +31,8 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 | **PITFALL-021** | Agent Reflex Bypass of Stage 2 Blueprint & Hard Hooks Absence in Host CLI Environment | `RULE_BYPASS` | Host agent (Gemini Flash) uses native file mutation tools directly, skipping 5 stages and 10 phases without GPT blueprint | Enforce physical CLI `PreToolUse` hook on `replace_file_content` and `write_to_file` intercepting mutations via HMAC-signed blueprint approval |
 | **PITFALL-022** | Conflation of Quality Failure with Artifact Disposal & Commit-Header Drift in AQI Task Inference | `QUALITY_GATE_BYPASS` | Code accepted despite low AQI (3.0); feature evaluated as fix due to stale git log header; quality failure prematurely destroys workspace | Enforce `assertReleaseGateReady`, pure 3-way triage via `BLOCKED` state, and working-tree topology task inference |
 | **PITFALL-023** | Partial HMAC Registry Binding & Historical Quality Override Replay Bypass | `SECURITY_BREACH` | Partial MAC signs only mode/workspace allowing path hijacking; historical overrides survive block deletion or revoking rejections | Enforce full canonical registry entry HMAC (`computeRegistryEntryHmac`) and strict active block hash binding in `assertReleaseGateReady` |
+| **PITFALL-024** | Windows Node CJS Loader Inner Quoting in CLI Hooks | `EXECUTION_FAILED` | `MODULE_NOT_FOUND` when Node on Windows receives escaped inner quotes in `hooks.json` command | Normalize backslashes to forward slashes (`/`); omit quotes unless path has spaces |
+| **PITFALL-025** | Telemetry Blindness to Large Tool Outputs & MCP Context Deadline Timeout | `BUDGET_EXHAUSTED` | Offloaded `output.txt` leaves Cockpit token counter at 0; Stage 4 audit times out after 180s on full file context | Bounded tail-reader (`<=8192` bytes) under `allowedRoots`; prune Stage 4 to `git diff -U3` + `<=25`-line error slices |
 
 
 ---
@@ -323,6 +325,31 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
 - **Mandatory Invariants:**
   1. **Full Registry Entry HMAC:** Compute and verify cryptographic HMAC across all security-critical entry fields: `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion`. Verify the MAC *before* touching or reading `sidecarStatePath`.
   2. **Active Block Binding & Revocation:** In `assertReleaseGateReady`, an override is strictly valid ONLY if an active `qualityGateBlock` is present and the latest decision for that block's exact `artifactHash` is `OVERRIDE`. Subsequent `REJECT_REVERT` records or missing blocks immediately invalidate prior waivers.
+
+---
+
+### PITFALL-024: Windows Node CJS Loader Inner Quoting in CLI Hooks
+- **Context:** Configuring `hooks.json` runtime command for PreToolUse Node CLI hooks on Windows hosts.
+- **Observed Failure:** When `command` was formatted as `node "\"D:\\Workspace\\...\\hook.js\""`, Node.js CJS module loader on Windows treated `argv[1]` with literal leading quote, prepending CWD and crashing with `Cannot find module 'D:\\Workspace\\...\"D:\\Workspace...'`.
+- **Root Cause:** Node CJS on Windows does not strip escaped inner quotes when invoked via child process shell dispatchers.
+- **Mandatory Invariants:**
+  - Normalize Windows backslashes to forward slashes (`/`).
+  - Do not wrap hook paths in quotes unless the path contains spaces.
+  - If spaces exist, wrap path in clean quotes with forward slashes: `node "D:/path with spaces/dist/src/cli/preToolUseHook.js"`.
+
+---
+
+### PITFALL-025: Telemetry Blindness to Large Tool Outputs & MCP Context Deadline Timeout
+- **Context:** Managing multi-agent tokens and Stage 4 adversarial audit with large outputs in Antigravity CLI and Cockpit Telemetry HUD.
+- **Observed Failure:**
+  1. *Telemetry Blindness:* Antigravity CLI offloaded tool results >20KB to `steps/<id>/output.txt`, replacing `step.content` in `transcript.jsonl` with `The output was large and was saved to: file:///<path>/output.txt`. Cockpit's passive ingestion missed the token metrics, displaying 0 on the HUD.
+  2. *MCP 180s Deadline Timeout:* Stage 4 `audit_and_break_code_with_gpt` timed out with `context deadline exceeded` after 3m0s when bloated full source code files were passed to OpenAI reasoning models.
+- **Root Cause:**
+  - Ingestion service checked only inline strings and lacked bounded tail dereferencing with security allowlists.
+  - Stage 4 audit payload duplicated whole files instead of relying on unified diffs and concise error slices.
+- **Mandatory Invariants:**
+  1. **Bounded Tail Reader:** `TranscriptIngestionService` MUST dereference offloaded `output.txt` using bounded tail reading (`maxTailBytes: 8192`), strictly validating canonical paths against `allowedRoots` (`.gemini/antigravity-cli/brain`). Reject external/escaped paths silently.
+  2. **Stage 4 Context Pruning:** Audit payloads MUST omit full source files. Send strictly `git diff -U3` and `<=25`-line root error slices to guarantee reasoning completion within 45-75 seconds.
 
 ---
 

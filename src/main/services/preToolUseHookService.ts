@@ -5,11 +5,31 @@
  */
 
 import * as fs from "node:fs/promises";
+import * as syncFs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { canonicalizePath } from "./blueprintApprovalAuthenticator.js";
 import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
+
+export function resolveDefaultRuntimeCommand(): string {
+  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+  const moduleRelativeHookPath = path.resolve(
+    moduleDirectory,
+    "../../cli/preToolUseHook.js"
+  );
+  const sourceTreeFallbackPath = path.resolve(
+    moduleDirectory,
+    "../../../dist/src/cli/preToolUseHook.js"
+  );
+  const hookPath = syncFs.existsSync(moduleRelativeHookPath)
+    ? moduleRelativeHookPath
+    : sourceTreeFallbackPath;
+
+  const normalizedHookPath = hookPath.replace(/\\/g, "/");
+  return normalizedHookPath.includes(" ") ? `node "${normalizedHookPath}"` : `node ${normalizedHookPath}`;
+}
 
 export function computeModeHmac(
   mode: WorkspaceMutationPolicyMode,
@@ -97,6 +117,21 @@ export class PreToolUseHookService {
   static readonly HOOK_MATCHER = "replace_file_content|write_to_file";
   static readonly HOOK_IDENTIFIER = "kins-cockpit-pretooluse-guard";
 
+  static getOrCreateSigningKeySync(userDataPath: string): Buffer {
+    const hooksDir = path.join(userDataPath, "hooks");
+    if (!syncFs.existsSync(hooksDir)) {
+      syncFs.mkdirSync(hooksDir, { recursive: true });
+    }
+    const keyPath = path.join(hooksDir, "auth.key");
+    try {
+      return syncFs.readFileSync(keyPath);
+    } catch {
+      const key = crypto.randomBytes(32);
+      syncFs.writeFileSync(keyPath, key, { mode: 0o600 });
+      return key;
+    }
+  }
+
   static async getOrCreateSigningKey(userDataPath: string): Promise<Buffer> {
     const hooksDir = path.join(userDataPath, "hooks");
     await fs.mkdir(hooksDir, { recursive: true });
@@ -168,7 +203,7 @@ export class PreToolUseHookService {
       hooksData = {};
     }
 
-    const command = options.runtimeCommand ?? `node "${path.resolve(options.userDataPath, "../dist/src/cli/preToolUseHook.js")}"`;
+    const command = options.runtimeCommand ?? resolveDefaultRuntimeCommand();
 
     const ownedHookEntry = {
       matcher: PreToolUseHookService.HOOK_MATCHER,

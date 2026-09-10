@@ -13,7 +13,7 @@ export interface CompiledRuleBundle {
 
 const UNIVERSAL_INVARIANTS = `# Autonomous Agent Operating Guidelines
 
-This environment enforces an **Enterprise-Grade AI-Ready Standard (v2.0)** designed for deterministic, token-efficient, and security-hardened autonomous pair programming.
+This environment enforces an **Enterprise-Grade AI-Ready Standard (v3.0)** designed for deterministic, token-efficient, and security-hardened autonomous pair programming.
 
 ---
 

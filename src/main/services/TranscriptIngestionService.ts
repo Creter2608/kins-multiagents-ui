@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import type { TelemetryService } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
 import type { LoopStateService } from "./LoopStateService.js";
@@ -44,6 +45,56 @@ function extractSystemMessageSender(text: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
+
+export function readAntigravityOutputTail(
+  markerText: string,
+  allowedRoots?: readonly string[]
+): string | null {
+  if (!markerText || typeof markerText !== "string") return null;
+  const match = /The output was large and was saved to:\s*(?:file:\/\/\/)?([^\r\n]+)/i.exec(markerText);
+  if (!match || !match[1]) return null;
+
+  let rawPath = match[1].trim().replace(/[>"\s]+$/, "");
+  if (process.platform === "win32" && /^\/[a-zA-Z]:/.test(rawPath)) {
+    rawPath = rawPath.slice(1);
+  }
+
+  const resolved = path.resolve(rawPath);
+  const homeDir = os.homedir();
+  const roots = allowedRoots && allowedRoots.length > 0
+    ? allowedRoots.map((r) => path.resolve(r))
+    : [
+        path.resolve(homeDir, ".gemini", "antigravity-cli", "brain"),
+        path.resolve(homeDir, ".gemini", "antigravity", "brain")
+      ];
+
+  const canonicalTarget = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  const isAllowed = roots.some((root) => {
+    const canonicalRoot = process.platform === "win32" ? root.toLowerCase() : root;
+    const prefix = canonicalRoot.endsWith(path.sep) ? canonicalRoot : canonicalRoot + path.sep;
+    return canonicalTarget === canonicalRoot || canonicalTarget.startsWith(prefix);
+  });
+
+  if (!isAllowed) return null;
+
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile()) return null;
+    const maxTailBytes = 8192;
+    const readLen = Math.min(stat.size, maxTailBytes);
+    const buffer = Buffer.alloc(readLen);
+    const fd = fs.openSync(resolved, "r");
+    try {
+      fs.readSync(fd, buffer, 0, readLen, Math.max(0, stat.size - readLen));
+    } finally {
+      fs.closeSync(fd);
+    }
+    return buffer.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export class TranscriptIngestionService {
   private telemetryService: TelemetryService;
   private mcpService: McpMonitorService;
@@ -74,13 +125,15 @@ export class TranscriptIngestionService {
   private sessionGeneration = 0;
   private projectRoot = process.cwd();
   private lastObservedRunId: string | null = null;
+  private allowedOutputRoots?: readonly string[] | undefined;
 
   constructor(
     telemetryService: TelemetryService,
     mcpService: McpMonitorService,
     loopServiceOrPath?: LoopStateService | string | null,
     customTranscriptPath?: string | null,
-    subagentService?: SubagentService | null
+    subagentService?: SubagentService | null,
+    allowedOutputRoots?: readonly string[]
   ) {
     this.telemetryService = telemetryService;
     this.mcpService = mcpService;
@@ -92,6 +145,7 @@ export class TranscriptIngestionService {
       this.customTranscriptPath = customTranscriptPath ?? null;
     }
     this.subagentService = subagentService ?? null;
+    this.allowedOutputRoots = allowedOutputRoots;
 
     if (this.loopService && typeof this.loopService.onRunReset === "function") {
       this.loopService.onRunReset(() => {
@@ -102,6 +156,10 @@ export class TranscriptIngestionService {
 
   setSubagentService(subagentService: SubagentService | null): void {
     this.subagentService = subagentService;
+  }
+
+  setAllowedOutputRoots(roots?: readonly string[]): void {
+    this.allowedOutputRoots = roots;
   }
 
   getSessionGeneration(): number {
@@ -216,7 +274,12 @@ export class TranscriptIngestionService {
     try {
       step = JSON.parse(trimmed);
     } catch {
-      const gptUsage = parseGptTokenUsageLine(trimmed);
+      let textToCheck = trimmed;
+      const tailContent = readAntigravityOutputTail(trimmed);
+      if (tailContent) {
+        textToCheck += "\n" + tailContent;
+      }
+      const gptUsage = parseGptTokenUsageLine(textToCheck);
       if (gptUsage) {
         const eventKey = "raw:" + trimmed;
         if (!this.seenGptEventKeys.has(eventKey)) {
@@ -359,7 +422,11 @@ export class TranscriptIngestionService {
     // 2. Process GPT Token Metrics (Layer 1 Assertion 4: dedupe usage)
     const content = typeof step.content === "string" ? step.content : "";
     const thinking = typeof step.thinking === "string" ? step.thinking : "";
-    const combinedText = content + "\n" + thinking;
+    let combinedText = content + "\n" + thinking;
+    const tailContent = readAntigravityOutputTail(content, this.allowedOutputRoots);
+    if (tailContent) {
+      combinedText += "\n" + tailContent;
+    }
 
     const gptUsage = parseGptTokenUsageLine(combinedText);
     if (gptUsage) {

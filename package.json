@@ -1,6 +1,6 @@
 {
   "name": "kins-multiagents-ui",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "description": "Desktop mission-control cockpit for autonomous AI pair programming",
   "productName": "Kin's Multi-Agents UI",
   "private": true,

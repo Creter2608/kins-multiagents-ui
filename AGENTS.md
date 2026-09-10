@@ -1,6 +1,6 @@
 # Autonomous Agent Operating Guidelines (AGENTS.md)
 
-This repository enforces an **Enterprise-Grade AI-Ready Standard (v2.0)** designed for deterministic, token-efficient, and security-hardened autonomous pair programming.
+This repository enforces an **Enterprise-Grade AI-Ready Standard (v3.0)** designed for deterministic, token-efficient, and security-hardened autonomous pair programming.
 
 ---
 

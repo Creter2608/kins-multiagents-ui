@@ -4,7 +4,7 @@
 > Repository: https://github.com/Creter2608/kins-multiagents-ui
 
 ## Architecture & Specifications
-- [docs/LOOP.md](docs/LOOP.md): Canonical Autonomous Loop v2.0 state machine (10 phases: INITIALIZE -> SPEC_GATE -> ISOLATE -> DETECT_STACKS -> PLAN -> EXECUTE -> VERIFY -> REALITY_CHECK -> RELEASE_GATE -> COMPLETE).
+- [docs/LOOP.md](docs/LOOP.md): Canonical Autonomous Loop v3.0 state machine (10 phases: INITIALIZE -> SPEC_GATE -> ISOLATE -> DETECT_STACKS -> PLAN -> EXECUTE -> VERIFY -> REALITY_CHECK -> RELEASE_GATE -> COMPLETE).
 - [AGENTS.md](AGENTS.md): Core agent operational guidelines, 2-Tier Multi-Agent pipeline, and Karpathy behavioral invariants.
 - [README.md](README.md): Repository overview, desktop cockpit architecture, getting started, and container commands.
 

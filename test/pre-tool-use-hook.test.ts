@@ -109,10 +109,12 @@ test("Golden Assertion 2: valid signed approval in EXECUTE -> allow", async () =
     const hookService = new PreToolUseHookService();
     const sidecarStatePath = path.join(sidecarDir, "state.json");
 
+    const hooksConfigPath = path.join(tmpDir, "hooks.json");
     const equipped = await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
-      userDataPath: userData
+      userDataPath: userData,
+      hooksConfigPath
     });
 
     const approval = createBlueprintApproval(

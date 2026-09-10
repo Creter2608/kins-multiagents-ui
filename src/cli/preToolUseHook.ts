@@ -6,6 +6,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import * as syncFs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { canonicalizePath, verifyBlueprintApproval } from "../main/services/blueprintApprovalAuthenticator.js";
@@ -40,8 +41,56 @@ export interface PreToolUseHookOutput {
 export type PreToolUseHookDecision = PreToolUseHookOutput;
 
 export interface PreToolUseHookOptions {
-  readonly registryPath?: string;
-  readonly authKeyPath?: string;
+  readonly registryPath?: string | undefined;
+  readonly authKeyPath?: string | undefined;
+  readonly userDataPath?: string | undefined;
+  readonly env?: NodeJS.ProcessEnv | undefined;
+}
+
+export function parseCliHookArgs(argv: string[]): PreToolUseHookOptions {
+  const options: { registryPath?: string | undefined; authKeyPath?: string | undefined; userDataPath?: string | undefined } = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg) continue;
+    if (arg === "--user-data" && i + 1 < argv.length) {
+      const next = argv[++i];
+      if (next) options.userDataPath = next;
+    } else if (arg.startsWith("--user-data=")) {
+      options.userDataPath = arg.slice("--user-data=".length);
+    } else if (arg === "--registry" && i + 1 < argv.length) {
+      const next = argv[++i];
+      if (next) options.registryPath = next;
+    } else if (arg.startsWith("--registry=")) {
+      options.registryPath = arg.slice("--registry=".length);
+    } else if (arg === "--auth-key" && i + 1 < argv.length) {
+      const next = argv[++i];
+      if (next) options.authKeyPath = next;
+    } else if (arg.startsWith("--auth-key=")) {
+      options.authKeyPath = arg.slice("--auth-key=".length);
+    }
+  }
+  return options;
+}
+
+export function resolveDefaultUserDataPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ANTIGRAVITY_HOOK_USER_DATA) {
+    return env.ANTIGRAVITY_HOOK_USER_DATA;
+  }
+  let cockpitPath: string | null = null;
+  if (process.platform === "win32" && env.APPDATA) {
+    cockpitPath = path.join(env.APPDATA, "kins-multiagents-ui");
+  } else if (process.platform === "darwin") {
+    cockpitPath = path.join(os.homedir(), "Library", "Application Support", "kins-multiagents-ui");
+  } else if (process.platform === "linux") {
+    const xdg = env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+    cockpitPath = path.join(xdg, "kins-multiagents-ui");
+  }
+
+  if (cockpitPath && syncFs.existsSync(cockpitPath)) {
+    return cockpitPath;
+  }
+
+  return path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
 }
 
 export function isMutationTool(name?: string): boolean {
@@ -81,18 +130,29 @@ export async function evaluatePreToolUseHook(
   // Determine paths and options
   let customRegistryPath: string | undefined;
   let customAuthKeyPath: string | undefined;
+  let customUserDataPath: string | undefined;
   let env: NodeJS.ProcessEnv = process.env;
 
   if (optionsOrEnv && typeof optionsOrEnv === "object") {
-    if ("registryPath" in optionsOrEnv || "authKeyPath" in optionsOrEnv) {
-      customRegistryPath = optionsOrEnv.registryPath;
-      customAuthKeyPath = optionsOrEnv.authKeyPath;
+    if (
+      "registryPath" in optionsOrEnv ||
+      "authKeyPath" in optionsOrEnv ||
+      "userDataPath" in optionsOrEnv ||
+      "env" in optionsOrEnv
+    ) {
+      const opts = optionsOrEnv as PreToolUseHookOptions;
+      customRegistryPath = opts.registryPath;
+      customAuthKeyPath = opts.authKeyPath;
+      customUserDataPath = opts.userDataPath;
+      if (opts.env) {
+        env = opts.env;
+      }
     } else {
       env = optionsOrEnv as NodeJS.ProcessEnv;
     }
   }
 
-  const userDataPath = env.ANTIGRAVITY_HOOK_USER_DATA ?? path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
+  const userDataPath = customUserDataPath ?? resolveDefaultUserDataPath(env);
   const registryPath = customRegistryPath ?? path.join(userDataPath, "hooks", "workspaces.json");
 
   let registry: { workspaces?: Record<string, WorkspaceRegistryEntry> } = {};
@@ -142,28 +202,20 @@ export async function evaluatePreToolUseHook(
     };
   }
 
-  // AUTH-001: Authenticate registry entry before reading sidecar state
-  if (matchedWorkspace.entryHmac) {
-    const isEntryValid = verifyRegistryEntryHmac(matchedWorkspace, signingKey);
-    if (!isEntryValid) {
-      return {
-        decision: "deny",
-        reason: "Hook denied: workspace registry entry HMAC signature verification failed (tampered registry entry)"
-      };
-    }
-  } else if (matchedWorkspace.modeHmac) {
-    const isModeValid = verifyModeHmac(
-      matchedWorkspace.mutationPolicyMode ?? "strict",
-      matchedWorkspace.canonicalWorkspacePath,
-      matchedWorkspace.modeHmac,
-      signingKey
-    );
-    if (!isModeValid) {
-      return {
-        decision: "deny",
-        reason: "Hook denied: mutation policy mode HMAC signature verification failed (tampered registry entry)"
-      };
-    }
+  // AUTH-001: Authenticate registry entry before reading sidecar state (Mandatory Full Entry HMAC)
+  if (!matchedWorkspace.entryHmac) {
+    return {
+      decision: "deny",
+      reason: "Hook denied: workspace registry entry has no entry HMAC signature (unsigned registry entry)"
+    };
+  }
+
+  const isEntryValid = verifyRegistryEntryHmac(matchedWorkspace, signingKey);
+  if (!isEntryValid) {
+    return {
+      decision: "deny",
+      reason: "Hook denied: workspace registry entry HMAC signature verification failed (tampered registry entry)"
+    };
   }
 
   let mode: WorkspaceMutationPolicyMode = "strict";
@@ -235,7 +287,7 @@ export async function evaluatePreToolUseHook(
   };
 }
 
-export async function runPreToolUseHookCli(): Promise<number> {
+export async function runPreToolUseHookCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   try {
     let inputStr = "";
     process.stdin.setEncoding("utf-8");
@@ -244,7 +296,8 @@ export async function runPreToolUseHookCli(): Promise<number> {
     }
 
     const inputJson = JSON.parse(inputStr);
-    const result = await evaluatePreToolUseHook(inputJson);
+    const cliOptions: PreToolUseHookOptions = { ...parseCliHookArgs(argv), env: process.env };
+    const result = await evaluatePreToolUseHook(inputJson, cliOptions);
     process.stdout.write(JSON.stringify(result) + "\n");
     return 0;
   } catch (err) {

@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.10.0](https://img.shields.io/badge/Release-v2.10.0-emerald.svg)](package.json)
-[![Tests: 372 passing](https://img.shields.io/badge/Tests-372%20passing-brightgreen.svg)](package.json)
+[![Release: v2.10.1](https://img.shields.io/badge/Release-v2.10.1-emerald.svg)](package.json)
+[![Tests: 386 passing](https://img.shields.io/badge/Tests-386%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -33,12 +33,19 @@ Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github
 - **Session vs. All-Time Scopes**: Toggle between current active session metrics and persistent all-time cumulative counters (`telemetry_alltime.json`). Includes an instant 1-click `Reset` button for session counters.
 - **Cost & Budget Circuit Breaker**: Real-time USD spend tracking against a hard configurable ceiling (`$0.50` default) alongside an autonomous token budget indicator that evaluates **strictly Layer 1 GPT tokens** against the 50k (warning) and 60k (exceeded) limits. Unbilled or flat-rate Layer 2 tokens (Gemini) are explicitly excluded from tripping this budget threshold.
 
-### 3. Canonical Autonomous Loop & Fail-Closed Hard Hooks ([docs/LOOP.md](docs/LOOP.md))
-Deterministic state machine enforcing 10 canonical phases:
+### 3. Canonical Autonomous Loop v3.0 & Fail-Closed Hard Hooks ([docs/LOOP.md](docs/LOOP.md))
+Deterministic 5-stage state machine enforcing 10 canonical phases:
 ```text
-INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN 
-       ➔ EXECUTE ➔ VERIFY ➔ REALITY_CHECK ➔ RELEASE_GATE ➔ COMPLETE
+INITIALIZE ➔ SPEC_GATE ➔ ISOLATE ➔ DETECT_STACKS ➔ PLAN (Stage 2 GPT Architect)
+       ➔ EXECUTE (Layer 2 Gemini) ➔ VERIFY (Local CPU $0) ➔ REALITY_CHECK (Stage 4 GPT Adversary) 
+       ➔ RELEASE_GATE (Human Sign-off) ➔ COMPLETE
 ```
+- **Bounded Large Output Tail Dereferencing (`TranscriptIngestionService`)**: Automatically detects when Antigravity CLI offloads large tool results (>20KB) to `steps/<id>/output.txt`. Performs bounded tail dereferencing (up to 8,192 bytes) under security-allowlisted roots (`~/.gemini/antigravity-cli/brain`) to accurately recover GPT token metrics and costs without memory exhaustion or path traversal vulnerabilities.
+- **Atomic Fail-Closed PLAN ➔ EXECUTE Handshake (`LoopCommandService`)**: Advances to `EXECUTE` only with an authenticated HMAC-SHA256 `blueprintApproval` signature over verified blueprint SHA-256 and canonical workspace path. Throws deterministic errors on missing keys or blueprints, preventing deadlock and fail-open executions.
+- **Mandatory Registry Entry HMAC Validation (`preToolUseHook.ts`)**: Cryptographically signs and validates `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion` before reading state files, neutralizing sidecar redirection attacks.
+- **Windows Node CJS CLI Normalization (PITFALL-024)**: Cleanses command invocation strings in `hooks.json` on Windows (forward slashes, omit redundant inner quotes), eliminating `MODULE_NOT_FOUND` process launch failures.
+- **Stage 4 Reality Check Context Pruning (PITFALL-025)**: Context payload pruning to unified diffs (`-U3`) and concise root error slices (`<=25` lines) keeps reasoning latency under 75-90s, completely preventing Antigravity CLI's 180s MCP timeout.
+- **Strict Type-Safety & Zero Any Casts**: Eliminates unsafe type suppressions in state transitions, enforcing fully-typed `AuthenticatedBlueprintApproval` across contracts and state snapshots.
 - **Hybrid Mutation Policy & CLI PreToolUse Hard Hook (`src/cli/preToolUseHook.ts`)**: Real-time stdio JSON interceptor registered in Antigravity CLI's `hooks.json`. Supports a **Strict-by-Default** architecture with a **Hardened Documentation Fast Path** (`WorkspaceMutationPolicyMode`): allows $0-token edits for safe documentation (`README.md`, `LICENSE*`, `docs/**/*.md|txt`), while strictly blocking any tampering with prompt governance files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `docs/LOOP.md`) and production code (`src/**`, `test/**`) without an HMAC-SHA-256 signed blueprint approval from Stage 2.
 - **Complete Canonical Registry HMAC Binding (`src/main/services/preToolUseHookService.ts`)**: Binds `canonicalWorkspacePath`, `sidecarStatePath`, `mutationPolicyMode`, and `schemaVersion` into `entryHmac`, verified before reading sidecar state to eliminate path-hijacking vulnerabilities.
 - **Automatic Multi-Project Lifecycle Wiring (`src/main/services/ProjectService.ts`)**: `initialize()` equips active workspace hooks automatically on Cockpit launch, while `switchProject()` executes transactional handoffs across client workspaces with zero foreign repo pollution.
@@ -173,7 +180,7 @@ kins-multiagents-ui/
 │   ├── shared/                # Shared contracts, phases, and interfaces
 │   └── engine.ts              # Canonical LoopEngine state machine
 ├── docs/
-│   └── LOOP.md                # Normative Autonomous Loop v2.0 specification
+│   └── LOOP.md                # Normative Autonomous Loop v3.0 specification
 ├── wiki/                      # Karpathy LLM-Wiki Knowledge Base
 │   ├── decisions/             # Architecture Decision Records (ADR-001, ADR-002, ADR-003)
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry

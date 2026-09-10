@@ -18,10 +18,12 @@ import type {
   ArchitecturalCompliance,
   AuditRecord,
   ResourceBudget,
-  ResourceUsage
+  ResourceUsage,
+  AuthenticatedBlueprintApproval
 } from "../../shared/contracts.js";
 import { DEFAULT_RESOURCE_BUDGET, EMPTY_RESOURCE_USAGE, type ArchitectureTaskType } from "../../engine.js";
 import { JsonFileLoopStateStore, LoopCommandService } from "../../loop/index.js";
+import { PreToolUseHookService } from "./preToolUseHookService.js";
 
 export function parseLoopStateJson(content: string): Partial<LoopStateSnapshot> {
   const parsed = JSON.parse(content);
@@ -154,6 +156,7 @@ export function evaluateRunResetTransition(
 
 export class LoopStateService {
   private projectRoot: string;
+  private userDataPath: string | undefined;
   private stateFilePath: string;
   private appRoot: string;
   private store: JsonFileLoopStateStore;
@@ -266,6 +269,12 @@ export class LoopStateService {
       const rawAudit = (parsed as Record<string, unknown>).audit as AuditRecord | undefined;
       const audit = rawAudit ?? this.lastValidSnapshot.audit;
 
+      const rawApproval = (parsed as Record<string, unknown>).blueprintApproval as AuthenticatedBlueprintApproval | undefined;
+      const blueprintApproval = rawApproval ?? this.lastValidSnapshot.blueprintApproval;
+
+      const rawGoldenSha = typeof (parsed as Record<string, unknown>).goldenSha256 === "string" ? String((parsed as Record<string, unknown>).goldenSha256) : undefined;
+      const goldenSha256 = rawGoldenSha ?? this.lastValidSnapshot.goldenSha256;
+
       const rawResourceBudget = (parsed as Record<string, unknown>).resourceBudget as ResourceBudget | undefined;
       const resourceBudget: ResourceBudget = rawResourceBudget
         ? { ...rawResourceBudget }
@@ -318,6 +327,8 @@ export class LoopStateService {
         testSummary,
         architecturalCompliance,
         audit,
+        blueprintApproval,
+        goldenSha256,
         lastError: parsed.lastError,
         syncError: undefined,
         lastUpdated: Date.now()
@@ -809,7 +820,13 @@ export class LoopStateService {
     }
 
     try {
-      const commandService = new LoopCommandService(this.store);
+      const commandService = new LoopCommandService(
+        this.store,
+        undefined,
+        undefined,
+        this.projectRoot,
+        this.userDataPath ? () => PreToolUseHookService.getOrCreateSigningKeySync(this.userDataPath!) : undefined
+      );
       await commandService.transition({
         runId: input.runId,
         expectedPhase: input.expectedPhase,
@@ -962,6 +979,10 @@ export class LoopStateService {
       const currentRetries = Number(stateData.usage?.retries) || current.usage.retries;
       const nextRetries = isRetry ? currentRetries + 1 : currentRetries;
 
+      const nextApproval = (to === "PLAN" || to === "INITIALIZE")
+        ? undefined
+        : (stateData.blueprintApproval ?? current.blueprintApproval);
+
       const updatedState = {
         schemaVersion: 1,
         runId: stateData.runId || current.runId,
@@ -975,7 +996,15 @@ export class LoopStateService {
         },
         history,
         testSummary: stateData.testSummary || current.testSummary,
-        architecturalCompliance: stateData.architecturalCompliance ?? current.architecturalCompliance
+        architecturalCompliance: stateData.architecturalCompliance ?? current.architecturalCompliance,
+        blueprint: stateData.blueprint ?? current.blueprint,
+        blueprintApproval: nextApproval,
+        goldenSha256: stateData.goldenSha256 ?? current.goldenSha256,
+        audit: stateData.audit ?? current.audit,
+        qualityGateBlock: stateData.qualityGateBlock ?? current.qualityGateBlock,
+        qualityGateDecisions: stateData.qualityGateDecisions ?? current.qualityGateDecisions,
+        resourceBudget: stateData.resourceBudget ?? current.resourceBudget,
+        resourceUsage: stateData.resourceUsage ?? current.resourceUsage
       };
 
       this.store.writeSync(updatedState);
@@ -1045,6 +1074,14 @@ export class LoopStateService {
       success: false,
       message: `Failed to step back to ${prevPhase}`
     };
+  }
+
+  setUserDataPath(userDataPath: string): void {
+    this.userDataPath = userDataPath;
+  }
+
+  getUserDataPath(): string | undefined {
+    return this.userDataPath;
   }
 
   getStateFilePath(): string {
