@@ -212,7 +212,7 @@ export const App: React.FC = () => {
   return (
     <div className="kins-cockpit h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden select-none">
       {/* Top Cockpit Bar */}
-      <header className="h-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between select-none shrink-0 font-sans">
+      <header className="relative z-30 h-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between select-none shrink-0 font-sans">
         <div className="flex items-center space-x-2.5">
           <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/40 motion-reduce:animate-none" />
           <span className="font-bold text-sm tracking-wide text-zinc-100">

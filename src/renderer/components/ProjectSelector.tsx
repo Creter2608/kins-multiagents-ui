@@ -171,7 +171,7 @@ export const ProjectSelector: React.FC = () => {
   const current = projectState?.currentProject;
 
   return (
-    <div className="relative ml-2" ref={containerRef}>
+    <div className="relative z-50 ml-2" ref={containerRef}>
       {/* Trigger Button */}
       <button
         type="button"

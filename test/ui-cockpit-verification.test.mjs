@@ -94,3 +94,19 @@ test("UI Invariant 5: Numbers and technical metrics use tabular-nums with monosp
   const evalBoard = fs.readFileSync(path.join(componentsDir, "EvalScoreboard.tsx"), "utf8");
   assert.ok(evalBoard.includes("tabular-nums"), "EvalScoreboard must format metrics with tabular-nums");
 });
+
+test("UI Invariant 6: Header and ProjectSelector establish elevated stacking context above TerminalStage", () => {
+  const appContent = fs.readFileSync(path.join(rendererDir, "App.tsx"), "utf8");
+  assert.match(
+    appContent,
+    /<header[^>]*className="[^"]*relative[^"]*z-(?:30|40|50)[^"]*"/,
+    "App.tsx header must establish an elevated relative z-index stacking context"
+  );
+
+  const projectSelectorContent = fs.readFileSync(path.join(componentsDir, "ProjectSelector.tsx"), "utf8");
+  assert.match(
+    projectSelectorContent,
+    /className="[^"]*relative[^"]*z-50[^"]*"/,
+    "ProjectSelector.tsx container must establish z-50 stacking context for its dropdown menu"
+  );
+});
