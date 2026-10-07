@@ -12,12 +12,14 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import type {
   StealthRuleTarget,
+  StealthEquipOptions,
   StealthEquipResult,
   StealthUnequipResult,
   WorkspaceStealthStatus,
   WorkspaceContext
 } from "../../shared/contracts.js";
 import { RuleBundleCompilerService } from "./ruleBundleCompilerService.js";
+import type { PreToolUseHookService } from "./preToolUseHookService.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,13 +38,43 @@ interface StealthManifest {
   readonly files: readonly StealthManifestFile[];
   readonly excludePath: string;
   readonly excludeEntries: readonly string[];
+  readonly includeDesignPack?: boolean;
 }
 
 export class WorkspaceStealthRuleService {
+  private static readonly workspaceLocks = new Map<string, Promise<unknown>>();
   private readonly compiler: RuleBundleCompilerService;
+  private readonly hookService: PreToolUseHookService | undefined;
 
-  constructor(compiler: RuleBundleCompilerService = new RuleBundleCompilerService()) {
+  constructor(
+    compiler: RuleBundleCompilerService = new RuleBundleCompilerService(),
+    hookService?: PreToolUseHookService | undefined
+  ) {
     this.compiler = compiler;
+    this.hookService = hookService;
+  }
+
+  private async runSerialized<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
+    const previousLock = WorkspaceStealthRuleService.workspaceLocks.get(workspaceId) ?? Promise.resolve();
+    let releaseLock: () => void = () => {};
+    const nextLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    WorkspaceStealthRuleService.workspaceLocks.set(
+      workspaceId,
+      previousLock.then(() => nextLock, () => nextLock)
+    );
+
+    try {
+      await previousLock;
+      return await operation();
+    } finally {
+      releaseLock();
+      if (WorkspaceStealthRuleService.workspaceLocks.get(workspaceId) === nextLock) {
+        WorkspaceStealthRuleService.workspaceLocks.delete(workspaceId);
+      }
+    }
   }
 
   private sha256(content: string): string {
@@ -94,182 +126,197 @@ export class WorkspaceStealthRuleService {
 
   async equip(
     context: WorkspaceContext,
-    options?: { targets?: readonly StealthRuleTarget[] }
+    options?: StealthEquipOptions
   ): Promise<StealthEquipResult> {
-    const targets: readonly StealthRuleTarget[] = options?.targets ?? ["agents", "claude"];
-    const workspaceRoot = context.root;
-    const excludePath = await this.resolveGitExcludePath(workspaceRoot);
+    return this.runSerialized(context.id, async () => {
+      const targets: readonly StealthRuleTarget[] = options?.targets ?? ["agents", "claude"];
+      const includeDesignPack = Boolean(options?.includeDesignPack);
+      const workspaceRoot = context.root;
+      const excludePath = await this.resolveGitExcludePath(workspaceRoot);
 
-    const manifest = this.readManifest(context.sidecarDirectory);
-    const existingManifestPaths = new Set(manifest?.files.map((f) => path.resolve(f.path)) ?? []);
+      const manifest = this.readManifest(context.sidecarDirectory);
+      const existingManifestPaths = new Set(manifest?.files.map((f) => path.resolve(f.path)) ?? []);
 
-    // 1. Preflight destination check
-    const plannedFiles: Array<{ target: StealthRuleTarget; filePath: string; content: string }> = [];
-    const bundle = this.compiler.compileUniversalRules();
+      // 1. Preflight destination check
+      const plannedFiles: Array<{ target: StealthRuleTarget; filePath: string; content: string }> = [];
+      const bundle = this.compiler.compileUniversalRules({ includeDesignPack });
 
-    for (const target of targets) {
-      const fileName = target === "agents" ? "AGENTS.md" : "CLAUDE.md";
-      const filePath = path.join(workspaceRoot, fileName);
-      const content = target === "agents" ? bundle.agentsMarkdown : bundle.claudeMarkdown;
+      for (const target of targets) {
+        const fileName = target === "agents" ? "AGENTS.md" : "CLAUDE.md";
+        const filePath = path.join(workspaceRoot, fileName);
+        const content = target === "agents" ? bundle.agentsMarkdown : bundle.claudeMarkdown;
 
-      if (fs.existsSync(filePath) && !existingManifestPaths.has(path.resolve(filePath))) {
-        throw new Error(
-          `Cannot equip stealth rules: Destination file "${fileName}" already exists and was not created by Kin.`
-        );
-      }
-
-      plannedFiles.push({ target, filePath, content });
-    }
-
-    // 2. Prepare exclude entries
-    const excludeEntries = plannedFiles.map((f) => `/${path.basename(f.filePath)}`);
-    const excludeDir = path.dirname(excludePath);
-    if (!fs.existsSync(excludeDir)) {
-      fs.mkdirSync(excludeDir, { recursive: true });
-    }
-
-    const previousExcludeContent = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
-    const createdFiles: string[] = [];
-
-    try {
-      // 3. Update exclude file FIRST to ensure files are never untracked even for a millisecond
-      const markedExclude = [
-        EXCLUDE_MARKER_BEGIN,
-        ...excludeEntries,
-        EXCLUDE_MARKER_END
-      ].join("\n");
-
-      let nextExcludeContent = previousExcludeContent;
-      const beginIdx = nextExcludeContent.indexOf(EXCLUDE_MARKER_BEGIN);
-      const endIdx = nextExcludeContent.indexOf(EXCLUDE_MARKER_END);
-
-      if (beginIdx !== -1 && endIdx !== -1 && endIdx >= beginIdx) {
-        const before = nextExcludeContent.slice(0, beginIdx).trimEnd();
-        const after = nextExcludeContent.slice(endIdx + EXCLUDE_MARKER_END.length).trimStart();
-        nextExcludeContent = [before, markedExclude, after].filter(Boolean).join("\n\n") + "\n";
-      } else {
-        nextExcludeContent = nextExcludeContent.trim().length === 0
-          ? markedExclude + "\n"
-          : `${nextExcludeContent.trimEnd()}\n\n${markedExclude}\n`;
-      }
-
-      fs.writeFileSync(excludePath, nextExcludeContent, "utf-8");
-
-      // 4. Write rule files
-      const manifestFiles: StealthManifestFile[] = [];
-      for (const item of plannedFiles) {
-        fs.writeFileSync(item.filePath, item.content, "utf-8");
-        createdFiles.push(item.filePath);
-        manifestFiles.push({
-          target: item.target,
-          path: item.filePath,
-          sha256: this.sha256(item.content)
-        });
-      }
-
-      // 5. Verify ignore with git check-ignore
-      let excluded = true;
-      try {
-        const fileNames = plannedFiles.map((f) => path.basename(f.filePath));
-        await execFileAsync("git", ["-C", workspaceRoot, "check-ignore", ...fileNames], { windowsHide: true });
-      } catch {
-        excluded = false;
-      }
-
-      // 6. Record manifest
-      const newManifest: StealthManifest = {
-        version: 1,
-        workspaceId: context.id,
-        files: manifestFiles,
-        excludePath,
-        excludeEntries
-      };
-      this.writeManifest(context.sidecarDirectory, newManifest);
-
-      return {
-        success: true,
-        filesCreated: Object.freeze(createdFiles),
-        excluded
-      };
-    } catch (err) {
-      // Rollback on failure
-      for (const f of createdFiles) {
-        try {
-          if (fs.existsSync(f)) fs.unlinkSync(f);
-        } catch {}
-      }
-      try {
-        if (fs.existsSync(excludePath)) {
-          fs.writeFileSync(excludePath, previousExcludeContent, "utf-8");
+        if (fs.existsSync(filePath) && !existingManifestPaths.has(path.resolve(filePath))) {
+          throw new Error(
+            `Cannot equip stealth rules: Destination file "${fileName}" already exists and was not created by Kin.`
+          );
         }
-      } catch {}
-      throw err;
-    }
+
+        plannedFiles.push({ target, filePath, content });
+      }
+
+      // 2. Prepare exclude entries
+      const excludeEntries = plannedFiles.map((f) => `/${path.basename(f.filePath)}`);
+      const excludeDir = path.dirname(excludePath);
+      if (!fs.existsSync(excludeDir)) {
+        fs.mkdirSync(excludeDir, { recursive: true });
+      }
+
+      const previousExcludeContent = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
+      const createdFiles: string[] = [];
+
+      try {
+        // 3. Update exclude file FIRST to ensure files are never untracked
+        const markedExclude = [
+          EXCLUDE_MARKER_BEGIN,
+          ...excludeEntries,
+          EXCLUDE_MARKER_END
+        ].join("\n");
+
+        let nextExcludeContent = previousExcludeContent;
+        const beginIdx = nextExcludeContent.indexOf(EXCLUDE_MARKER_BEGIN);
+        const endIdx = nextExcludeContent.indexOf(EXCLUDE_MARKER_END);
+
+        if (beginIdx !== -1 && endIdx !== -1 && endIdx >= beginIdx) {
+          const before = nextExcludeContent.slice(0, beginIdx).trimEnd();
+          const after = nextExcludeContent.slice(endIdx + EXCLUDE_MARKER_END.length).trimStart();
+          nextExcludeContent = [before, markedExclude, after].filter(Boolean).join("\n\n") + "\n";
+        } else {
+          nextExcludeContent = nextExcludeContent.trim().length === 0
+            ? markedExclude + "\n"
+            : `${nextExcludeContent.trimEnd()}\n\n${markedExclude}\n`;
+        }
+
+        fs.writeFileSync(excludePath, nextExcludeContent, "utf-8");
+
+        // 4. Write rule files
+        const manifestFiles: StealthManifestFile[] = [];
+        for (const item of plannedFiles) {
+          fs.writeFileSync(item.filePath, item.content, "utf-8");
+          createdFiles.push(item.filePath);
+          manifestFiles.push({
+            target: item.target,
+            path: item.filePath,
+            sha256: this.sha256(item.content)
+          });
+        }
+
+        // 5. Verify ignore with git check-ignore
+        let excluded = true;
+        try {
+          const fileNames = plannedFiles.map((f) => path.basename(f.filePath));
+          await execFileAsync("git", ["-C", workspaceRoot, "check-ignore", ...fileNames], { windowsHide: true });
+        } catch {
+          excluded = false;
+        }
+
+        // 6. Record manifest
+        const newManifest: StealthManifest = {
+          version: 1,
+          workspaceId: context.id,
+          files: manifestFiles,
+          excludePath,
+          excludeEntries,
+          includeDesignPack
+        };
+        this.writeManifest(context.sidecarDirectory, newManifest);
+
+        // 7. Register with PreToolUseHookService for host runtime enforcement
+        const manifestPath = this.getManifestPath(context.sidecarDirectory);
+        this.hookService?.registerActiveStealthRules(context.id, {
+          workspaceId: context.id,
+          policyRevision: `rev-${Date.now().toString(36)}`,
+          protectedPaths: Object.freeze([...createdFiles, manifestPath]),
+          verificationCommandIds: Object.freeze(["npm test", "npm run typecheck"]),
+          includeDesignPack
+        });
+
+        return {
+          success: true,
+          filesCreated: Object.freeze(createdFiles),
+          excluded
+        };
+      } catch (err) {
+        // Rollback on failure
+        for (const f of createdFiles) {
+          try {
+            if (fs.existsSync(f)) fs.unlinkSync(f);
+          } catch {}
+        }
+        try {
+          if (fs.existsSync(excludePath)) {
+            fs.writeFileSync(excludePath, previousExcludeContent, "utf-8");
+          }
+        } catch {}
+        throw err;
+      }
+    });
   }
 
   async unequip(context: WorkspaceContext): Promise<StealthUnequipResult> {
-    const manifest = this.readManifest(context.sidecarDirectory);
-    if (!manifest) {
-      return { success: true, filesRemoved: Object.freeze([]) };
-    }
+    return this.runSerialized(context.id, async () => {
+      const manifest = this.readManifest(context.sidecarDirectory);
+      if (!manifest) {
+        return { success: true, filesRemoved: Object.freeze([]) };
+      }
 
-    const filesRemoved: string[] = [];
+      const filesRemoved: string[] = [];
 
-    // 1. Check each file: if hash matches, delete; if modified, preserve
-    for (const fileRecord of manifest.files) {
-      if (fs.existsSync(fileRecord.path)) {
-        try {
-          const currentContent = fs.readFileSync(fileRecord.path, "utf-8");
-          const currentHash = this.sha256(currentContent);
-          if (currentHash === fileRecord.sha256) {
-            fs.unlinkSync(fileRecord.path);
-            filesRemoved.push(fileRecord.path);
-          } else {
-            console.warn(
-              `[WorkspaceStealthRuleService] Preserving modified file: ${fileRecord.path}`
-            );
+      // 1. Check each file: if hash matches, delete; if modified, preserve
+      for (const fileRecord of manifest.files) {
+        if (fs.existsSync(fileRecord.path)) {
+          try {
+            const currentContent = fs.readFileSync(fileRecord.path, "utf-8");
+            const currentHash = this.sha256(currentContent);
+            if (currentHash === fileRecord.sha256) {
+              fs.unlinkSync(fileRecord.path);
+              filesRemoved.push(fileRecord.path);
+            }
+          } catch {
+            // Silently ignore removal check error
           }
-        } catch (err) {
-          console.warn(`[WorkspaceStealthRuleService] Failed to check/remove ${fileRecord.path}:`, err);
         }
       }
-    }
 
-    // 2. Remove Kin's exclude block
-    if (fs.existsSync(manifest.excludePath)) {
-      try {
-        const content = fs.readFileSync(manifest.excludePath, "utf-8");
-        const beginIdx = content.indexOf(EXCLUDE_MARKER_BEGIN);
-        const endIdx = content.indexOf(EXCLUDE_MARKER_END);
-        if (beginIdx !== -1 && endIdx !== -1 && endIdx >= beginIdx) {
-          const before = content.slice(0, beginIdx).trimEnd();
-          const after = content.slice(endIdx + EXCLUDE_MARKER_END.length).trimStart();
-          const next = [before, after].filter(Boolean).join("\n\n");
-          fs.writeFileSync(manifest.excludePath, next ? next + "\n" : "", "utf-8");
+      // 2. Remove Kin's exclude block
+      if (fs.existsSync(manifest.excludePath)) {
+        try {
+          const content = fs.readFileSync(manifest.excludePath, "utf-8");
+          const beginIdx = content.indexOf(EXCLUDE_MARKER_BEGIN);
+          const endIdx = content.indexOf(EXCLUDE_MARKER_END);
+          if (beginIdx !== -1 && endIdx !== -1 && endIdx >= beginIdx) {
+            const before = content.slice(0, beginIdx).trimEnd();
+            const after = content.slice(endIdx + EXCLUDE_MARKER_END.length).trimStart();
+            const next = [before, after].filter(Boolean).join("\n\n");
+            fs.writeFileSync(manifest.excludePath, next ? next + "\n" : "", "utf-8");
+          }
+        } catch {
+          // Silently ignore clean exclude error
         }
-      } catch (err) {
-        console.warn(`[WorkspaceStealthRuleService] Failed to clean exclude file:`, err);
       }
-    }
 
-    // 3. Remove manifest
-    const manifestPath = this.getManifestPath(context.sidecarDirectory);
-    if (fs.existsSync(manifestPath)) {
-      try {
-        fs.unlinkSync(manifestPath);
-      } catch {}
-    }
+      // Remove manifest
+      const manifestPath = this.getManifestPath(context.sidecarDirectory);
+      if (fs.existsSync(manifestPath)) {
+        try {
+          fs.unlinkSync(manifestPath);
+        } catch {}
+      }
 
-    return {
-      success: true,
-      filesRemoved: Object.freeze(filesRemoved)
-    };
+      // Unregister from PreToolUseHookService
+      this.hookService?.unregisterActiveStealthRules(context.id);
+
+      return {
+        success: true,
+        filesRemoved: Object.freeze(filesRemoved)
+      };
+    });
   }
 
   async getStatus(context: WorkspaceContext): Promise<WorkspaceStealthStatus> {
     const manifest = this.readManifest(context.sidecarDirectory);
     if (!manifest || manifest.files.length === 0) {
-      return { equipped: false, excluded: false, files: Object.freeze([]) };
+      return { equipped: false, excluded: false, files: Object.freeze([]), includeDesignPack: false };
     }
 
     const files = manifest.files.map((f) => f.path);
@@ -289,7 +336,8 @@ export class WorkspaceStealthRuleService {
     return {
       equipped: allFilesExist,
       excluded,
-      files: Object.freeze(files)
+      files: Object.freeze(files),
+      includeDesignPack: manifest.includeDesignPack ?? false
     };
   }
 }

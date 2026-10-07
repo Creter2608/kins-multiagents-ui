@@ -151,17 +151,19 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
   };
 
   return (
-    <footer className="h-10 bg-[#0c0c0c] border-t border-[#1f1f1f] px-4 flex items-center justify-between text-xs font-mono select-none text-zinc-300">
+    <footer className="h-10 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 px-4 flex items-center justify-between text-xs font-sans select-none text-zinc-300">
       {/* Left: Scope Toggle, Reset & Provider In/Out Breakdown */}
       <div className="flex items-center space-x-5">
         {/* Scope Selector: Session vs All-Time */}
-        <div className="flex items-center bg-[#141414] border border-[#27272a] rounded p-0.5 text-[11px]">
+        <div className="flex items-center bg-zinc-800/80 border border-zinc-700/60 rounded-md p-0.5 text-[11px]" role="tablist" aria-label="Telemetry time scope">
           <button
             type="button"
+            role="tab"
+            aria-selected={scope === "session"}
             onClick={() => setScope("session")}
-            className={`px-2 py-0.5 rounded transition-colors ${
+            className={`px-2.5 py-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
               scope === "session"
-                ? "bg-[#27272a] text-zinc-100 font-semibold shadow-sm"
+                ? "bg-zinc-700 text-zinc-100 font-semibold shadow-xs"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
             title="Show metrics accumulated for current session"
@@ -170,10 +172,12 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={scope === "allTime"}
             onClick={() => setScope("allTime")}
-            className={`px-2 py-0.5 rounded transition-colors ${
+            className={`px-2.5 py-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
               scope === "allTime"
-                ? "bg-[#27272a] text-zinc-100 font-semibold shadow-sm"
+                ? "bg-zinc-700 text-zinc-100 font-semibold shadow-xs"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
             title="Show cumulative all-time metrics"
@@ -188,17 +192,19 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
             type="button"
             onClick={handleResetSession}
             disabled={isResetting}
-            className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+            aria-label="Reset session telemetry"
+            className="flex items-center space-x-1 text-[11px] font-sans text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/70 px-2 py-0.5 rounded-md transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer min-h-[26px]"
             title="Reset current session tokens to 0 (retains All-Time totals)"
           >
-            <RotateCcw className={`w-3 h-3 ${isResetting ? "animate-spin" : ""}`} />
+            <RotateCcw className={`w-3 h-3 ${isResetting ? "animate-spin motion-reduce:animate-none" : ""}`} />
             <span>Reset</span>
           </button>
 
           <button
             type="button"
             onClick={handleExportDiagnostics}
-            className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#141414] hover:bg-[#1f1f1f] border border-[#27272a] px-2 py-0.5 rounded transition-colors"
+            aria-label="Export diagnostic JSON snapshot"
+            className="flex items-center space-x-1 text-[11px] font-sans text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/70 px-2 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer min-h-[26px]"
             title="Export diagnostics JSON snapshot"
           >
             <Download className="w-3 h-3" />
@@ -209,11 +215,11 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
         {/* GPT Telemetry */}
         <div className="flex items-center space-x-2">
           <Cpu className="w-3.5 h-3.5 text-zinc-400" />
-          <span className="text-zinc-400 font-medium">GPT:</span>
-          <span className="text-zinc-100 font-semibold">
+          <span className="text-zinc-400 font-medium font-sans">GPT:</span>
+          <span className="text-zinc-100 font-semibold font-mono tabular-nums">
             {formatTokens(metrics.gpt.inputTokens)} in / {formatTokens(metrics.gpt.outputTokens)} out
           </span>
-          <span className="text-[11px] text-zinc-400 bg-[#141414] px-1.5 py-0.5 rounded border border-[#27272a]">
+          <span className="text-[11px] text-zinc-300 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 font-mono">
             Cache: {cacheHitPct !== null ? `${cacheHitPct}%` : "N/A"}
           </span>
         </div>
@@ -221,11 +227,11 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
         {/* Gemini Telemetry */}
         <div className="flex items-center space-x-2">
           <Zap className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-zinc-400 font-medium">Gemini:</span>
-          <span className="text-zinc-100 font-semibold">
+          <span className="text-zinc-400 font-medium font-sans">Gemini:</span>
+          <span className="text-zinc-100 font-semibold font-mono tabular-nums">
             {formatTokens(metrics.gemini.inputTokens)} in / {formatTokens(metrics.gemini.outputTokens)} out
           </span>
-          <span className="text-[11px] text-emerald-400/90 bg-[#141414] px-1.5 py-0.5 rounded border border-[#27272a]">
+          <span className="text-[11px] text-emerald-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 font-mono">
             {telemetry.geminiCacheStatus === "Active" ? "Pro" : telemetry.geminiCacheStatus}
           </span>
         </div>
@@ -236,47 +242,47 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
         {/* Cost vs Budget */}
         <div className="flex items-center space-x-1.5">
           <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-zinc-400 font-medium">Cost:</span>
+          <span className="text-zinc-400 font-medium font-sans">Cost:</span>
           <span
-            className={`font-semibold text-xs ${
+            className={`font-semibold text-xs font-mono tabular-nums ${
               isOverBudget ? "text-rose-400 font-bold" : "text-emerald-400"
             }`}
           >
             ${metrics.estimatedCostUsd.toFixed(4)}
           </span>
-          <span className="text-zinc-500 text-[11px]">
+          <span className="text-zinc-400 text-[11px] font-mono tabular-nums">
             / ${telemetry.budgetLimitUsd.toFixed(2)}
           </span>
         </div>
 
         {/* Telemetry Budget Ceiling Warning */}
         <div
-          className={`flex items-center space-x-1.5 px-2 py-0.5 rounded border text-[11px] font-mono ${
+          className={`flex items-center space-x-1.5 px-2 py-0.5 rounded-md border text-[11px] font-mono ${
             isCeilingExceeded
-              ? "bg-rose-950/40 text-rose-300 border-rose-800/60 font-bold animate-pulse"
+              ? "bg-rose-950/50 text-rose-300 border-rose-800/80 font-bold animate-pulse motion-reduce:animate-none"
               : isApproachingCeiling
-              ? "bg-amber-950/30 text-amber-300 border-amber-800/50 font-semibold"
-              : "bg-[#141414] text-zinc-400 border-[#27272a]"
+              ? "bg-amber-950/40 text-amber-300 border-amber-800/60 font-semibold"
+              : "bg-zinc-800 text-zinc-300 border-zinc-700"
           }`}
           title={`Canonical hard execution limits: $0.50 USD and 60k tokens (Layer 1 GPT only: ${formatTokens(gptTotalTokens)} / 60k)`}
         >
-          <span className="text-zinc-500 font-medium">Ceiling:</span>
-          <span className="text-zinc-300 font-semibold">$0.50</span>
-          <span className="text-zinc-600">/</span>
-          <span className="text-zinc-300 font-semibold">60k tokens</span>
+          <span className="text-zinc-400 font-medium font-sans">Ceiling:</span>
+          <span className="text-zinc-200 font-semibold">$0.50</span>
+          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-200 font-semibold">60k tokens</span>
         </div>
 
         {/* Docker Sandbox Status */}
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1.5 font-sans">
           <Box className="w-3.5 h-3.5 text-zinc-400" />
           <span className="text-zinc-400 font-medium">Sandbox:</span>
           <span
             className={`text-[11px] px-1.5 py-0.5 rounded font-mono font-medium uppercase border ${
               telemetry.dockerStatus === "Active"
-                ? "bg-emerald-950/20 text-emerald-400 border-emerald-800/40"
+                ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/60"
                 : telemetry.dockerStatus === "Stopped"
-                ? "bg-amber-950/20 text-amber-400 border-amber-800/40"
-                : "bg-zinc-900 text-zinc-400 border-zinc-800"
+                ? "bg-amber-950/40 text-amber-400 border-amber-800/60"
+                : "bg-zinc-800 text-zinc-300 border-zinc-700"
             }`}
           >
             {telemetry.dockerStatus}

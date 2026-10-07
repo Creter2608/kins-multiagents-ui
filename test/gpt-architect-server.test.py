@@ -11,8 +11,9 @@ import server
 
 class TestGptArchitectServer(unittest.TestCase):
     def test_is_reasoning_model(self):
-        self.assertTrue(server.is_reasoning_model("gpt-5"))
-        self.assertTrue(server.is_reasoning_model("gpt-5.6-sol"))
+        self.assertTrue(server.is_reasoning_model("gpt-6"))
+        self.assertTrue(server.is_reasoning_model("gpt-6.1-sol"))
+        self.assertEqual(server.MODEL, "gpt-6.1-sol")
         self.assertTrue(server.is_reasoning_model("o1"))
         self.assertTrue(server.is_reasoning_model("o1-preview"))
         self.assertTrue(server.is_reasoning_model("o3-mini"))

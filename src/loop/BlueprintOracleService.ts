@@ -5,6 +5,11 @@ import { sha256Bytes, type Sha256Hex } from "../checksum.js";
 import type { LoopState, BlueprintRecord } from "../engine.js";
 import type { LoopStateStore } from "./LoopStateStore.js";
 import { parseBlueprintGoldenAssertions, canonicalizeGoldenAssertions } from "./BlueprintArtifactVerifier.js";
+import {
+  bindEnforcedPhaseTemplate,
+  type CompiledPhaseTemplate
+} from "../shared/phaseTemplateBinding.js";
+import { RuleBundleCompilerService } from "../main/services/ruleBundleCompilerService.js";
 
 export interface BlueprintOracleResult {
   readonly markdown: string;
@@ -20,11 +25,18 @@ export interface BlueprintOracleClient {
 }
 
 export class BlueprintOracleService {
+  private readonly planTemplate: CompiledPhaseTemplate;
+
   constructor(
     private readonly store: LoopStateStore,
     private readonly client: BlueprintOracleClient,
-    private readonly workspaceRoot: string = process.cwd()
-  ) {}
+    private readonly workspaceRoot: string = process.cwd(),
+    planTemplate?: CompiledPhaseTemplate
+  ) {
+    this.planTemplate =
+      planTemplate ??
+      new RuleBundleCompilerService().compilePhaseTemplates()["PLAN"];
+  }
 
   async invokeOnce(runId: string, context: string): Promise<LoopState> {
     const deterministicKey = sha256Bytes(Buffer.from(`${runId}:PLAN_ORACLE:v1`, "utf-8"));
@@ -71,10 +83,13 @@ export class BlueprintOracleService {
       };
     });
 
-    // Step 2: Call trusted oracle client
+    // Step 2: Call trusted oracle client with enforced PLAN template binding
+    const boundTemplate = bindEnforcedPhaseTemplate("PLAN", this.planTemplate);
+    const promptWithTemplate = `${boundTemplate}\n\n${context}`;
+
     let result: BlueprintOracleResult;
     try {
-      result = await this.client.craftTechnicalPrompt(deterministicKey, context);
+      result = await this.client.craftTechnicalPrompt(deterministicKey, promptWithTemplate);
     } catch (err: unknown) {
       // Record failure durably
       await this.store.update((current) => {

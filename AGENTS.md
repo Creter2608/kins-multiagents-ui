@@ -13,10 +13,10 @@ This repository enforces an **Enterprise-Grade AI-Ready Standard (v3.0)** design
 
 ---
 
-## 🔁 Mandatory Autonomous Loop v2.0
+## 🔁 Mandatory Autonomous Loop v3.0
 
 All autonomous workflows, feature implementations, refactors, and bugfixes in this repository **MUST** strictly adhere to the normative specification:
-👉 **[Autonomous Loop Specification v2.0 (docs/LOOP.md)](docs/LOOP.md)**
+👉 **[Autonomous Loop Specification v3.0 (docs/LOOP.md)](docs/LOOP.md)**
 
 ```text
 INITIALIZE ➔ SPEC_GATE ➔ ISOLATE (Git Worktree) ➔ DETECT_STACKS ➔ PLAN (Stage 2 GPT Architect) 

@@ -356,18 +356,28 @@ test("cockpit: duplicate step.tool_calls call_mcp_tool -> one deduplicated MCP r
   assert.equal(mcpSnap2.recentCalls.length, 1, "Duplicate tool calls must be deduplicated");
 });
 
-// Layer 1 Assertion 1: {"in":"GPT 1M in, 250k cached, 100k out","out":"$5.10"}
-test("cockpit: GPT 1M in, 250k cached, 100k out -> $5.10", () => {
+// Layer 1 Assertion 1: {"in":"GPT 1M in, 250k cached, 100k out","out":"$2.525"}
+test("cockpit: GPT 1M in, 250k cached, 100k out -> $2.525", () => {
   const cost = calculateEstimatedCostUsd(1_000_000, 100_000, 250_000);
-  assert.equal(cost, 5.1);
+  assert.equal(cost, 2.525);
 });
 
 // Layer 1 Assertion 2: {"in":"cached=200,input=100","out":"cached clamped to 100"}
 test("cockpit: cached=200, input=100 -> cached clamped to 100", () => {
   // Input 100, cached 200 (clamped to 100), uncached 0, completion 50
-  // cost: 0 * 0.000004 + 100 * 0.0000004 + 50 * 0.00002 = 0.00004 + 0.001 = 0.00104 -> 0.001
+  // cost: 0 * 0.000002 + 100 * 0.0000001 + 50 * 0.00001 = 0.00001 + 0.0005 = 0.00051 -> 0.0005
   const cost = calculateEstimatedCostUsd(100, 50, 200);
-  assert.equal(cost, 0.001);
+  assert.equal(cost, 0.0005);
+});
+
+// Layer 1 Golden Assertions: gpt-6.1-sol baseline rates
+test("cockpit: gpt-6.1-sol golden rate assertions", () => {
+  // 1M uncached, 0 cached, 0 output -> $2.00
+  assert.equal(calculateEstimatedCostUsd(1_000_000, 0, 0), 2.0);
+  // 1M total input, 1M cached, 0 output -> $0.10
+  assert.equal(calculateEstimatedCostUsd(1_000_000, 0, 1_000_000), 0.1);
+  // 2M input, 0.5M cached, 1M output -> $13.05
+  assert.equal(calculateEstimatedCostUsd(2_000_000, 1_000_000, 500_000), 13.05);
 });
 
 // Layer 1 Assertion 3: {"in":"Gemini 25k in/450 out","out":"$0; both counts shown"}

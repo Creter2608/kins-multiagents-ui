@@ -80,11 +80,11 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
       role="dialog"
       aria-modal="true"
       aria-labelledby="qg-dialog-title"
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-sans"
     >
-      <div className="bg-[#111114] border border-[#27272a] rounded-xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div className="flex items-center space-x-2.5 text-amber-400 font-bold text-base" id="qg-dialog-title">
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             <span>Quality Gate Decision Required</span>
@@ -94,40 +94,40 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
             disabled={isBusy}
             onClick={onClose}
             aria-label="Close quality gate modal"
-            className="text-zinc-400 hover:text-white p-1 rounded transition-colors disabled:opacity-50"
+            className="text-zinc-400 hover:text-white p-1 rounded-md hover:bg-zinc-800 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Quality Findings Summary */}
-        <div className="bg-[#18181b] border border-[#27272a] rounded-lg p-3 space-y-1.5 text-xs font-mono">
+        <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3.5 space-y-1.5 text-xs font-mono">
           <div className="flex justify-between items-center text-zinc-300">
-            <span className="text-zinc-500">Run ID:</span>
-            <span className="text-zinc-200">{loopState.runId}</span>
+            <span className="text-zinc-400">Run ID:</span>
+            <span className="text-zinc-100 font-semibold">{loopState.runId}</span>
           </div>
           <div className="flex justify-between items-center text-zinc-300">
-            <span className="text-zinc-500">Artifact Hash:</span>
-            <span className="text-zinc-400 font-mono text-[11px]" title={artifactHash}>
+            <span className="text-zinc-400">Artifact Hash:</span>
+            <span className="text-zinc-300 font-mono text-[11px]" title={artifactHash}>
               {artifactHash.slice(0, 16)}...
             </span>
           </div>
           <div className="flex justify-between items-center text-zinc-300">
-            <span className="text-zinc-500">Architectural AQI:</span>
+            <span className="text-zinc-400">Architectural AQI:</span>
             <span className={aqi >= minAqi ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
               {aqi.toFixed(1)} / {minAqi.toFixed(1)} ({aqi >= minAqi ? "PASS" : "FAIL"})
             </span>
           </div>
           <div className="flex justify-between items-center text-zinc-300">
-            <span className="text-zinc-500">Remediation Quota:</span>
-            <span className={canRemediate ? "text-cyan-400" : "text-zinc-500"}>
+            <span className="text-zinc-400">Remediation Quota:</span>
+            <span className={canRemediate ? "text-cyan-400 font-semibold" : "text-zinc-400"}>
               {currentRemediations} used / {maxRemediations} allowed
             </span>
           </div>
           {(findings.length > 0 || auditFindings.length > 0) && (
-            <div className="pt-2 border-t border-[#27272a]/60 space-y-1">
-              <span className="text-zinc-500 block text-[11px]">Findings Summary:</span>
-              <ul className="text-rose-300/90 text-[11px] list-disc list-inside space-y-0.5 max-h-20 overflow-y-auto">
+            <div className="pt-2 border-t border-zinc-800/80 space-y-1">
+              <span className="text-zinc-400 block text-[11px] font-sans">Findings Summary:</span>
+              <ul className="text-rose-300 text-[11px] list-disc list-inside space-y-0.5 max-h-20 overflow-y-auto custom-scrollbar font-mono">
                 {findings.slice(0, 3).map((f, i) => (
                   <li key={i} className="truncate">{f}</li>
                 ))}
@@ -141,7 +141,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
 
         {/* 3-Way Choice Radio Cards */}
         <div className="space-y-2">
-          <label className="text-zinc-400 text-xs font-semibold uppercase tracking-wider block">
+          <label className="text-zinc-300 text-xs font-semibold uppercase tracking-wider block">
             Select Disposition:
           </label>
           <div className="grid grid-cols-3 gap-2.5">
@@ -150,15 +150,15 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
               type="button"
               disabled={!canRemediate || isBusy}
               onClick={() => setSelectedAction("remediate")}
-              className={`p-3 rounded-lg border text-left transition-all ${
+              className={`p-3 rounded-lg border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 selectedAction === "remediate"
-                  ? "border-cyan-500 bg-cyan-950/30 text-white"
+                  ? "border-cyan-500 bg-cyan-950/40 text-white shadow-xs"
                   : canRemediate
-                  ? "border-[#27272a] bg-[#141417] text-zinc-400 hover:border-zinc-700"
-                  : "border-[#27272a]/50 bg-[#141417]/40 text-zinc-600 cursor-not-allowed"
+                  ? "border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700"
+                  : "border-zinc-800/50 bg-zinc-900/40 text-zinc-500 cursor-not-allowed"
               }`}
             >
-              <div className="flex items-center space-x-1.5 font-bold text-xs mb-1">
+              <div className="flex items-center space-x-1.5 font-bold text-xs mb-1 text-cyan-300">
                 <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Loop Again</span>
               </div>
@@ -172,10 +172,10 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
               type="button"
               disabled={isBusy}
               onClick={() => setSelectedAction("override")}
-              className={`p-3 rounded-lg border text-left transition-all ${
+              className={`p-3 rounded-lg border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 selectedAction === "override"
-                  ? "border-amber-500 bg-amber-950/30 text-white"
-                  : "border-[#27272a] bg-[#141417] text-zinc-400 hover:border-zinc-700"
+                  ? "border-amber-500 bg-amber-950/40 text-white shadow-xs"
+                  : "border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700"
               }`}
             >
               <div className="flex items-center space-x-1.5 font-bold text-xs mb-1 text-amber-300">
@@ -183,7 +183,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
                 <span>Override Gate</span>
               </div>
               <p className="text-[10px] text-zinc-400 leading-snug">
-                Waive quality check & proceed to RELEASE_GATE.
+                Waive quality check &amp; proceed to RELEASE_GATE.
               </p>
             </button>
 
@@ -192,15 +192,15 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
               type="button"
               disabled={isBusy}
               onClick={() => setSelectedAction("reject")}
-              className={`p-3 rounded-lg border text-left transition-all ${
+              className={`p-3 rounded-lg border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 selectedAction === "reject"
-                  ? "border-rose-500 bg-rose-950/30 text-white"
-                  : "border-[#27272a] bg-[#141417] text-zinc-400 hover:border-zinc-700"
+                  ? "border-rose-500 bg-rose-950/40 text-white shadow-xs"
+                  : "border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700"
               }`}
             >
               <div className="flex items-center space-x-1.5 font-bold text-xs mb-1 text-rose-300">
                 <XCircle className="w-3.5 h-3.5 text-rose-400" />
-                <span>Reject & Revert</span>
+                <span>Reject &amp; Revert</span>
               </div>
               <p className="text-[10px] text-zinc-400 leading-snug">
                 Discard task changes, mark run as FAILED.
@@ -212,7 +212,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
         {/* Input Form Fields */}
         <div className="space-y-3">
           <div>
-            <label className="block text-zinc-400 text-xs font-medium mb-1">
+            <label className="block text-zinc-300 text-xs font-medium mb-1 font-sans">
               Operator Justification Reason <span className="text-rose-400">*</span>:
             </label>
             <input
@@ -221,13 +221,13 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. Hotfix approved / False-positive churn penalty / Architectural rework needed"
-              className="w-full bg-[#0c0c0e] border border-[#27272a] rounded px-3 py-1.5 text-zinc-200 text-xs focus:outline-none focus:border-cyan-500 font-mono disabled:opacity-50"
+              className="w-full bg-zinc-950 border border-zinc-700 rounded-md px-3 py-2 text-zinc-100 placeholder-zinc-500 text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400 font-mono disabled:opacity-50"
             />
           </div>
 
           {selectedAction === "remediate" && (
             <div>
-              <label className="block text-zinc-400 text-xs font-medium mb-1">
+              <label className="block text-zinc-300 text-xs font-medium mb-1 font-sans">
                 Remediation Guidance Feedback <span className="text-rose-400">*</span>:
               </label>
               <textarea
@@ -235,7 +235,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 placeholder="Specify exact AST findings or files to simplify/refactor..."
-                className="w-full h-14 bg-[#0c0c0e] border border-[#27272a] rounded p-2 text-zinc-200 text-xs focus:outline-none focus:border-cyan-500 resize-none font-mono disabled:opacity-50"
+                className="w-full h-16 bg-zinc-950 border border-zinc-700 rounded-md p-2.5 text-zinc-100 placeholder-zinc-500 text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400 resize-none font-mono disabled:opacity-50"
               />
             </div>
           )}
@@ -243,7 +243,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
           {selectedAction === "override" && (
             <div className="space-y-2">
               <div>
-                <label className="block text-zinc-400 text-xs font-medium mb-1">
+                <label className="block text-zinc-300 text-xs font-medium mb-1 font-sans">
                   Ticket / Incident Reference (Optional):
                 </label>
                 <input
@@ -252,16 +252,16 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
                   value={ticketReference}
                   onChange={(e) => setTicketReference(e.target.value)}
                   placeholder="e.g. INC-10492 / JIRA-881"
-                  className="w-full bg-[#0c0c0e] border border-[#27272a] rounded px-3 py-1.5 text-zinc-200 text-xs focus:outline-none focus:border-cyan-500 font-mono disabled:opacity-50"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-md px-3 py-2 text-zinc-100 placeholder-zinc-500 text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400 font-mono disabled:opacity-50"
                 />
               </div>
-              <label className="flex items-center space-x-2 text-xs text-amber-300/90 cursor-pointer pt-1">
+              <label className="flex items-center space-x-2 text-xs text-amber-300 cursor-pointer pt-1">
                 <input
                   type="checkbox"
                   disabled={isBusy}
                   checked={confirmOverride}
                   onChange={(e) => setConfirmOverride(e.target.checked)}
-                  className="rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-0"
+                  className="rounded border-zinc-700 bg-zinc-950 text-amber-500 focus:ring-2 focus:ring-zinc-400 focus:ring-offset-1 focus:ring-offset-zinc-900"
                 />
                 <span>I confirm this quality waiver will advance to RELEASE_GATE with an immutable audit record.</span>
               </label>
@@ -269,13 +269,13 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
           )}
 
           {selectedAction === "reject" && (
-            <label className="flex items-center space-x-2 text-xs text-rose-300/90 cursor-pointer pt-1">
+            <label className="flex items-center space-x-2 text-xs text-rose-300 cursor-pointer pt-1">
               <input
                 type="checkbox"
                 disabled={isBusy}
                 checked={confirmReject}
                 onChange={(e) => setConfirmReject(e.target.checked)}
-                className="rounded border-zinc-700 bg-zinc-900 text-rose-500 focus:ring-0"
+                className="rounded border-zinc-700 bg-zinc-950 text-rose-500 focus:ring-2 focus:ring-zinc-400 focus:ring-offset-1 focus:ring-offset-zinc-900"
               />
               <span>I confirm discarding task-owned changes and transitioning the run to FAILED.</span>
             </label>
@@ -285,21 +285,21 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
             <div
               role="alert"
               aria-live="assertive"
-              className="flex items-center space-x-2 text-rose-400 text-xs bg-rose-950/40 p-2.5 rounded border border-rose-800/40 font-mono"
+              className="flex items-center space-x-2 text-rose-300 text-xs bg-rose-950/40 p-2.5 rounded-lg border border-rose-800/60 font-mono"
             >
-              <ShieldAlert className="w-4 h-4 shrink-0" />
+              <ShieldAlert className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{errorMsg}</span>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-[#27272a]">
+        <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-zinc-800">
           <button
             type="button"
             disabled={isBusy}
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-white bg-[#18181b] border border-[#27272a] transition-colors disabled:opacity-50"
+            className="min-h-[32px] px-4 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/70 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer"
           >
             Cancel
           </button>
@@ -307,7 +307,7 @@ export const QualityGateDecisionModal: React.FC<QualityGateDecisionModalProps> =
             type="button"
             disabled={isBusy}
             onClick={handleSubmit}
-            className={`px-5 py-1.5 rounded-lg text-xs font-bold text-white shadow-lg transition-all disabled:opacity-50 ${
+            className={`min-h-[32px] px-5 py-1.5 rounded-lg text-xs font-bold text-white shadow-sm transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
               selectedAction === "remediate"
                 ? "bg-cyan-600 hover:bg-cyan-500"
                 : selectedAction === "override"

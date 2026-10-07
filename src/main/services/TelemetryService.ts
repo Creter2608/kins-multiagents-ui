@@ -53,12 +53,12 @@ export function calculateEstimatedCostUsd(
   const uncached = Math.max(0, input - cached);
   const output = Math.max(0, gptCompletion ?? 0);
 
-  // gpt-5.6-sol pricing:
-  // Input (uncached): $4.00 / 1M = $0.000004/token
-  // Cached input:    $0.40 / 1M = $0.0000004/token
-  // Output:         $20.00 / 1M = $0.000020/token
+  // gpt-6.1-sol pricing:
+  // Input (uncached): $2.00 / 1M = $0.000002/token
+  // Cached input:    $0.10 / 1M = $0.0000001/token (5% of uncached rate)
+  // Output:         $10.00 / 1M = $0.000010/token
   // Gemini:          $0.00 (Pro subscription)
-  const gptCost = uncached * 0.000004 + cached * 0.0000004 + output * 0.00002;
+  const gptCost = uncached * 0.000002 + cached * 0.0000001 + output * 0.00001;
   return Math.round(gptCost * 10000) / 10000;
 }
 

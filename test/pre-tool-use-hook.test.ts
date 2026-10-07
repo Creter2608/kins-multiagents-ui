@@ -18,8 +18,13 @@ import {
 import { PreToolUseHookService } from "../src/main/services/preToolUseHookService.js";
 import {
   evaluatePreToolUseHook,
-  type PreToolUseHookInput
+  type PreToolUseHookInput,
+  DEFAULT_SOURCE_READ_TOKEN_THRESHOLD,
+  estimateFileTokens,
+  isSourceCodePath
 } from "../src/cli/preToolUseHook.js";
+import { bindEnforcedPhaseTemplate } from "../src/shared/phaseTemplateBinding.js";
+import { RuleBundleCompilerService } from "../src/main/services/ruleBundleCompilerService.js";
 import { evaluateWorkspaceMutationPolicy } from "../src/shared/workspaceMutationPolicy.js";
 import { parseSha256Hex } from "../src/checksum.js";
 import {
@@ -462,3 +467,259 @@ test("Real process CLI pipe test: spawn preToolUseHook.js with stdin/stdout prot
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("Read-Gate Golden Assertion 1: view_file on non-source file (markdown/json) -> allowed", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hook-read-"));
+  try {
+    const userData = path.join(tmpDir, "userData");
+    const workspaceDir = path.join(tmpDir, "target-repo");
+    const sidecarDir = path.join(userData, "workspaces", "ws-1", "sidecar", "state");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sidecarDir, { recursive: true });
+
+    // Enable CodeGraph in workspace
+    await fs.mkdir(path.join(workspaceDir, ".codegraph"), { recursive: true });
+
+    const hookService = new PreToolUseHookService();
+    const sidecarStatePath = path.join(sidecarDir, "state.json");
+    await fs.writeFile(sidecarStatePath, JSON.stringify(createMockState()), "utf-8");
+
+    await hookService.equipWorkspace({
+      workspaceRoot: workspaceDir,
+      sidecarStatePath,
+      userDataPath: userData
+    });
+
+    // Write a large README.md (e.g. 5000 bytes)
+    const readmePath = path.join(workspaceDir, "README.md");
+    await fs.writeFile(readmePath, "# Large Documentation\n" + "hello world\n".repeat(400), "utf-8");
+
+    const input: PreToolUseHookInput = {
+      toolCall: {
+        name: "view_file",
+        args: { AbsolutePath: readmePath }
+      },
+      workspacePaths: [workspaceDir],
+      runId: "run-test-001"
+    };
+
+    const res = await evaluatePreToolUseHook(input, { ANTIGRAVITY_HOOK_USER_DATA: userData });
+    assert.equal(res.decision, "allow");
+    assert.match(res.reason, /not a source code file/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Read-Gate Golden Assertion 2: view_file on small source file <= 200 tokens -> allowed", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hook-read-"));
+  try {
+    const userData = path.join(tmpDir, "userData");
+    const workspaceDir = path.join(tmpDir, "target-repo");
+    const sidecarDir = path.join(userData, "workspaces", "ws-1", "sidecar", "state");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sidecarDir, { recursive: true });
+
+    await fs.mkdir(path.join(workspaceDir, ".codegraph"), { recursive: true });
+
+    const hookService = new PreToolUseHookService();
+    const sidecarStatePath = path.join(sidecarDir, "state.json");
+    await fs.writeFile(sidecarStatePath, JSON.stringify(createMockState()), "utf-8");
+
+    await hookService.equipWorkspace({
+      workspaceRoot: workspaceDir,
+      sidecarStatePath,
+      userDataPath: userData
+    });
+
+    // Small source file (approx 100 bytes = ~25 tokens <= 200)
+    const smallFilePath = path.join(workspaceDir, "src", "small.ts");
+    await fs.mkdir(path.dirname(smallFilePath), { recursive: true });
+    await fs.writeFile(smallFilePath, "export const PI = 3.14159;\nexport const E = 2.71828;\n", "utf-8");
+
+    const input: PreToolUseHookInput = {
+      toolCall: {
+        name: "view_file",
+        args: { AbsolutePath: smallFilePath }
+      },
+      workspacePaths: [workspaceDir],
+      runId: "run-test-001"
+    };
+
+    const res = await evaluatePreToolUseHook(input, { ANTIGRAVITY_HOOK_USER_DATA: userData });
+    assert.equal(res.decision, "allow");
+    assert.match(res.reason, /within low-token threshold/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Read-Gate Golden Assertion 3: view_file on large source file in CodeGraph workspace without exploration -> denied", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hook-read-"));
+  try {
+    const userData = path.join(tmpDir, "userData");
+    const workspaceDir = path.join(tmpDir, "target-repo");
+    const sidecarDir = path.join(userData, "workspaces", "ws-1", "sidecar", "state");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sidecarDir, { recursive: true });
+
+    // Enable CodeGraph
+    await fs.mkdir(path.join(workspaceDir, ".codegraph"), { recursive: true });
+
+    const hookService = new PreToolUseHookService();
+    const sidecarStatePath = path.join(sidecarDir, "state.json");
+    await fs.writeFile(sidecarStatePath, JSON.stringify(createMockState()), "utf-8");
+
+    await hookService.equipWorkspace({
+      workspaceRoot: workspaceDir,
+      sidecarStatePath,
+      userDataPath: userData
+    });
+
+    // Large source file: 2000 bytes => ~500 tokens > 200
+    const largeFilePath = path.join(workspaceDir, "src", "big.ts");
+    await fs.mkdir(path.dirname(largeFilePath), { recursive: true });
+    await fs.writeFile(largeFilePath, "export function doSomething(): void {\n" + "  console.log('line');\n".repeat(100) + "}\n", "utf-8");
+
+    const stat = await fs.stat(largeFilePath);
+    const expectedTokens = Math.ceil(stat.size / 4);
+
+    const input: PreToolUseHookInput = {
+      toolCall: {
+        name: "view_file",
+        args: { AbsolutePath: largeFilePath }
+      },
+      workspacePaths: [workspaceDir],
+      runId: "run-test-001"
+    };
+
+    const res = await evaluatePreToolUseHook(input, { ANTIGRAVITY_HOOK_USER_DATA: userData });
+    assert.equal(res.decision, "deny");
+    assert.equal(
+      res.reason,
+      `Anti-Token-Drain Protocol: view_file denied for a large source file in a CodeGraph-enabled workspace; run codegraph_explore in the current run before requesting the full file (estimatedTokens=${expectedTokens}, threshold=200).`
+    );
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Read-Gate Golden Assertion 4: view_file on large source file after recordCodeGraphExploration -> allowed", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hook-read-"));
+  try {
+    const userData = path.join(tmpDir, "userData");
+    const workspaceDir = path.join(tmpDir, "target-repo");
+    const sidecarDir = path.join(userData, "workspaces", "ws-1", "sidecar", "state");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sidecarDir, { recursive: true });
+
+    await fs.mkdir(path.join(workspaceDir, ".codegraph"), { recursive: true });
+
+    const hookService = new PreToolUseHookService();
+    const sidecarStatePath = path.join(sidecarDir, "state.json");
+    await fs.writeFile(sidecarStatePath, JSON.stringify(createMockState()), "utf-8");
+
+    const equipped = await hookService.equipWorkspace({
+      workspaceRoot: workspaceDir,
+      sidecarStatePath,
+      userDataPath: userData
+    });
+
+    // Record exploration evidence
+    await PreToolUseHookService.recordCodeGraphExploration(
+      workspaceDir,
+      "run-test-001",
+      userData,
+      equipped.signingKey
+    );
+
+    const largeFilePath = path.join(workspaceDir, "src", "big.ts");
+    await fs.mkdir(path.dirname(largeFilePath), { recursive: true });
+    await fs.writeFile(largeFilePath, "export function doSomething(): void {\n" + "  console.log('line');\n".repeat(100) + "}\n", "utf-8");
+
+    const input: PreToolUseHookInput = {
+      toolCall: {
+        name: "view_file",
+        args: { AbsolutePath: largeFilePath }
+      },
+      workspacePaths: [workspaceDir],
+      runId: "run-test-001"
+    };
+
+    const res = await evaluatePreToolUseHook(input, { ANTIGRAVITY_HOOK_USER_DATA: userData });
+    assert.equal(res.decision, "allow");
+    assert.match(res.reason, /CodeGraph exploration verified/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Read-Gate Golden Assertion 5: resolveCodeGraphReadGate returns accurate exploration status", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hook-read-"));
+  try {
+    const userData = path.join(tmpDir, "userData");
+    const workspaceDir = path.join(tmpDir, "target-repo");
+    const sidecarDir = path.join(userData, "workspaces", "ws-1", "sidecar", "state");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sidecarDir, { recursive: true });
+    await fs.mkdir(path.join(workspaceDir, ".codegraph"), { recursive: true });
+
+    const hookService = new PreToolUseHookService();
+    const sidecarStatePath = path.join(sidecarDir, "state.json");
+    await fs.writeFile(sidecarStatePath, JSON.stringify(createMockState()), "utf-8");
+
+    const equipped = await hookService.equipWorkspace({
+      workspaceRoot: workspaceDir,
+      sidecarStatePath,
+      userDataPath: userData
+    });
+
+    const targetFile = path.join(workspaceDir, "src", "index.ts");
+
+    // Before exploration
+    const before = await hookService.resolveCodeGraphReadGate({
+      canonicalTargetPath: targetFile,
+      runId: "run-test-001",
+      userDataPath: userData
+    });
+    assert.equal(before.codeGraphActive, true);
+    assert.equal(before.exploredInCurrentRun, false);
+
+    // After exploration
+    await PreToolUseHookService.recordCodeGraphExploration(
+      workspaceDir,
+      "run-test-001",
+      userData,
+      equipped.signingKey
+    );
+
+    const after = await hookService.resolveCodeGraphReadGate({
+      canonicalTargetPath: targetFile,
+      runId: "run-test-001",
+      userDataPath: userData
+    });
+    assert.equal(after.codeGraphActive, true);
+    assert.equal(after.exploredInCurrentRun, true);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Phase Template Golden Assertion: compilation and deterministic binding wrapper", () => {
+  const compiler = new RuleBundleCompilerService();
+  const bundle = compiler.compileUniversalRules();
+
+  assert.ok(bundle.phaseTemplates);
+  assert.ok(bundle.phaseTemplates.PLAN);
+  assert.ok(bundle.phaseTemplates.EXECUTE);
+  assert.ok(bundle.phaseTemplates.VERIFY);
+
+  assert.equal(bundle.phaseTemplates.PLAN.phase, "PLAN");
+  assert.equal(bundle.phaseTemplates.PLAN.templateId, "plan-document-reviewer-prompt");
+  assert.match(bundle.phaseTemplates.PLAN.sha256, /^[a-f0-9]{64}$/);
+
+  const boundPlan = bindEnforcedPhaseTemplate("PLAN", bundle.phaseTemplates.PLAN);
+  assert.match(boundPlan, /^<enforced-superpowers-template phase="PLAN" id="plan-document-reviewer-prompt" sha256="[a-f0-9]{64}">/);
+  assert.match(boundPlan, /<\/enforced-superpowers-template>$/);
+});
+

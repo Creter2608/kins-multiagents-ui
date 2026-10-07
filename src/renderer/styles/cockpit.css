@@ -1,0 +1,69 @@
+/**
+ * src/renderer/styles/cockpit.css
+ * Presentation-only styles, tokens, focus treatment, and accessibility overrides for Kins Cockpit.
+ * Adheres strictly to pbakaus/impeccable and ui-ux-pro-max-skill guidelines.
+ */
+
+/* Root Cockpit Token Container */
+.kins-cockpit {
+  --cockpit-bg: #09090b;       /* Zinc 950 */
+  --cockpit-surface: #18181b;  /* Zinc 900 */
+  --cockpit-raised: #27272a;   /* Zinc 800 */
+  --cockpit-border: #27272a;   /* Zinc 800 */
+  --cockpit-text-primary: #f4f4f5; /* Zinc 100 */
+  --cockpit-text-secondary: #d4d4d8; /* Zinc 300 */
+  --cockpit-text-muted: #a1a1aa; /* Zinc 400 */
+}
+
+/* Universal Visible Keyboard Focus Indicator (WCAG AA: min 3:1 contrast against dark background) */
+.kins-cockpit button:focus-visible,
+.kins-cockpit input:focus-visible,
+.kins-cockpit textarea:focus-visible,
+.kins-cockpit [tabindex]:focus-visible,
+[role="dialog"] button:focus-visible,
+[role="dialog"] input:focus-visible,
+[role="dialog"] textarea:focus-visible,
+[role="dialog"] [tabindex]:focus-visible {
+  outline: 2px solid #a1a1aa !important; /* Zinc 400 */
+  outline-offset: 2px !important;
+}
+
+/* Minimum Accessible Hit Targets (44px touch area where feasible, min 30px compact desktop targets) */
+.kins-cockpit .cockpit-hit-target {
+  min-height: 32px;
+  min-width: 32px;
+}
+
+/* Refined Dark Scrollbar */
+.kins-cockpit .custom-scrollbar::-webkit-scrollbar,
+[role="dialog"] .custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.kins-cockpit .custom-scrollbar::-webkit-scrollbar-track,
+[role="dialog"] .custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kins-cockpit .custom-scrollbar::-webkit-scrollbar-thumb,
+[role="dialog"] .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3f3f46; /* Zinc 700 */
+  border-radius: 4px;
+}
+
+.kins-cockpit .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+[role="dialog"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #52525b; /* Zinc 600 */
+}
+
+/* Accessibility: Motion Sensitivity Override */
+@media (prefers-reduced-motion: reduce) {
+  .kins-cockpit *,
+  [role="dialog"] * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

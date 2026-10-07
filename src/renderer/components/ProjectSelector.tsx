@@ -6,6 +6,7 @@ export const ProjectSelector: React.FC = () => {
   const [projectState, setProjectState] = useState<ProjectState | null>(null);
   const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext | null>(null);
   const [stealthStatus, setStealthStatus] = useState<WorkspaceStealthStatus | null>(null);
+  const [includeDesignPack, setIncludeDesignPack] = useState<boolean>(false);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isActionPending, setIsActionPending] = useState<boolean>(false);
@@ -23,6 +24,9 @@ export const ProjectSelector: React.FC = () => {
       if (api.project.getStealthStatus) {
         const status = await api.project.getStealthStatus();
         setStealthStatus(status);
+        if (status?.includeDesignPack !== undefined) {
+          setIncludeDesignPack(Boolean(status.includeDesignPack));
+        }
       }
     } catch (err) {
       console.error("[ProjectSelector] Failed to fetch workspace context/stealth status:", err);
@@ -125,11 +129,15 @@ export const ProjectSelector: React.FC = () => {
         const res = await api.project.unequipStealthRules?.();
         if (res?.success) {
           setActionMessage(`Stealth rules unequipped (${res.filesRemoved.length} files removed)`);
+        } else {
+          setActionMessage("Unequip refused: managed rule files were modified by user");
         }
       } else {
-        const res = await api.project.equipStealthRules?.();
+        const res = await api.project.equipStealthRules?.({ includeDesignPack });
         if (res?.success) {
-          setActionMessage(`Stealth rules equipped (${res.filesCreated.length} files invisible to Git)`);
+          setActionMessage(
+            `Stealth rules equipped (${res.filesCreated.length} files invisible to Git${includeDesignPack ? ", with UI/UX Design Pack" : ""})`
+          );
         }
       }
       await refreshContext();
@@ -169,9 +177,12 @@ export const ProjectSelector: React.FC = () => {
         type="button"
         disabled={isLoading}
         onClick={() => setIsOpen((prev) => !prev)}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-label={current?.path ? `Current project: ${current.name}` : "Select project"}
         title={current?.path ? `Current: ${current.path}\nSidecar: ${workspaceContext?.sidecarDirectory || "N/A"}` : "Select project"}
-        className={`h-7 px-2.5 rounded bg-[#141414] hover:bg-[#1c1c1f] text-zinc-200 border border-[#27272a] hover:border-zinc-600 flex items-center space-x-1.5 transition-colors cursor-pointer select-none max-w-[320px] ${
-          isOpen ? "border-emerald-500/60 ring-1 ring-emerald-500/30 bg-[#1a1a1e]" : ""
+        className={`h-7 px-2.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 hover:border-zinc-600 flex items-center space-x-1.5 transition-colors cursor-pointer select-none max-w-[320px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+          isOpen ? "border-emerald-500/60 ring-1 ring-emerald-500/30 bg-zinc-850" : ""
         } ${isLoading ? "opacity-70 cursor-wait" : ""}`}
       >
         {isLoading ? (
@@ -201,9 +212,13 @@ export const ProjectSelector: React.FC = () => {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute top-9 left-0 w-88 bg-[#111113] border border-[#27272a] rounded-md shadow-2xl shadow-black/90 z-50 py-1.5 flex flex-col text-xs font-mono animate-in fade-in zoom-in-95 duration-100">
+        <div
+          role="dialog"
+          aria-label="Project and Sidecar Selector"
+          className="absolute top-9 left-0 w-88 bg-zinc-900 border border-zinc-800 rounded-md shadow-2xl shadow-black/80 z-50 py-1.5 flex flex-col text-xs font-mono animate-in fade-in zoom-in-95 duration-100"
+        >
           {/* Workspace Sidecar & Stealth Status */}
-          <div className="px-3 py-2 bg-[#141418] border-b border-[#1e1e24] mb-1.5 space-y-1.5">
+          <div className="px-3 py-2 bg-zinc-950/80 border-b border-zinc-800 mb-1.5 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold flex items-center space-x-1">
                 <Sparkles className="w-3 h-3 text-emerald-400" />
@@ -229,16 +244,30 @@ export const ProjectSelector: React.FC = () => {
               </div>
             )}
 
+            {/* Design Pack Toggle */}
+            <div className="pt-1.5 pb-0.5 px-0.5">
+              <label className="flex items-center space-x-2 text-[10px] text-zinc-300 hover:text-zinc-100 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeDesignPack}
+                  disabled={isActionPending || Boolean(stealthStatus?.equipped)}
+                  onChange={(e) => setIncludeDesignPack(e.target.checked)}
+                  className="rounded bg-zinc-800 border-zinc-700 text-emerald-500 focus:ring-1 focus:ring-emerald-400 focus:ring-offset-0 cursor-pointer disabled:opacity-50 w-3.5 h-3.5"
+                />
+                <span className="font-medium">Include UI/UX Design Pack</span>
+              </label>
+            </div>
+
             {/* Quick Actions */}
             <div className="pt-1 flex items-center space-x-1.5">
               <button
                 type="button"
                 disabled={isActionPending}
                 onClick={() => void handleToggleStealth()}
-                className={`flex-1 px-2 py-1 rounded text-[10px] font-semibold border flex items-center justify-center space-x-1 transition-colors cursor-pointer ${
+                className={`flex-1 px-2.5 py-1.5 rounded text-[10px] font-semibold border flex items-center justify-center space-x-1.5 transition-colors cursor-pointer min-h-[28px] focus-visible:outline-none focus-visible:ring-2 ${
                   stealthStatus?.equipped
-                    ? "bg-[#181820] text-zinc-300 border-zinc-700 hover:border-zinc-500"
-                    : "bg-blue-950/40 text-blue-300 border-blue-700/50 hover:bg-blue-900/40"
+                    ? "bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500 hover:bg-zinc-750 focus-visible:ring-zinc-400"
+                    : "bg-blue-950/60 text-blue-300 border-blue-700/60 hover:bg-blue-900/60 focus-visible:ring-blue-400"
                 } ${isActionPending ? "opacity-60 cursor-wait" : ""}`}
               >
                 {isActionPending ? (
@@ -256,7 +285,7 @@ export const ProjectSelector: React.FC = () => {
                 disabled={isActionPending}
                 onClick={() => void handleSyncGlobalIde()}
                 title="Export compiled rules to ~/.gemini, ~/.claude, and ~/.cursor"
-                className={`px-2 py-1 rounded text-[10px] font-semibold bg-[#181820] hover:bg-[#20202a] text-zinc-300 border border-zinc-700 hover:border-zinc-500 flex items-center space-x-1 transition-colors cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded text-[10px] font-semibold bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border border-zinc-700 hover:border-zinc-500 flex items-center space-x-1.5 transition-colors cursor-pointer min-h-[28px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
                   isActionPending ? "opacity-60 cursor-wait" : ""
                 }`}
               >
@@ -267,16 +296,16 @@ export const ProjectSelector: React.FC = () => {
           </div>
 
           {/* Header */}
-          <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold flex items-center justify-between border-b border-[#1e1e24] pb-1 mb-1">
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold flex items-center justify-between border-b border-zinc-800 pb-1 mb-1">
             <span className="flex items-center space-x-1">
               <Clock className="w-3 h-3 text-zinc-400" />
               <span>Recent Projects</span>
             </span>
-            <span className="text-zinc-500 text-[9px]">{projectState?.recentProjects.length || 0} found</span>
+            <span className="text-zinc-500 text-[9px] font-mono tabular-nums">{projectState?.recentProjects.length || 0} found</span>
           </div>
 
           {/* List of recent projects */}
-          <div className="max-h-56 overflow-y-auto divide-y divide-[#18181b]">
+          <div className="max-h-56 overflow-y-auto divide-y divide-zinc-800/80 custom-scrollbar">
             {projectState?.recentProjects && projectState.recentProjects.length > 0 ? (
               projectState.recentProjects.map((item) => {
                 const isSelected = item.path === current?.path;
@@ -286,14 +315,14 @@ export const ProjectSelector: React.FC = () => {
                     type="button"
                     onClick={() => void handleSelectProject(item.path)}
                     title={item.path}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-[#1a1a22] transition-colors cursor-pointer group ${
-                      isSelected ? "bg-[#16161d]" : ""
+                    className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-zinc-800/70 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400 ${
+                      isSelected ? "bg-zinc-800/90" : ""
                     }`}
                   >
                     <div className="min-w-0 flex-1 pr-2">
                       <div
                         className={`font-semibold text-xs truncate flex items-center space-x-1.5 ${
-                          isSelected ? "text-emerald-400" : "text-zinc-200 group-hover:text-white"
+                          isSelected ? "text-emerald-400" : "text-zinc-200 group-hover:text-zinc-100"
                         }`}
                       >
                         <Folder className={`w-3.5 h-3.5 shrink-0 ${isSelected ? "text-emerald-400" : "text-zinc-400"}`} />
@@ -315,11 +344,11 @@ export const ProjectSelector: React.FC = () => {
           </div>
 
           {/* Action: Open Folder */}
-          <div className="pt-1.5 mt-1 border-t border-[#1e1e24] px-1">
+          <div className="pt-1.5 mt-1 border-t border-zinc-800 px-1">
             <button
               type="button"
               onClick={() => void handleOpenFolder()}
-              className="w-full px-2.5 py-1.5 rounded hover:bg-[#1a1a22] text-zinc-200 hover:text-white flex items-center space-x-2 transition-colors cursor-pointer"
+              className="w-full px-2.5 py-1.5 rounded hover:bg-zinc-800 text-zinc-200 hover:text-zinc-100 flex items-center space-x-2 transition-colors cursor-pointer min-h-[32px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
             >
               <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span className="font-semibold text-xs">Open Project Folder...</span>

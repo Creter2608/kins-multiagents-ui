@@ -423,3 +423,39 @@ test("BP-005: assertBlueprintAllowsExecution throws TRANSITION_INVALID when asse
   );
 });
 
+test("Phase Template Injection: BlueprintOracleService automatically injects PLAN template into oracle client prompt", async () => {
+  const tmpDir = makeTempDir();
+  try {
+    const stateFile = path.join(tmpDir, "state.json");
+    const initial = {
+      ...createInitialState("template-run-001"),
+      currentPhase: "PLAN" as const,
+      status: "running" as const
+    };
+    fs.writeFileSync(stateFile, JSON.stringify(initial, null, 2), "utf-8");
+
+    const store = new JsonFileLoopStateStore(stateFile);
+    let capturedPrompt = "";
+    const mockClient: BlueprintOracleClient = {
+      async craftTechnicalPrompt(invocationKey, context) {
+        capturedPrompt = context;
+        return {
+          markdown: `# Technical Blueprint\n\n\`\`\`json\n[\n  {"in": "test1", "out": "res1"},\n  {"in": "test2", "out": "res2"},\n  {"in": "test3", "out": "res3"}\n]\n\`\`\`\n`,
+          providerReceipt: "receipt-token-123",
+          completedAt: Date.now()
+        };
+      }
+    };
+
+    const oracleService = new BlueprintOracleService(store, mockClient, tmpDir);
+    await oracleService.invokeOnce("template-run-001", "User original prompt context");
+
+    assert.ok(capturedPrompt.includes('<enforced-superpowers-template phase="PLAN" id="plan-document-reviewer-prompt"'));
+    assert.ok(capturedPrompt.includes("User original prompt context"));
+    assert.ok(capturedPrompt.includes("</enforced-superpowers-template>"));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+

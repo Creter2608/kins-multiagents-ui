@@ -227,7 +227,7 @@ This document is maintained autonomously following **Andrej Karpathy's LLM-Wiki 
   3. *Unfounded Latency Fear*: Agents treat reasoning model thinking time as an operational risk, ignoring that Token and Cost circuit breakers (`MAX_TOKENS_PER_RUN`, `MAX_COST_USD`) already provide deterministic financial and resource guarantees.
 - **Mandatory Invariants:**
   1. **Dual-Oracle Protocol (Zero-Syntax-Loop Invariant):** GPT is invoked exactly TWICE per canonical task: ONCE at Stage 2 (`craft_technical_prompt_with_gpt` for Technical Blueprint & Compact Assertions) and ONCE at Stage 4 (`audit_and_break_code_with_gpt` for Adversarial Reality Check). Zero re-invocations are permitted for minor syntax or compiler errors.
-  2. **Thinking Time as Asset:** Thinking time of reasoning models (`o1`, `o3`, `gpt-5.6-sol`) is a core feature for uncovering race conditions, contract drifts, and boundary flaws. Agents **MUST NOT** skip Stage 4 to save interaction time. Resource safety is enforced by Token/Cost ceilings, not premature shortcuts.
+  2. **Thinking Time as Asset:** Thinking time of reasoning models (`o1`, `o3`, `gpt-6.1-sol`) is a core feature for uncovering race conditions, contract drifts, and boundary flaws. Agents **MUST NOT** skip Stage 4 to save interaction time. Resource safety is enforced by Token/Cost ceilings, not premature shortcuts.
   3. **Mandatory Reality Gate:** Transition to `RELEASE_GATE` or `COMPLETE` is strictly invalid without an immutable audit record and verdict from `audit_and_break_code_with_gpt`.
 
 ---

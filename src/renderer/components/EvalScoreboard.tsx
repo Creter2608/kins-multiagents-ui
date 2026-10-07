@@ -106,21 +106,21 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
   const p2pCount = report?.results.filter((r) => r.kind === "p2p").length ?? 0;
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a] text-zinc-200 border-l border-zinc-800/80 overflow-y-auto">
+    <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 border-l border-zinc-800 overflow-y-auto custom-scrollbar">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 bg-[#0d0d0d]">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/90 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
             <FlaskConical className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold tracking-wide text-zinc-100 flex items-center gap-2">
+            <h2 className="text-sm font-sans font-semibold tracking-wide text-zinc-100 flex items-center gap-2">
               Deep Evaluation Benchmark Harness
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
                 ADR-005
               </span>
             </h2>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs font-sans text-zinc-400 mt-0.5">
               Empirical Pass@1 &amp; Anti-Gaming Verification Engine (Hermetic Worktree Execution)
             </p>
           </div>
@@ -131,10 +131,11 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
           <button
             onClick={() => void handleRun()}
             disabled={isRunning}
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
+            aria-label="Run benchmark harness"
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-sans font-semibold transition-all duration-150 min-h-[32px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
               isRunning
                 ? "bg-zinc-800 text-zinc-500 border border-zinc-700/50 cursor-not-allowed"
-                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-900/30 active:scale-95"
+                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-900/30 active:scale-95 cursor-pointer"
             }`}
           >
             {isRunning ? (
@@ -207,10 +208,10 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Card 1: Pass@1 */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Pass@1 (First-Shot)</div>
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
+            <div className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Pass@1 (First-Shot)</div>
             <div
-              className={`text-2xl font-bold font-mono mt-1 ${
+              className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
                 hasEvaluatedTasks && report
                   ? report.metrics.passAt1 === 1
                     ? "text-emerald-400"
@@ -222,14 +223,14 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
             >
               {hasEvaluatedTasks && report ? `${(report.metrics.passAt1 * 100).toFixed(0)}%` : "--%"}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1">Zero-shot 0-retry success rate</div>
+            <div className="text-[11px] font-sans text-zinc-400 mt-1">Zero-shot 0-retry success rate</div>
           </div>
 
           {/* Card 2: Pass@k */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Pass@k (k=1)</div>
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
+            <div className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Pass@k (k=1)</div>
             <div
-              className={`text-2xl font-bold font-mono mt-1 ${
+              className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
                 hasEvaluatedTasks && report
                   ? report.metrics.passAtK === 1
                     ? "text-emerald-400"
@@ -241,14 +242,14 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
             >
               {hasEvaluatedTasks && report ? `${(report.metrics.passAtK * 100).toFixed(0)}%` : "--%"}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1">Bounded retry resolution</div>
+            <div className="text-[11px] font-sans text-zinc-400 mt-1">Bounded retry resolution</div>
           </div>
 
           {/* Card 3: SSI */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Semantic Stability (SSI)</div>
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
+            <div className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Semantic Stability (SSI)</div>
             <div
-              className={`text-2xl font-bold font-mono mt-1 ${
+              className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
                 hasEvaluatedTasks && report
                   ? report.metrics.ssi === 1
                     ? "text-emerald-400"
@@ -258,21 +259,21 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
             >
               {hasEvaluatedTasks && report ? `${(report.metrics.ssi * 100).toFixed(0)}%` : "--%"}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1">Regression-free P2P preservation</div>
+            <div className="text-[11px] font-sans text-zinc-400 mt-1">Regression-free P2P preservation</div>
           </div>
 
           {/* Card 4: AQI */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</span>
+              <span className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Architecture (AQI)</span>
               {architecturalCompliance?.taskType && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-zinc-800 text-zinc-300 border border-zinc-700/60">
                   {architecturalCompliance.taskType}
                 </span>
               )}
             </div>
             <div
-              className={`text-2xl font-bold font-mono mt-1 ${
+              className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
                 architecturalCompliance && typeof architecturalCompliance.aqi === "number" && Number.isFinite(architecturalCompliance.aqi)
                   ? architecturalCompliance.passed
                     ? "text-emerald-400"
@@ -286,7 +287,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
                 ? `${architecturalCompliance.aqi.toFixed(1)} / 5.0`
                 : "—"}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1 truncate">
+            <div className="text-[11px] font-mono text-zinc-400 mt-1 truncate">
               {architecturalCompliance
                 ? `Surg: ${architecturalCompliance.criteriaScores.surgicalDiff} | Simp: ${architecturalCompliance.criteriaScores.simplicity} | Mod: ${architecturalCompliance.criteriaScores.modularity} | Maint: ${architecturalCompliance.criteriaScores.maintainability}`
                 : "Karpathy simplicity gate"}
@@ -294,10 +295,10 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
           </div>
 
           {/* Card 5: Dollar Efficiency (DEI) & Cost */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Efficiency (DEI)</div>
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
+            <div className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Efficiency (DEI)</div>
             <div
-              className={`text-2xl font-bold font-mono mt-1 ${
+              className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
                 hasEvaluatedTasks && typeof report?.metrics?.dei === "number" && Number.isFinite(report.metrics.dei)
                   ? "text-cyan-400"
                   : "text-zinc-600"
@@ -307,7 +308,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
                 ? report.metrics.dei.toFixed(2)
                 : "—"}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1 truncate">
+            <div className="text-[11px] font-sans text-zinc-400 mt-1 truncate">
               Cost: {hasEvaluatedTasks && typeof report?.metrics?.costMicroUsd === "number" && Number.isFinite(report.metrics.costMicroUsd)
                 ? `${Math.round(report.metrics.costMicroUsd)} µUSD`
                 : "—"}
@@ -315,12 +316,12 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
           </div>
 
           {/* Card 6: Task Counts */}
-          <div className="p-4 rounded-xl bg-[#0f0f10] border border-zinc-800/80 shadow-sm">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Tasks Evaluated</div>
-            <div className="text-2xl font-bold font-mono mt-1 text-zinc-100">
+          <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors shadow-sm">
+            <div className="text-[11px] font-sans uppercase tracking-wider text-zinc-400 font-medium">Tasks Evaluated</div>
+            <div className="text-2xl font-bold font-mono tabular-nums mt-1 text-zinc-100">
               {report ? report.results.length : 0}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-1">
+            <div className="text-[11px] font-sans text-zinc-400 mt-1">
               F2P: <span className="text-cyan-400 font-mono font-medium">{f2pCount}</span> | P2P:{" "}
               <span className="text-purple-400 font-mono font-medium">{p2pCount}</span>
             </div>
@@ -329,9 +330,9 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
 
         {/* Task Details Table */}
         {hasEvaluatedTasks && report ? (
-          <div className="rounded-xl border border-zinc-800/80 bg-[#0d0d0e] overflow-hidden">
-            <div className="px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 overflow-hidden">
+            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+              <span className="text-xs font-sans font-semibold uppercase tracking-wider text-zinc-300">
                 Evaluation Task Breakdown
               </span>
               <span className="text-[11px] text-zinc-400 font-mono">
@@ -340,7 +341,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
             </div>
             <div className="divide-y divide-zinc-800/60">
               {report.results.map((task) => (
-                <div key={task.id} className="px-4 py-3 flex items-center justify-between text-xs hover:bg-zinc-800/20">
+                <div key={task.id} className="px-4 py-3 flex items-center justify-between text-xs hover:bg-zinc-800/50 transition-colors">
                   <div className="flex items-center gap-3">
                     <span
                       className={`inline-block w-2 h-2 rounded-full ${
@@ -361,7 +362,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
 
                   <div className="flex items-center gap-6 text-zinc-400 font-mono text-[11px]">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-zinc-400">Base:</span>
+                      <span className="text-zinc-400 font-sans">Base:</span>
                       {task.base.passed ? (
                         <span className="text-emerald-400 inline-flex items-center gap-0.5">
                           <Check className="w-3 h-3" /> PASS
@@ -374,7 +375,7 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      <span className="text-zinc-400">Current:</span>
+                      <span className="text-zinc-400 font-sans">Current:</span>
                       {task.current.passed ? (
                         <span className="text-emerald-400 inline-flex items-center gap-0.5">
                           <Check className="w-3 h-3" /> PASS
@@ -399,25 +400,25 @@ export const EvalScoreboard: React.FC<EvalScoreboardProps> = ({ snapshot, loopSt
             </div>
           </div>
         ) : hasNoTasks ? (
-          <div className="p-12 text-center rounded-xl border border-dashed border-zinc-800/80 bg-[#0d0d0e]/50">
+          <div className="p-12 text-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30">
             <FlaskConical className="w-10 h-10 text-zinc-500 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-zinc-300">No Benchmark Tasks Found</h3>
-            <p className="text-xs text-zinc-400 mt-1.5 max-w-md mx-auto leading-relaxed">
+            <h3 className="text-sm font-sans font-semibold text-zinc-300">No Benchmark Tasks Found</h3>
+            <p className="text-xs font-sans text-zinc-400 mt-1.5 max-w-md mx-auto leading-relaxed">
               The benchmark harness executed successfully, but no task definitions were found in{" "}
               <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono text-[11px] border border-zinc-700/60">
                 .eval/harness/tasks
               </code>.
             </p>
-            <p className="text-xs text-zinc-500 mt-2 max-w-md mx-auto">
+            <p className="text-xs font-sans text-zinc-500 mt-2 max-w-md mx-auto">
               Add task JSON files with <code className="text-zinc-400 font-mono">f2p</code> (Fail-to-Pass) or{" "}
               <code className="text-zinc-400 font-mono">p2p</code> (Pass-to-Pass) kind to evaluate model performance, then click &ldquo;Run Benchmark&rdquo; again.
             </p>
           </div>
         ) : (
-          <div className="p-12 text-center rounded-xl border border-dashed border-zinc-800/80 bg-[#0d0d0e]/50">
+          <div className="p-12 text-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30">
             <FlaskConical className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-zinc-300">No Evaluation Report Loaded</h3>
-            <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
+            <h3 className="text-sm font-sans font-semibold text-zinc-300">No Evaluation Report Loaded</h3>
+            <p className="text-xs font-sans text-zinc-400 mt-1 max-w-sm mx-auto">
               Click &ldquo;Run Benchmark&rdquo; above to execute the zero-dependency test harness against baseline git worktrees.
             </p>
           </div>

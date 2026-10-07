@@ -700,7 +700,7 @@ test("Assertion 2: Audit finds defects, one remediation passes closure -> pendin
       completedAt: Date.now(),
       telemetry: {
         invocationKey: "audit-key-1",
-        model: "gpt-5.6-sol",
+        model: "gpt-6.1-sol",
         promptTokens: 5000,
         cachedTokens: 2000,
         reasoningTokens: 1000,
@@ -780,7 +780,7 @@ test("Assertion 5: Usage projects total above $1 or 120k tokens -> Run fails clo
     expectedRevision: 1,
     telemetry: {
       invocationKey: "key-1",
-      model: "gpt-5.6-sol",
+      model: "gpt-6.1-sol",
       promptTokens: 60000,
       cachedTokens: 30000,
       reasoningTokens: 10000,
@@ -1056,7 +1056,7 @@ test("LoopCommandService: missing legacy resourceUsage clones EMPTY_RESOURCE_USA
         completedAt: Date.now(),
         telemetry: {
           invocationKey: "inv-1",
-          model: "gpt-5.6-sol",
+          model: "gpt-6.1-sol",
           promptTokens: 100,
           cachedTokens: 50,
           reasoningTokens: 20,

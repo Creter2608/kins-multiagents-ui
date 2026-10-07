@@ -326,6 +326,11 @@ export interface WorkspaceContext {
 export type GlobalIdeTarget = "gemini" | "claude" | "cursor";
 export type StealthRuleTarget = "agents" | "claude";
 
+export interface StealthEquipOptions {
+  readonly targets?: readonly StealthRuleTarget[];
+  readonly includeDesignPack?: boolean;
+}
+
 export interface GlobalIdeSyncResult {
   readonly success: boolean;
   readonly synced: readonly string[];
@@ -346,6 +351,7 @@ export interface WorkspaceStealthStatus {
   readonly equipped: boolean;
   readonly excluded: boolean;
   readonly files: readonly string[];
+  readonly includeDesignPack?: boolean;
 }
 
 export interface ProjectInfo {
@@ -365,7 +371,7 @@ export interface CockpitApi {
     readonly openProjectFolder: () => Promise<ProjectState | null>;
     readonly getWorkspaceContext?: () => Promise<WorkspaceContext | null>;
     readonly syncGlobalIdeRules?: (options?: { targets?: readonly GlobalIdeTarget[] }) => Promise<GlobalIdeSyncResult>;
-    readonly equipStealthRules?: (options?: { targets?: readonly StealthRuleTarget[] }) => Promise<StealthEquipResult>;
+    readonly equipStealthRules?: (options?: StealthEquipOptions) => Promise<StealthEquipResult>;
     readonly unequipStealthRules?: () => Promise<StealthUnequipResult>;
     readonly getStealthStatus?: () => Promise<WorkspaceStealthStatus>;
     readonly onProjectChanged?: (listener: (state: ProjectState) => void) => Unsubscribe;
@@ -468,4 +474,6 @@ export const SUBAGENT_IPC_CHANNELS = {
   list: "subagents:list",
   changed: "subagents:changed",
 } as const;
+
+export * from "./stealthRules.js";
 

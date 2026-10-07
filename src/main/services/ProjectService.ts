@@ -6,6 +6,7 @@ import type {
   GlobalIdeTarget,
   GlobalIdeSyncResult,
   StealthRuleTarget,
+  StealthEquipOptions,
   StealthEquipResult,
   StealthUnequipResult,
   WorkspaceStealthStatus
@@ -23,6 +24,8 @@ import { WorkspaceStealthRuleService } from "./workspaceStealthRuleService.js";
 import { PreToolUseHookService } from "./preToolUseHookService.js";
 import { resolveLoopStatePath } from "./LoopStateService.js";
 import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
+
+export type ProjectScopedPreToolUseHookService = Pick<PreToolUseHookService, "equipWorkspace" | "unequipWorkspace"> & Partial<Pick<PreToolUseHookService, "resolveCodeGraphReadGate" | "registerActiveStealthRules" | "unregisterActiveStealthRules" | "getAttentionAnchor" | "evaluateStealthPolicy" | "executeToolUse">>;
 
 export interface ProjectScopedServices {
   readonly ptyService: {
@@ -47,7 +50,7 @@ export interface ProjectScopedServices {
   readonly sandboxService?: ProjectSandboxService;
   readonly globalIdeSyncService?: GlobalIdeSyncService;
   readonly stealthRuleService?: WorkspaceStealthRuleService;
-  readonly preToolUseHookService?: PreToolUseHookService;
+  readonly preToolUseHookService?: ProjectScopedPreToolUseHookService;
 }
 
 interface PersistedProjectState {
@@ -68,7 +71,7 @@ export class ProjectService {
   private sandboxService: ProjectSandboxService;
   private globalIdeSyncService: GlobalIdeSyncService;
   private stealthRuleService: WorkspaceStealthRuleService;
-  private preToolUseHookService: PreToolUseHookService | null = null;
+  private preToolUseHookService: ProjectScopedPreToolUseHookService | null = null;
   private mutationPolicyMode: WorkspaceMutationPolicyMode = "documentation-fast-path";
   private activeContext: WorkspaceContext | null = null;
   private isSwitching = false;
@@ -91,9 +94,12 @@ export class ProjectService {
     this.sandboxService = services.sandboxService ?? new ProjectSandboxService();
 
     const compiler = new RuleBundleCompilerService();
-    this.globalIdeSyncService = services.globalIdeSyncService ?? new GlobalIdeSyncService(compiler);
-    this.stealthRuleService = services.stealthRuleService ?? new WorkspaceStealthRuleService(compiler);
     this.preToolUseHookService = services.preToolUseHookService ?? null;
+    this.globalIdeSyncService = services.globalIdeSyncService ?? new GlobalIdeSyncService(compiler);
+    this.stealthRuleService = services.stealthRuleService ?? new WorkspaceStealthRuleService(
+      compiler,
+      this.preToolUseHookService as unknown as PreToolUseHookService | undefined
+    );
   }
 
   getMutationPolicyMode(): WorkspaceMutationPolicyMode {
@@ -155,7 +161,7 @@ export class ProjectService {
     return this.globalIdeSyncService.sync(options);
   }
 
-  async equipStealthRules(options?: { targets?: readonly StealthRuleTarget[] }): Promise<StealthEquipResult> {
+  async equipStealthRules(options?: StealthEquipOptions): Promise<StealthEquipResult> {
     if (!this.activeContext) {
       throw new Error("Cannot equip stealth rules: No active workspace context");
     }

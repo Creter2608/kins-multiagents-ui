@@ -23,7 +23,7 @@ To advance from a single-workstation pair-programming cockpit to an **Enterprise
 ### 2.1 The Problem Statement
 In autonomous agent engineering, **"If you cannot measure it deterministically, you are still vibe-coding."**  
 Currently, `.eval/golden_assertions.json` provides cryptographic tampering detection for baseline invariants, but lacks:
-- Standardized datasets with hidden test sets to benchmark new models (e.g. Gemini 3.8 Flash vs Claude 3.7 vs GPT-5.6).
+- Standardized datasets with hidden test sets to benchmark new models (e.g. Gemini 3.8 Flash vs Claude 3.7 vs GPT-6.1).
 - Rigorous scoring of real-world bug reproduction (`Fail-to-Pass`) and regression prevention (`Pass-to-Pass`).
 - Real-time leaderboard and telemetry-correlated performance accounting (Dollar spend per successful bug resolution).
 

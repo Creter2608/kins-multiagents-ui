@@ -25,6 +25,13 @@
       "cacheReadMicroUsdPerMillion": 1500000,
       "cacheWriteMicroUsdPerMillion": 18750000
     },
+    "gpt-6.1-sol": {
+      "provider": "openai",
+      "inputMicroUsdPerMillion": 2000000,
+      "outputMicroUsdPerMillion": 10000000,
+      "cacheReadMicroUsdPerMillion": 100000,
+      "cacheWriteMicroUsdPerMillion": 2500000
+    },
     "gpt-4o": {
       "provider": "openai",
       "inputMicroUsdPerMillion": 2500000,

@@ -62,11 +62,14 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
   }, [logs]);
 
   return (
-    <div className="border-t border-[#1f1f1f] bg-[#0c0c0c] flex flex-col transition-all duration-200 select-none font-mono">
+    <div className="border-t border-zinc-800 bg-zinc-900 flex flex-col transition-all duration-150 select-none font-sans">
       {/* Drawer Header Toggle Bar */}
-      <div
+      <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-[#141414] transition-colors bg-[#0c0c0c]"
+        aria-expanded={isOpen}
+        aria-controls="critical-log-drawer-content"
+        className="w-full h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-zinc-850 transition-colors bg-zinc-900 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
       >
         <div className="flex items-center space-x-3.5 text-xs">
           <div className="flex items-center space-x-2 font-bold text-sm text-zinc-100">
@@ -75,18 +78,18 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
             ) : (
               <ChevronUp className="w-4 h-4 text-zinc-400" />
             )}
-            <span>Critical Logs & Events</span>
+            <span>Critical Logs &amp; Events</span>
           </div>
 
           <div className="flex items-center space-x-2">
             {errorCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-rose-950/40 text-rose-300 border border-rose-800/60">
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-rose-950/50 text-rose-300 border border-rose-800/70">
                 <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
                 <span>{errorCount} ERRORS</span>
               </span>
             )}
             {warnCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-amber-950/40 text-amber-300 border border-amber-800/60">
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1.5 bg-amber-950/50 text-amber-300 border border-amber-800/70">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                 <span>{warnCount} WARNS</span>
               </span>
@@ -96,26 +99,29 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
 
         {/* Right side summary when closed */}
         {!isOpen && latestError && (
-          <div className="text-xs text-rose-300 font-mono font-medium truncate max-w-md hidden md:block bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/60">
+          <div className="text-xs text-rose-300 font-mono font-medium truncate max-w-md hidden md:block bg-rose-950/50 px-2 py-0.5 rounded border border-rose-800/70">
             Latest: {latestError.message}
           </div>
         )}
-      </div>
+      </button>
 
       {/* Drawer Content */}
       {isOpen && (
-        <div className="h-44 border-t border-[#1f1f1f] flex flex-col bg-[#000000]">
+        <div id="critical-log-drawer-content" className="h-48 border-t border-zinc-800 flex flex-col bg-zinc-950 font-sans">
           {/* Filter & Toolbar */}
-          <div className="px-3 py-1.5 border-b border-[#1f1f1f] flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center space-x-1.5">
+          <div className="px-3 py-1.5 border-b border-zinc-800 flex items-center justify-between gap-2 text-xs bg-zinc-900/80">
+            <div className="flex items-center space-x-1.5" role="tablist" aria-label="Log severity filter">
               {(["ALL", "ERROR", "WARNING", "MILESTONE"] as const).map((sev) => (
                 <button
+                  type="button"
                   key={sev}
+                  role="tab"
+                  aria-selected={filterSeverity === sev}
                   onClick={() => setFilterSeverity(sev)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                  className={`px-2.5 py-0.5 rounded text-[11px] font-mono transition-colors min-h-[26px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                     filterSeverity === sev
-                      ? "bg-[#1f1f1f] text-zinc-100 font-medium border border-[#27272a]"
-                      : "text-zinc-400 hover:text-zinc-200"
+                      ? "bg-zinc-800 text-zinc-100 font-semibold border border-zinc-700 shadow-xs"
+                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
                   }`}
                 >
                   {sev}
@@ -125,26 +131,28 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
 
             {/* Search Input & Clear Button */}
             <div className="flex items-center space-x-2">
-              <div className="relative w-52">
-                <Search className="w-3 h-3 text-slate-500 absolute left-2 top-2" />
+              <div className="relative w-56">
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2" />
                 <input
                   type="text"
                   placeholder="Search log messages..."
+                  aria-label="Search log messages"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#121212] border border-[#262626] rounded pl-7 pr-2 py-0.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#404040] font-mono"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-md pl-8 pr-2.5 py-1 text-xs text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400 font-mono"
                 />
               </div>
 
               <button
+                type="button"
                 onClick={handleClearLogs}
                 disabled={logs.length === 0}
                 title="Clear in-memory session logs"
                 aria-label="Clear in-memory session logs"
-                className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center space-x-1.5 transition-colors border ${
+                className={`min-h-[26px] px-2.5 py-0.5 rounded-md text-[11px] font-mono flex items-center space-x-1.5 transition-colors border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                   logs.length === 0
                     ? "border-transparent text-zinc-600 cursor-not-allowed"
-                    : "border-[#27272a] bg-[#141414] text-zinc-300 hover:text-zinc-100 hover:border-zinc-500"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-200 hover:text-white hover:bg-zinc-700"
                 }`}
               >
                 <Trash2 className="w-3 h-3" />
@@ -154,39 +162,38 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
           </div>
 
           {/* Logs Stream */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1 font-mono text-xs custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-2 space-y-1 font-mono text-xs custom-scrollbar bg-zinc-950">
             {filteredLogs.length === 0 ? (
-              <div className="text-slate-500 italic p-2 text-center">
+              <div className="text-zinc-400 italic p-4 text-center font-sans">
                 No logs matching current filter
               </div>
             ) : (
               filteredLogs.map((entry) => {
                 const isError = entry.severity === "ERROR";
                 const isWarning = entry.severity === "WARNING";
-                const isMilestone = entry.severity === "MILESTONE";
 
                 return (
                   <div
                     key={entry.id}
-                    className={`p-1.5 rounded flex items-start justify-between group hover:bg-[#121212] ${
+                    className={`p-1.5 rounded-md flex items-start justify-between group hover:bg-zinc-900 transition-colors ${
                       isError
-                        ? "bg-rose-950/20 text-rose-300/90 border-l-2 border-rose-500"
+                        ? "bg-rose-950/25 text-rose-200 border-l-2 border-rose-500"
                         : isWarning
-                        ? "bg-amber-950/20 text-amber-300/90 border-l-2 border-amber-500"
-                        : "bg-[#121212] text-slate-300 border-l-2 border-cyan-600"
+                        ? "bg-amber-950/25 text-amber-200 border-l-2 border-amber-500"
+                        : "bg-zinc-900/70 text-zinc-200 border-l-2 border-cyan-500"
                     }`}
                   >
                     <div className="flex items-start space-x-2 truncate">
-                      <span className="text-[10px] text-slate-500 shrink-0 mt-0.5">
+                      <span className="text-[10px] text-zinc-400 shrink-0 mt-0.5">
                         {new Date(entry.timestamp).toLocaleTimeString()}
                       </span>
                       <span
-                        className={`text-[10px] px-1 py-0.2 rounded font-bold shrink-0 ${
+                        className={`text-[10px] px-1.5 py-0.2 rounded font-bold shrink-0 ${
                           isError
-                            ? "bg-rose-900/40 text-rose-400"
+                            ? "bg-rose-900/60 text-rose-300"
                             : isWarning
-                            ? "bg-amber-900/40 text-amber-400"
-                            : "bg-cyan-900/40 text-cyan-400"
+                            ? "bg-amber-900/60 text-amber-300"
+                            : "bg-cyan-900/60 text-cyan-300"
                         }`}
                       >
                         {entry.severity}
@@ -195,12 +202,14 @@ export const CriticalLogDrawer: React.FC<CriticalLogDrawerProps> = ({ logs }) =>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => handleCopyTrace(entry)}
                       title="Copy error trace"
-                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-200 shrink-0 ml-2"
+                      aria-label="Copy error trace"
+                      className="opacity-0 group-hover:opacity-100 p-1 text-zinc-400 hover:text-white shrink-0 ml-2 rounded hover:bg-zinc-800 transition-opacity focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer"
                     >
                       {copiedId === entry.id ? (
-                        <Check className="w-3 h-3 text-emerald-500" />
+                        <Check className="w-3 h-3 text-emerald-400" />
                       ) : (
                         <Copy className="w-3 h-3" />
                       )}

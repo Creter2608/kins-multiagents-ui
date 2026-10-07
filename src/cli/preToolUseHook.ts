@@ -8,7 +8,6 @@
 import * as fs from "node:fs/promises";
 import * as syncFs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { canonicalizePath, verifyBlueprintApproval } from "../main/services/blueprintApprovalAuthenticator.js";
 import {
   evaluateWorkspaceMutationPolicy,
@@ -16,86 +15,40 @@ import {
 } from "../shared/workspaceMutationPolicy.js";
 import {
   PreToolUseHookService,
-  verifyModeHmac,
   verifyRegistryEntryHmac,
   type WorkspaceRegistryEntry
 } from "../main/services/preToolUseHookService.js";
 import type { LoopState } from "../engine.js";
+import {
+  type PreToolUseHookInput,
+  type PreToolUseHookOutput,
+  type PreToolUseHookDecision,
+  type PreToolUseHookOptions,
+  parseCliHookArgs,
+  resolveDefaultUserDataPath,
+  DEFAULT_SOURCE_READ_TOKEN_THRESHOLD,
+  SOURCE_FILE_EXTENSIONS,
+  isSourceCodePath,
+  estimateFileTokens,
+  isFullFileReadTool,
+  isMutationTool
+} from "./preToolUseHookHelpers.js";
+import { evaluateReadGate } from "./preToolUseHookReadGate.js";
 
-export interface PreToolUseHookInput {
-  readonly toolCall?: {
-    readonly name?: string;
-    readonly args?: {
-      readonly TargetFile?: string;
-      readonly targetFile?: string;
-    };
-  };
-  readonly workspacePaths?: readonly string[];
-}
-
-export interface PreToolUseHookOutput {
-  readonly decision: "allow" | "deny" | "ask";
-  readonly reason: string;
-}
-
-export type PreToolUseHookDecision = PreToolUseHookOutput;
-
-export interface PreToolUseHookOptions {
-  readonly registryPath?: string | undefined;
-  readonly authKeyPath?: string | undefined;
-  readonly userDataPath?: string | undefined;
-  readonly env?: NodeJS.ProcessEnv | undefined;
-}
-
-export function parseCliHookArgs(argv: string[]): PreToolUseHookOptions {
-  const options: { registryPath?: string | undefined; authKeyPath?: string | undefined; userDataPath?: string | undefined } = {};
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (!arg) continue;
-    if (arg === "--user-data" && i + 1 < argv.length) {
-      const next = argv[++i];
-      if (next) options.userDataPath = next;
-    } else if (arg.startsWith("--user-data=")) {
-      options.userDataPath = arg.slice("--user-data=".length);
-    } else if (arg === "--registry" && i + 1 < argv.length) {
-      const next = argv[++i];
-      if (next) options.registryPath = next;
-    } else if (arg.startsWith("--registry=")) {
-      options.registryPath = arg.slice("--registry=".length);
-    } else if (arg === "--auth-key" && i + 1 < argv.length) {
-      const next = argv[++i];
-      if (next) options.authKeyPath = next;
-    } else if (arg.startsWith("--auth-key=")) {
-      options.authKeyPath = arg.slice("--auth-key=".length);
-    }
-  }
-  return options;
-}
-
-export function resolveDefaultUserDataPath(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.ANTIGRAVITY_HOOK_USER_DATA) {
-    return env.ANTIGRAVITY_HOOK_USER_DATA;
-  }
-  let cockpitPath: string | null = null;
-  if (process.platform === "win32" && env.APPDATA) {
-    cockpitPath = path.join(env.APPDATA, "kins-multiagents-ui");
-  } else if (process.platform === "darwin") {
-    cockpitPath = path.join(os.homedir(), "Library", "Application Support", "kins-multiagents-ui");
-  } else if (process.platform === "linux") {
-    const xdg = env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
-    cockpitPath = path.join(xdg, "kins-multiagents-ui");
-  }
-
-  if (cockpitPath && syncFs.existsSync(cockpitPath)) {
-    return cockpitPath;
-  }
-
-  return path.join(os.homedir(), ".gemini", "antigravity-cli", "userData");
-}
-
-export function isMutationTool(name?: string): boolean {
-  return name === "replace_file_content" || name === "write_to_file";
-}
+export {
+  type PreToolUseHookInput,
+  type PreToolUseHookOutput,
+  type PreToolUseHookDecision,
+  type PreToolUseHookOptions,
+  parseCliHookArgs,
+  resolveDefaultUserDataPath,
+  DEFAULT_SOURCE_READ_TOKEN_THRESHOLD,
+  SOURCE_FILE_EXTENSIONS,
+  isSourceCodePath,
+  estimateFileTokens,
+  isFullFileReadTool,
+  isMutationTool
+};
 
 export async function evaluatePreToolUseHook(
   input: PreToolUseHookInput | unknown,
@@ -108,24 +61,46 @@ export async function evaluatePreToolUseHook(
 
   const payload = input as PreToolUseHookInput;
   const toolName = payload.toolCall?.name;
+  const isMutation = isMutationTool(toolName);
+  const isRead = isFullFileReadTool(toolName);
 
-  if (!isMutationTool(toolName)) {
-    // If not a mutation tool, allow it through
-    return { decision: "allow", reason: `Tool '${toolName}' is not a mutation tool` };
+  // A-03: Safely extract and validate raw target parameter type
+  const rawTargetArg = payload.toolCall?.args
+    ? (payload.toolCall.args.TargetFile ??
+       payload.toolCall.args.targetFile ??
+       payload.toolCall.args.AbsolutePath ??
+       payload.toolCall.args.path)
+    : undefined;
+
+  if (rawTargetArg !== undefined && typeof rawTargetArg !== "string") {
+    if (isMutation || isRead) {
+      return {
+        decision: "deny",
+        reason: `Hook denied: invalid ${isMutation ? "TargetFile" : "AbsolutePath"} parameter type (expected string, got ${typeof rawTargetArg})`
+      };
+    }
   }
 
-  const targetFileRaw = payload.toolCall?.args?.TargetFile ?? payload.toolCall?.args?.targetFile;
-  if (!targetFileRaw || typeof targetFileRaw !== "string") {
-    return { decision: "deny", reason: `Mutation tool '${toolName}' missing TargetFile parameter` };
-  }
+  const targetFileRaw = typeof rawTargetArg === "string" ? rawTargetArg.trim() : undefined;
 
   // Resolve target file path against workspacePaths if relative
-  let resolvedTarget = targetFileRaw;
-  if (!path.isAbsolute(resolvedTarget)) {
-    const baseDir = payload.workspacePaths?.[0] ?? process.cwd();
-    resolvedTarget = path.resolve(baseDir, resolvedTarget);
+  let resolvedTarget = "";
+  if (targetFileRaw) {
+    if (!path.isAbsolute(targetFileRaw)) {
+      const baseDir = (Array.isArray(payload.workspacePaths) && payload.workspacePaths[0]) || process.cwd();
+      resolvedTarget = path.resolve(baseDir, targetFileRaw);
+    } else {
+      resolvedTarget = targetFileRaw;
+    }
   }
-  const canonicalTarget = canonicalizePath(resolvedTarget);
+  const canonicalTarget = resolvedTarget ? canonicalizePath(resolvedTarget) : "";
+
+  // F-01 / A-01: Resolve candidate workspace and evaluate active stealth rules BEFORE deciding non-mutation tools
+  // Treat empty/absent resolvedTarget as absent so fallback reaches process.cwd()
+  const candidateWorkspacePath = (Array.isArray(payload.workspacePaths) && payload.workspacePaths[0]) ||
+    (resolvedTarget || undefined) ||
+    process.cwd();
+  let activeStealth = PreToolUseHookService.findActiveStealthRulesForPath(candidateWorkspacePath);
 
   // Determine paths and options
   let customRegistryPath: string | undefined;
@@ -154,6 +129,108 @@ export async function evaluatePreToolUseHook(
 
   const userDataPath = customUserDataPath ?? resolveDefaultUserDataPath(env);
   const registryPath = customRegistryPath ?? path.join(userDataPath, "hooks", "workspaces.json");
+
+  let cachedSigningKey: Buffer | null = null;
+  const loadSigningKey = async (): Promise<Buffer> => {
+    if (cachedSigningKey) return cachedSigningKey;
+    if (customAuthKeyPath) {
+      cachedSigningKey = await fs.readFile(customAuthKeyPath);
+    } else {
+      cachedSigningKey = await PreToolUseHookService.getOrCreateSigningKey(userDataPath);
+    }
+    return cachedSigningKey;
+  };
+
+  // Fallback disk lookup for active stealth rules if not present in memory
+  if (!activeStealth) {
+    try {
+      if (syncFs.existsSync(registryPath)) {
+        let authKey: Buffer | null = null;
+        try {
+          authKey = await loadSigningKey();
+        } catch {
+          authKey = null;
+        }
+
+        if (authKey) {
+          const raw = await fs.readFile(registryPath, "utf-8");
+          const reg = JSON.parse(raw);
+          for (const [wsPath, entry] of Object.entries((reg.workspaces ?? {}) as Record<string, WorkspaceRegistryEntry>)) {
+            const canonWs = canonicalizePath(wsPath);
+            const canonCandidate = canonicalizePath(candidateWorkspacePath);
+            if (canonCandidate === canonWs || canonCandidate.startsWith(canonWs.endsWith("/") ? canonWs : `${canonWs}/`)) {
+              // A-02: Mandatory authentication before sidecar state/manifest reads
+              if (!entry.entryHmac || !verifyRegistryEntryHmac(entry, authKey)) {
+                continue;
+              }
+
+              const sidecarDir = path.dirname(entry.sidecarStatePath);
+              const manifestPath = path.join(sidecarDir, "stealth", "manifest.json");
+              if (syncFs.existsSync(manifestPath)) {
+                const manRaw = await fs.readFile(manifestPath, "utf-8");
+                const man = JSON.parse(manRaw);
+                activeStealth = {
+                  workspaceId: man.workspaceId ?? entry.canonicalWorkspacePath,
+                  policyRevision: man.policyRevision ?? "default",
+                  protectedPaths: [
+                    manifestPath,
+                    man.excludePath,
+                    ...(man.files ?? []).map((f: { path: string }) => f.path)
+                  ],
+                  verificationCommandIds: ["npm test"],
+                  includeDesignPack: man.includeDesignPack
+                };
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore disk manifest read failure
+    }
+  }
+
+  // F-01 Enforcement: Active stealth rules gate opaque tools and release actions
+  if (activeStealth) {
+    if (toolName === "bash" || toolName === "run_command" || toolName === "run_command_opaque") {
+      return {
+        decision: "deny",
+        reason: `[KINS_STEALTH] Denied (UNSUPPORTED_TOOL): Tool '${toolName}' is an unsupported opaque mutation under active stealth rules. Remediation: Use standard surgical file editing tools (replace_file_content, write_to_file) or sandboxed execution.`
+      };
+    }
+    if (toolName === "release_gate_approval" || (payload as { isReleaseAction?: boolean }).isReleaseAction || toolName === "release_action") {
+      const hookService = new PreToolUseHookService();
+      if (!hookService.isVerificationFresh(activeStealth.workspaceId)) {
+        return {
+          decision: "deny",
+          reason: "[KINS_STEALTH] Denied (VERIFICATION_REQUIRED): Release action blocked: Verification suite has not confirmed passing status for current code revision. Remediation: Execute local tests and verification commands before releasing."
+        };
+      }
+    }
+  }
+
+  if (!isMutation && !isRead) {
+    // If neither mutation nor full-file read tool, allow it through
+    return { decision: "allow", reason: `Tool '${toolName}' is not a mutation tool` };
+  }
+
+  if (!targetFileRaw || typeof targetFileRaw !== "string") {
+    if (isMutation) {
+      return { decision: "deny", reason: `Mutation tool '${toolName}' missing TargetFile parameter` };
+    } else {
+      return { decision: "deny", reason: `Read tool '${toolName}' missing AbsolutePath parameter` };
+    }
+  }
+
+  // Read-Gate: Anti-Token-Drain protocol for view_file
+  if (isRead) {
+    return await evaluateReadGate(payload, canonicalTarget, {
+      userDataPath,
+      registryPath,
+      customAuthKeyPath
+    });
+  }
 
   let registry: { workspaces?: Record<string, WorkspaceRegistryEntry> } = {};
   try {
@@ -190,11 +267,7 @@ export async function evaluatePreToolUseHook(
   // Load signing key before inspecting state
   let signingKey: Buffer;
   try {
-    if (customAuthKeyPath) {
-      signingKey = await fs.readFile(customAuthKeyPath);
-    } else {
-      signingKey = await PreToolUseHookService.getOrCreateSigningKey(userDataPath);
-    }
+    signingKey = await loadSigningKey();
   } catch (err) {
     return {
       decision: "deny",
@@ -240,6 +313,62 @@ export async function evaluatePreToolUseHook(
       decision: "deny",
       reason: `Hook denied: failed to read sidecar state at '${matchedWorkspace.sidecarStatePath}': ${err instanceof Error ? err.message : String(err)}`
     };
+  }
+
+  // Invariant 1: Protected Evaluation Zone (.eval/) is strictly read-only
+  if (
+    canonicalTarget.includes("/.eval/") ||
+    canonicalTarget.includes("\\.eval\\") ||
+    canonicalTarget.endsWith("/.eval") ||
+    canonicalTarget.endsWith("\\.eval")
+  ) {
+    return {
+      decision: "deny",
+      reason: "[KINS_STEALTH] Denied: Protected evaluation zone (.eval/) is strictly read-only for all agents."
+    };
+  }
+
+  // Invariant 2: Host-enforced Stealth Rules Gatekeeper
+  const sidecarDir = path.dirname(matchedWorkspace.sidecarStatePath);
+  const stealthManifestPath = path.join(sidecarDir, "stealth", "manifest.json");
+  try {
+    if (syncFs.existsSync(stealthManifestPath)) {
+      const manifestRaw = await fs.readFile(stealthManifestPath, "utf-8");
+      const manifest = JSON.parse(manifestRaw);
+      const stealthPaths = [
+        canonicalizePath(stealthManifestPath),
+        canonicalizePath(manifest.excludePath),
+        ...(manifest.files ?? []).map((f: { path: string }) => canonicalizePath(f.path))
+      ];
+
+      if (stealthPaths.includes(canonicalTarget)) {
+        return {
+          decision: "deny",
+          reason: `[KINS_STEALTH] Denied: Target path '${canonicalTarget}' is protected under active stealth rules. Remediation: Never tamper with stealth rules or exclude configuration.`
+        };
+      }
+
+      if (manifest.includeDesignPack) {
+        const normTarget = canonicalTarget.replace(/\\/g, "/");
+        if (
+          (normTarget.endsWith(".tsx") || normTarget.endsWith(".jsx") || normTarget.endsWith(".css")) &&
+          !normTarget.includes("TerminalStage.tsx")
+        ) {
+          const toolArgs = payload.toolCall?.args;
+          const content = String(toolArgs?.CodeContent || toolArgs?.ReplacementContent || "");
+          for (const banned of PreToolUseHookService.BANNED_LEGACY_HEXES) {
+            if (content.includes(banned)) {
+              return {
+                decision: "deny",
+                reason: `[KINS_STEALTH] Denied: Prohibited legacy color hex '${banned}' introduced in UI file. Remediation: Replace with approved Zinc tokens (bg-zinc-950, bg-zinc-900, bg-zinc-800, border-zinc-800, text-zinc-100).`
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore error reading stealth manifest
   }
 
   // 1. If fast-path mode is active, check if target is an inert documentation file

@@ -1,14 +1,19 @@
-/**
- * src/main/services/ruleBundleCompilerService.ts
- * Compiles canonical Karpathy, Dual-Oracle, CodeGraph, and Autonomous Loop V3 rules
- * deterministically across various agentic formats (AGENTS.md, CLAUDE.md, GEMINI.md, Cursor MDC).
- */
+import * as syncFs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import { sha256Bytes } from "../../checksum.js";
+import type {
+  EnforcedTemplatePhase,
+  EnforcedTemplateId,
+  CompiledPhaseTemplate
+} from "../../shared/phaseTemplateBinding.js";
 
 export interface CompiledRuleBundle {
   readonly agentsMarkdown: string;
   readonly claudeMarkdown: string;
   readonly geminiMarkdown: string;
   readonly cursorMdc: string;
+  readonly phaseTemplates?: Record<EnforcedTemplatePhase, CompiledPhaseTemplate>;
 }
 
 const UNIVERSAL_INVARIANTS = `# Autonomous Agent Operating Guidelines
@@ -17,7 +22,7 @@ This environment enforces an **Enterprise-Grade AI-Ready Standard (v3.0)** desig
 
 ---
 
-## 🔁 Mandatory Autonomous Loop v2.0
+## 🔁 Mandatory Autonomous Loop v3.0
 
 All autonomous workflows, feature implementations, refactors, and bugfixes MUST strictly adhere to the loop workflow:
 \`\`\`text
@@ -112,12 +117,111 @@ Route tasks to designated Superpowers template framework:
 <!-- KARPATHY_GUIDELINES_END -->
 `.trim();
 
+const FALLBACK_TEMPLATES: Record<
+  EnforcedTemplatePhase,
+  { templateId: EnforcedTemplateId; relativePath: string; defaultContent: string }
+> = {
+  PLAN: {
+    templateId: "plan-document-reviewer-prompt",
+    relativePath: "writing-plans/plan-document-reviewer-prompt.md",
+    defaultContent: `# Plan Document Reviewer Prompt Template
+
+Use this template when dispatching a plan document reviewer subagent.
+
+**Purpose:** Verify the plan is complete, matches the spec, and has proper task decomposition.
+
+**Dispatch after:** The complete plan is written.
+
+Subagent (general-purpose):
+  description: "Review plan document"
+  prompt: |
+    You are a plan document reviewer. Verify this plan is complete and ready for implementation.
+`
+  },
+  EXECUTE: {
+    templateId: "implementer-prompt",
+    relativePath: "subagent-driven-development/implementer-prompt.md",
+    defaultContent: `# Implementer Subagent Prompt Template
+
+Use this template when dispatching an implementer subagent.
+
+Subagent (general-purpose):
+  description: "Implement Task N: [task name]"
+  prompt: |
+    You are implementing Task N: [task name]
+`
+  },
+  VERIFY: {
+    templateId: "task-reviewer-prompt",
+    relativePath: "subagent-driven-development/task-reviewer-prompt.md",
+    defaultContent: `# Task Reviewer Prompt Template
+
+Use this template when dispatching a task reviewer subagent.
+
+Subagent (general-purpose):
+  description: "Review Task N (spec + quality)"
+  prompt: |
+    You are reviewing one task's implementation: first whether it matches its requirements, then whether it is well-built.
+`
+  }
+};
+
+import { compileFrontendDesignStealthPack } from "./frontendDesignStealthPack.js";
+
 export class RuleBundleCompilerService {
-  compileUniversalRules(): CompiledRuleBundle {
+  compilePhaseTemplates(options?: { templatesDir?: string }): Record<EnforcedTemplatePhase, CompiledPhaseTemplate> {
+    const baseDir = options?.templatesDir ??
+      path.join(os.homedir(), ".gemini", "config", "plugins", "superpowers", "skills");
+
+    const result = {} as Record<EnforcedTemplatePhase, CompiledPhaseTemplate>;
+
+    for (const [phaseKey, meta] of Object.entries(FALLBACK_TEMPLATES) as [
+      EnforcedTemplatePhase,
+      (typeof FALLBACK_TEMPLATES)[EnforcedTemplatePhase]
+    ][]) {
+      const candidatePath = path.join(baseDir, meta.relativePath);
+      let content = meta.defaultContent;
+      let sourcePath = "embedded-fallback";
+
+      try {
+        if (syncFs.existsSync(candidatePath)) {
+          content = syncFs.readFileSync(candidatePath, "utf-8");
+          sourcePath = candidatePath;
+        }
+      } catch {
+        // Fallback to default
+      }
+
+      const normalized = content.replace(/\r\n/g, "\n").trim();
+      const sha256 = sha256Bytes(Buffer.from(normalized, "utf-8"));
+
+      result[phaseKey] = Object.freeze({
+        phase: phaseKey,
+        templateId: meta.templateId,
+        sourcePath,
+        sha256,
+        content: normalized
+      });
+    }
+
+    return Object.freeze(result);
+  }
+
+  compileUniversalRules(options?: { templatesDir?: string; includeDesignPack?: boolean }): CompiledRuleBundle {
     const normalizedBody = UNIVERSAL_INVARIANTS.replace(/\r\n/g, "\n");
 
-    const agentsMarkdown = normalizedBody + "\n";
-    const claudeMarkdown = normalizedBody + "\n";
+    let agentsBody = normalizedBody;
+    let claudeBody = normalizedBody;
+
+    if (options?.includeDesignPack) {
+      const designPackAgents = compileFrontendDesignStealthPack("agents");
+      const designPackClaude = compileFrontendDesignStealthPack("claude");
+      agentsBody = `${normalizedBody}\n\n${designPackAgents}`;
+      claudeBody = `${normalizedBody}\n\n${designPackClaude}`;
+    }
+
+    const agentsMarkdown = agentsBody + "\n";
+    const claudeMarkdown = claudeBody + "\n";
     const geminiMarkdown = normalizedBody + "\n";
     const cursorMdc = [
       "---",
@@ -129,11 +233,14 @@ export class RuleBundleCompilerService {
       ""
     ].join("\n");
 
+    const phaseTemplates = this.compilePhaseTemplates(options);
+
     return Object.freeze({
       agentsMarkdown,
       claudeMarkdown,
       geminiMarkdown,
-      cursorMdc
+      cursorMdc,
+      phaseTemplates
     });
   }
 }

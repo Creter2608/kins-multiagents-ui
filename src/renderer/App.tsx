@@ -16,6 +16,7 @@ import { CriticalLogDrawer } from "./components/CriticalLogDrawer.js";
 import { TelemetryHud } from "./components/TelemetryHud.js";
 import { ProjectSelector } from "./components/ProjectSelector.js";
 import { EvalScoreboard } from "./components/EvalScoreboard.js";
+import "./styles/cockpit.css";
 
 const DEFAULT_LOOP_STATE: LoopStateSnapshot = {
   runId: "init",
@@ -209,58 +210,62 @@ export const App: React.FC = () => {
   ).length;
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#000000] text-[#e2e8f0] overflow-hidden">
+    <div className="kins-cockpit h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden select-none">
       {/* Top Cockpit Bar */}
-      <header className="h-10 bg-[#0c0c0c] border-b border-[#1f1f1f] px-4 flex items-center justify-between select-none shrink-0">
+      <header className="h-10 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between select-none shrink-0 font-sans">
         <div className="flex items-center space-x-2.5">
-          <span className="w-2 h-2 rounded-sm bg-emerald-500 shadow-sm shadow-emerald-500/30" />
-          <span className="font-bold text-sm tracking-wide text-zinc-100 font-mono">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/40 motion-reduce:animate-none" />
+          <span className="font-bold text-sm tracking-wide text-zinc-100">
             KINS COCKPIT
           </span>
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[#18181b] text-zinc-400 font-mono font-medium border border-[#27272a]">
+          <span className="text-xs px-2 py-0.5 rounded bg-zinc-800/80 text-zinc-300 font-mono font-medium border border-zinc-700/60">
             v{__APP_VERSION__}
           </span>
           <ProjectSelector />
 
           {/* Navigation Tabs */}
-          <div className="flex items-center bg-[#141414] rounded p-0.5 border border-[#27272a] ml-2">
+          <nav className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 ml-2 gap-0.5" aria-label="Cockpit views">
             <button
+              type="button"
               onClick={() => setActiveTab("terminal")}
-              className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-colors ${
+              aria-current={activeTab === "terminal" ? "page" : undefined}
+              className={`px-3 py-1 text-xs font-sans font-medium rounded-md transition-colors min-h-[28px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 activeTab === "terminal"
-                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-800 text-zinc-100 shadow-xs border border-zinc-700/60 font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
               }`}
             >
               Terminal
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab("eval")}
-              className={`px-2.5 py-1 text-xs font-mono font-medium rounded transition-colors flex items-center gap-1.5 ${
+              aria-current={activeTab === "eval" ? "page" : undefined}
+              className={`px-3 py-1 text-xs font-sans font-medium rounded-md transition-colors min-h-[28px] flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 activeTab === "eval"
-                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-800 text-zinc-100 shadow-xs border border-zinc-700/60 font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
               }`}
             >
               <span>Eval HUD</span>
               {evalSnapshot.status === "running" && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse motion-reduce:animate-none" />
               )}
               {evalSnapshot.status === "malformed" && (
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
               )}
             </button>
-          </div>
+          </nav>
         </div>
 
         <div className="flex items-center space-x-2.5">
           {!bridgeConnected && (
-            <span className="text-xs px-2 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-800/60 font-mono font-bold">
+            <span className="text-xs px-2.5 py-0.5 rounded-md bg-rose-950/60 text-rose-300 border border-rose-800/80 font-mono font-bold">
               IPC BRIDGE OFFLINE
             </span>
           )}
-          <div className="text-xs text-zinc-400 font-mono bg-[#141414] px-3 py-1 rounded border border-[#27272a]">
-            Run ID: <span className="text-zinc-200 font-semibold">{loopState.runId}</span>
+          <div className="text-xs text-zinc-300 font-mono bg-zinc-900 px-3 py-1 rounded-md border border-zinc-800">
+            Run ID: <span className="text-zinc-100 font-semibold">{loopState.runId}</span>
           </div>
         </div>
       </header>
@@ -285,36 +290,42 @@ export const App: React.FC = () => {
         </div>
 
         {/* Right: Tabbed MCP & Subagents Sidebar */}
-        <aside className="w-80 bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col h-full overflow-hidden shrink-0 select-none font-mono">
-          <div className="flex items-center bg-[#0c0c0c] border-b border-[#1f1f1f] p-1.5 gap-1 shrink-0">
+        <aside className="w-80 bg-zinc-900/60 border-l border-zinc-800 flex flex-col h-full overflow-hidden shrink-0 select-none font-sans">
+          <div className="flex items-center bg-zinc-900 border-b border-zinc-800 p-1.5 gap-1.5 shrink-0" role="tablist" aria-label="Sidebar sections">
             <button
+              type="button"
+              role="tab"
+              aria-selected={rightSidebarTab === "mcp"}
               onClick={() => setRightSidebarTab("mcp")}
-              className={`flex-1 py-1 px-2 text-xs font-mono font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1 px-2.5 text-xs font-sans font-medium rounded-md transition-colors min-h-[30px] flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 rightSidebarTab === "mcp"
-                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-800 text-zinc-100 font-semibold shadow-xs border border-zinc-700/60"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
               }`}
             >
               <span>MCP Tools</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#18181b] border border-[#27272a] text-zinc-400">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 font-mono">
                 {mcpState.servers.length}
               </span>
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={rightSidebarTab === "subagents"}
               onClick={() => setRightSidebarTab("subagents")}
-              className={`flex-1 py-1 px-2 text-xs font-mono font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1 px-2.5 text-xs font-sans font-medium rounded-md transition-colors min-h-[30px] flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
                 rightSidebarTab === "subagents"
-                  ? "bg-[#27272a] text-zinc-100 shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-800 text-zinc-100 font-semibold shadow-xs border border-zinc-700/60"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
               }`}
             >
               <span>Subagents</span>
               {activeSubagentsCount > 0 ? (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950/60 text-blue-300 font-bold animate-pulse border border-blue-700/60">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/70 text-blue-300 font-bold border border-blue-700/70 font-mono">
                   {activeSubagentsCount}
                 </span>
               ) : (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#18181b] border border-[#27272a] text-zinc-400">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 font-mono">
                   {subagents.length}
                 </span>
               )}

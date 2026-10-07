@@ -28,7 +28,7 @@ Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github
 
 ### 2. Live Telemetry HUD & Token Accounting
 - **Provider Breakdown**: Displays prompt (in) and completion (out) tokens for both Layer 1 GPT and Layer 2 Gemini:
-  - **GPT Telemetry**: In / Out / Cached tokens with real-time prompt cache hit percentage (`gpt-5.6-sol` pricing model: $4.00/1M uncached input, $0.40/1M cached input, $20.00/1M output).
+  - **GPT Telemetry**: In / Out / Cached tokens with real-time prompt cache hit percentage (`gpt-6.1-sol` pricing model: $2.00/1M uncached input, $0.10/1M cached input, $10.00/1M output).
   - **Gemini Telemetry**: In / Out tokens tracking Gemini 3.8 Flash. Output tokens explicitly account for **Thinking / Reasoning tokens**.
 - **Session vs. All-Time Scopes**: Toggle between current active session metrics and persistent all-time cumulative counters (`telemetry_alltime.json`). Includes an instant 1-click `Reset` button for session counters.
 - **Cost & Budget Circuit Breaker**: Real-time USD spend tracking against a hard configurable ceiling (`$0.50` default) alongside an autonomous token budget indicator that evaluates **strictly Layer 1 GPT tokens** against the 50k (warning) and 60k (exceeded) limits. Unbilled or flat-rate Layer 2 tokens (Gemini) are explicitly excluded from tripping this budget threshold.
