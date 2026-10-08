@@ -396,3 +396,85 @@ test("quota refresh preserves successful IPC invocation", async () => {
     "Successful refresh must not report a failure"
   );
 });
+
+test("Real Language Server format: cascadeModelConfigData.clientModelConfigs with remainingFraction", () => {
+  const nowMs = 1770000000000;
+  const observedAt = new Date(nowMs);
+  const futureResetIso = new Date(nowMs + 3600000).toISOString();
+
+  const realServerPayload = {
+    userStatus: {
+      email: "test@example.com",
+      cascadeModelConfigData: {
+        clientModelConfigs: [
+          {
+            modelId: "gemini-3.8-flash-high",
+            label: "Gemini 3.8 Flash (High)",
+            quotaInfo: {
+              remainingFraction: 0.6842371,
+              resetTime: futureResetIso
+            }
+          },
+          {
+            modelId: "gemini-pro-agent",
+            label: "Gemini 3.1 Pro (High)",
+            quotaInfo: {
+              remainingFraction: 0.5,
+              resetTime: futureResetIso
+            }
+          },
+          {
+            modelId: "claude-sonnet-4-6",
+            label: "Claude Sonnet 4.6 (Thinking)",
+            quotaInfo: {
+              remainingFraction: 1.0,
+              resetTime: futureResetIso
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  const parsed = parseAntigravityQuota(realServerPayload, observedAt, 120000);
+  assert.equal(parsed.length, 2, "Should parse only the 2 Gemini models, ignoring Claude");
+
+  const flash = parsed.find((p) => p.scope === "gemini-3.8-flash-high");
+  assert.ok(flash);
+  assert.equal(flash.source, "provider");
+  assert.equal(flash.remainingPercentage, 68.4);
+  assert.equal(flash.limit, null);
+  assert.equal(flash.remaining, null);
+  assert.equal(flash.resetAt, futureResetIso);
+
+  const pro = parsed.find((p) => p.scope === "gemini-pro-agent");
+  assert.ok(pro);
+  assert.equal(pro.source, "provider");
+  assert.equal(pro.remainingPercentage, 50);
+});
+
+test("AntigravityQuotaClient sends x-codeium-csrf-token header", async () => {
+  let receivedCodeiumHeader: string | undefined;
+  let receivedCsrfHeader: string | undefined;
+
+  const server = http.createServer((req, res) => {
+    receivedCodeiumHeader = req.headers["x-codeium-csrf-token"] as string | undefined;
+    receivedCsrfHeader = req.headers["x-csrf-token"] as string | undefined;
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ userStatus: { quota: { models: [] } } }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const client = new AntigravityQuotaClient();
+    await client.getUserStatus({ port, csrfToken: "sample-token-12345" });
+
+    assert.equal(receivedCodeiumHeader, "sample-token-12345");
+    assert.equal(receivedCsrfHeader, "sample-token-12345");
+  } finally {
+    server.close();
+  }
+});

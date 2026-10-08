@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -107,6 +108,13 @@ export class AntigravityQuotaClient implements AntigravityQuotaTransport {
 
     if (this.userDataPath) {
       filePathsToTry.push(path.join(this.userDataPath, "antigravity-endpoint.json"));
+    }
+
+    filePathsToTry.push(path.join(process.cwd(), "antigravity-endpoint.json"));
+    try {
+      filePathsToTry.push(path.join(os.homedir(), ".gemini", "antigravity-endpoint.json"));
+    } catch {
+      // Ignored if homedir unavailable
     }
 
     for (const filePath of filePathsToTry) {
@@ -395,6 +403,7 @@ export class AntigravityQuotaClient implements AntigravityQuotaTransport {
         throw new Error("Malformed CSRF token containing newline characters");
       }
       headers["X-Csrf-Token"] = endpoint.csrfToken;
+      headers["x-codeium-csrf-token"] = endpoint.csrfToken;
     }
 
     return new Promise((resolve, reject) => {
