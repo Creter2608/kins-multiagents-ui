@@ -43,7 +43,7 @@ export class ExecutionGuard {
    * Evaluates a complete ToolPlan before any step is dispatched.
    */
   checkPlan(plan: ToolPlan): GuardDecision {
-    if (!plan || plan.version !== 1 || !Array.isArray(plan.steps)) {
+    if (!plan || typeof plan !== 'object' || plan.version !== 1 || !Array.isArray(plan.steps)) {
       return {
         allowed: false,
         reasonCode: 'INVALID_PLAN_SCHEMA',
@@ -57,6 +57,39 @@ export class ExecutionGuard {
         reasonCode: 'PLAN_STEP_LIMIT_EXCEEDED',
         message: `Plan exceeds maximum allowable steps of ${this.maxPlanSteps}. Received ${plan.steps.length} steps.`
       };
+    }
+
+    // F5: Validate each step structure before admitting plan
+    for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i];
+      if (!step || typeof step !== 'object' || Array.isArray(step)) {
+        return {
+          allowed: false,
+          reasonCode: 'INVALID_STEP_SCHEMA',
+          message: `Plan step at index ${i} is not a valid object.`
+        };
+      }
+      if (typeof step.id !== 'string' || !step.id.trim()) {
+        return {
+          allowed: false,
+          reasonCode: 'INVALID_STEP_SCHEMA',
+          message: `Plan step at index ${i} has invalid or missing step id.`
+        };
+      }
+      if (typeof step.tool !== 'string' || !step.tool.trim()) {
+        return {
+          allowed: false,
+          reasonCode: 'INVALID_STEP_SCHEMA',
+          message: `Plan step at index ${i} has invalid or missing tool name.`
+        };
+      }
+      if (!step.args || typeof step.args !== 'object' || Array.isArray(step.args)) {
+        return {
+          allowed: false,
+          reasonCode: 'INVALID_STEP_SCHEMA',
+          message: `Plan step at index ${i} has invalid args (expected non-null, non-array object).`
+        };
+      }
     }
 
     return { allowed: true };

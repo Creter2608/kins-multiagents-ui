@@ -9,11 +9,29 @@ import fs from 'node:fs';
 import type { SandboxPolicyConfig, PolicyDecision } from '../../shared/harnessContracts.js';
 
 /**
- * Resolves the real canonical path of a target, resolving any symlinks.
+ * Resolves the real canonical path of a target, resolving any symlinks (including dangling symlinks).
  * If the file does not exist yet, resolves the nearest existing ancestor.
  */
-function resolveCanonicalPath(targetPath: string): string {
+function resolveCanonicalPath(targetPath: string, depth = 0): string {
+  if (depth > 16) {
+    return path.resolve(targetPath);
+  }
   const absolutePath = path.resolve(targetPath);
+
+  // Check if the path itself is a symlink (even dangling)
+  try {
+    const lstat = fs.lstatSync(absolutePath);
+    if (lstat.isSymbolicLink()) {
+      const linkTarget = fs.readlinkSync(absolutePath);
+      const destination = path.isAbsolute(linkTarget)
+        ? linkTarget
+        : path.resolve(path.dirname(absolutePath), linkTarget);
+      return resolveCanonicalPath(destination, depth + 1);
+    }
+  } catch {
+    // Path does not exist or inaccessible
+  }
+
   if (fs.existsSync(absolutePath)) {
     try {
       return fs.realpathSync(absolutePath);
@@ -22,11 +40,24 @@ function resolveCanonicalPath(targetPath: string): string {
     }
   }
 
-  // Walk up to find nearest existing directory
+  // Walk up to find nearest existing directory, resolving symlinks along the way
   let current = path.dirname(absolutePath);
   const segments: string[] = [path.basename(absolutePath)];
 
   while (current && current !== path.dirname(current)) {
+    try {
+      const lstat = fs.lstatSync(current);
+      if (lstat.isSymbolicLink()) {
+        const linkTarget = fs.readlinkSync(current);
+        const destination = path.isAbsolute(linkTarget)
+          ? linkTarget
+          : path.resolve(path.dirname(current), linkTarget);
+        return resolveCanonicalPath(path.resolve(destination, ...segments), depth + 1);
+      }
+    } catch {
+      // Ignore
+    }
+
     if (fs.existsSync(current)) {
       try {
         const realAncestor = fs.realpathSync(current);

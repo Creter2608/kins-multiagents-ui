@@ -23,6 +23,7 @@ export class ToolPlanExecutor {
   private readonly journal: SessionJournal;
   private readonly policy: SandboxPolicy;
   private readonly guard: ExecutionGuard;
+  private executionLock: Promise<void> = Promise.resolve();
 
   constructor(
     tools: readonly RegisteredTool[],
@@ -43,21 +44,36 @@ export class ToolPlanExecutor {
 
   /**
    * Executes a bounded tool plan sequentially.
-   * Stops immediately on the first non-successful step.
+   * Serializes plan executions to guarantee deterministic repetition guard tracking (F4).
    */
   async execute(plan: ToolPlan, outerSignal?: AbortSignal): Promise<readonly ToolResult[]> {
+    return new Promise<readonly ToolResult[]>((resolve, reject) => {
+      this.executionLock = this.executionLock.then(async () => {
+        try {
+          const results = await this.executeInternal(plan, outerSignal);
+          resolve(results);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+
+  private async executeInternal(plan: ToolPlan, outerSignal?: AbortSignal): Promise<readonly ToolResult[]> {
     const results: ToolResult[] = [];
 
     // 1. Guard check whole plan before any tool is dispatched
     const planGuard = this.guard.checkPlan(plan);
     if (!planGuard.allowed) {
+      // F5: Safely access requestedSteps even if plan.steps is missing
+      const requestedSteps = Array.isArray(plan?.steps) ? plan.steps.length : 0;
       await this.journal.append({
         source: 'guard',
         kind: 'plan_rejected',
         data: {
           reasonCode: planGuard.reasonCode,
           message: planGuard.message,
-          requestedSteps: plan.steps.length
+          requestedSteps
         }
       });
       // Plan rejected: zero tool calls executed
@@ -88,7 +104,7 @@ export class ToolPlanExecutor {
           status: 'failed',
           stepId: step.id,
           tool: step.tool,
-          reasonCode: 'PLAN_ABORTED'
+          reasonCode: 'TOOL_ABORTED'
         });
         break;
       }
@@ -136,6 +152,54 @@ export class ToolPlanExecutor {
         break;
       }
 
+      // F1: Check sandbox policy before dispatch
+      if (registeredTool.effect === 'write' && this.policy.config.mode === 'read-only') {
+        await this.journal.append({
+          source: 'guard',
+          kind: 'tool_blocked',
+          stepId: step.id,
+          data: {
+            tool: step.tool,
+            reasonCode: 'READ_ONLY_MODE',
+            message: 'Write tool blocked in read-only sandbox mode'
+          }
+        });
+        results.push({
+          status: 'blocked',
+          stepId: step.id,
+          tool: step.tool,
+          reasonCode: 'READ_ONLY_MODE'
+        });
+        break;
+      }
+
+      // F1: Inspect any filesystem target arguments against sandbox policy
+      const targetPath = step.args.path ?? step.args.targetPath ?? step.args.filePath ?? step.args.target;
+      if (typeof targetPath === 'string' && targetPath.trim()) {
+        const op = registeredTool.effect === 'write' ? 'write' : 'read';
+        const pathDecision = this.policy.authorizePath(targetPath, op);
+        if (!pathDecision.allowed) {
+          const reasonCode = pathDecision.reasonCode ?? 'SANDBOX_POLICY_VIOLATION';
+          await this.journal.append({
+            source: 'guard',
+            kind: 'tool_blocked',
+            stepId: step.id,
+            data: {
+              tool: step.tool,
+              reasonCode,
+              message: `Path '${targetPath}' disallowed: ${reasonCode}`
+            }
+          });
+          results.push({
+            status: 'blocked',
+            stepId: step.id,
+            tool: step.tool,
+            reasonCode
+          });
+          break;
+        }
+      }
+
       // 2c. Log execution intent before dispatch
       await this.journal.append({
         source: 'tool',
@@ -147,76 +211,135 @@ export class ToolPlanExecutor {
       // Update repetition tracking
       this.guard.recordToolDispatch(step.tool, step.args);
 
-      // 2d. Run tool under timeout and abort signal
+      // 2d. Run tool under timeout and abort signal (F3: race against timeout independently of tool cooperation)
       const timeoutController = new AbortController();
+      let timeoutTimer: NodeJS.Timeout | undefined;
       let isTimedOut = false;
-      const timeoutTimer = setTimeout(() => {
-        isTimedOut = true;
-        timeoutController.abort();
-      }, DEFAULT_TOOL_TIMEOUT_MS);
+      let timeoutAppendPromise: Promise<unknown> | undefined;
 
       const combinedSignal = outerSignal
         ? AbortSignal.any([outerSignal, timeoutController.signal])
         : timeoutController.signal;
 
-      try {
-        const outcome = await registeredTool.execute(step.args, combinedSignal);
-        clearTimeout(timeoutTimer);
+      const timeoutPromise = new Promise<{ isTimeout: true }>((resolve) => {
+        timeoutTimer = setTimeout(() => {
+          isTimedOut = true;
+          timeoutController.abort();
+          timeoutAppendPromise = this.journal.append({
+            source: 'tool',
+            kind: 'tool_result',
+            stepId: step.id,
+            data: { status: 'timed-out', reasonCode: 'TOOL_TIMEOUT' }
+          });
+          resolve({ isTimeout: true });
+        }, DEFAULT_TOOL_TIMEOUT_MS);
+      });
 
-        if (outcome.error) {
+      const abortPromise = new Promise<{ isAbort: true }>((resolve) => {
+        if (outerSignal?.aborted) {
+          resolve({ isAbort: true });
+        } else if (outerSignal) {
+          outerSignal.addEventListener('abort', () => resolve({ isAbort: true }), { once: true });
+        }
+      });
+
+      const toolPromise = (async () => {
+        try {
+          const outcome = await registeredTool.execute(step.args, combinedSignal);
+          return { isTool: true as const, outcome };
+        } catch (execErr: unknown) {
+          return { isTool: true as const, error: execErr };
+        }
+      })();
+
+      try {
+        const raceResult = await Promise.race([toolPromise, timeoutPromise, abortPromise]);
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+
+        if ('isTimeout' in raceResult) {
+          if (!timeoutAppendPromise) {
+            timeoutAppendPromise = this.journal.append({
+              source: 'tool',
+              kind: 'tool_result',
+              stepId: step.id,
+              data: { status: 'timed-out', reasonCode: 'TOOL_TIMEOUT' }
+            });
+          }
+          results.push({
+            status: 'timed-out',
+            stepId: step.id,
+            tool: step.tool,
+            reasonCode: 'TOOL_TIMEOUT'
+          });
+          break;
+        }
+
+        if ('isAbort' in raceResult) {
           await this.journal.append({
             source: 'tool',
             kind: 'tool_result',
             stepId: step.id,
-            data: { status: 'failed', error: outcome.error }
+            data: { status: 'failed', reasonCode: 'TOOL_ABORTED' }
           });
           results.push({
             status: 'failed',
             stepId: step.id,
             tool: step.tool,
-            reasonCode: outcome.error
+            reasonCode: 'TOOL_ABORTED'
           });
           break;
         }
 
-        await this.journal.append({
-          source: 'tool',
-          kind: 'tool_result',
-          stepId: step.id,
-          data: { status: 'succeeded', output: outcome.output }
-        });
-        results.push({
-          status: 'succeeded',
-          stepId: step.id,
-          tool: step.tool,
-          ...(outcome.output !== undefined ? { output: outcome.output } : {})
-        });
-      } catch (execErr: unknown) {
-        clearTimeout(timeoutTimer);
-        const isAbort = combinedSignal.aborted;
-        const status = isTimedOut ? 'timed-out' : 'failed';
-        const reasonCode = isTimedOut
-          ? 'TOOL_TIMEOUT'
-          : isAbort
-            ? 'TOOL_ABORTED'
-            : execErr instanceof Error
-              ? execErr.message
-              : String(execErr);
+        if ('isTool' in raceResult) {
+          if (raceResult.error) {
+            const reasonCode = raceResult.error instanceof Error ? raceResult.error.message : String(raceResult.error);
+            await this.journal.append({
+              source: 'tool',
+              kind: 'tool_result',
+              stepId: step.id,
+              data: { status: 'failed', reasonCode }
+            });
+            results.push({
+              status: 'failed',
+              stepId: step.id,
+              tool: step.tool,
+              reasonCode
+            });
+            break;
+          }
 
-        await this.journal.append({
-          source: 'tool',
-          kind: 'tool_result',
-          stepId: step.id,
-          data: { status, reasonCode }
-        });
+          const outcome = raceResult.outcome ?? {};
+          if (outcome.error) {
+            await this.journal.append({
+              source: 'tool',
+              kind: 'tool_result',
+              stepId: step.id,
+              data: { status: 'failed', error: outcome.error }
+            });
+            results.push({
+              status: 'failed',
+              stepId: step.id,
+              tool: step.tool,
+              reasonCode: outcome.error
+            });
+            break;
+          }
 
-        results.push({
-          status,
-          stepId: step.id,
-          tool: step.tool,
-          reasonCode
-        });
-        break;
+          await this.journal.append({
+            source: 'tool',
+            kind: 'tool_result',
+            stepId: step.id,
+            data: { status: 'succeeded', output: outcome.output }
+          });
+          results.push({
+            status: 'succeeded',
+            stepId: step.id,
+            tool: step.tool,
+            ...(outcome.output !== undefined ? { output: outcome.output } : {})
+          });
+        }
+      } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
       }
     }
 

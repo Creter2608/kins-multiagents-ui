@@ -41,13 +41,15 @@ export class SessionJournal {
   }
 
   /**
-   * Scans existing journal to find highest sequence number, ignoring an incomplete last line.
+   * Scans existing journal to find highest sequence number, repairing an incomplete last line.
    * Throws if earlier complete lines are corrupted JSON.
    */
   private recoverLastSequence(): number {
     const content = fs.readFileSync(this.journalPath, 'utf-8');
     const lines = content.split('\n');
     let maxSeq = 0;
+    const validLines: string[] = [];
+    let hadIncompleteTail = false;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]?.trim();
@@ -61,11 +63,12 @@ export class SessionJournal {
             throw new Error(`JOURNAL_CORRUPTION_DETECTED: Non-monotonic sequence at line ${i + 1}`);
           }
           maxSeq = parsed.sequence;
+          validLines.push(line);
         }
       } catch (err: unknown) {
         // If this is the very last line, it might be an incomplete write from a crash
         if (i === lines.length - 1) {
-          // Trailing truncated line is tolerated during recovery
+          hadIncompleteTail = true;
           break;
         }
         throw new Error(
@@ -73,6 +76,13 @@ export class SessionJournal {
         );
       }
     }
+
+    if (hadIncompleteTail) {
+      // F6: Strip uncommitted incomplete tail so subsequent appends start on a fresh, valid line
+      const cleanContent = validLines.length > 0 ? validLines.join('\n') + '\n' : '';
+      fs.writeFileSync(this.journalPath, cleanContent, 'utf-8');
+    }
+
     return maxSeq;
   }
 
@@ -87,11 +97,12 @@ export class SessionJournal {
     return new Promise<SessionEvent>((resolve, reject) => {
       this.appendLock = this.appendLock.then(async () => {
         try {
-          this.currentSequence++;
+          // F7: Candidate sequence: do NOT advance this.currentSequence until serialization and persistence succeed
+          const candidateSequence = this.currentSequence + 1;
           const event: SessionEvent = {
             schemaVersion: 1,
             runId: this.runId,
-            sequence: this.currentSequence,
+            sequence: candidateSequence,
             timestamp: new Date().toISOString(),
             source: eventData.source,
             kind: eventData.kind,
@@ -101,6 +112,7 @@ export class SessionJournal {
 
           const line = JSON.stringify(event) + '\n';
           await fs.promises.appendFile(this.journalPath, line, 'utf-8');
+          this.currentSequence = candidateSequence;
           resolve(event);
         } catch (err) {
           reject(err);
