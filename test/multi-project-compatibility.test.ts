@@ -329,7 +329,7 @@ test("LoopStateService: emits default initial snapshot to listeners when switchi
     const cleanRepoDir = path.join(tempDir, "clean-repo");
     fs.mkdirSync(cleanRepoDir, { recursive: true });
 
-    await service.setProjectRoot(cleanRepoDir);
+    await service.setProjectRoot(cleanRepoDir, path.join(tempDir, "sidecar"));
 
     assert.ok(receivedSnapshot !== null, "Listener must receive snapshot when switching to clean repo");
     const snap = receivedSnapshot as LoopStateSnapshot;

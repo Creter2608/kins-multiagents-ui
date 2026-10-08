@@ -7,6 +7,9 @@ import type {
   ProviderTokenUsage,
   TelemetryMetrics
 } from "../../shared/contracts.js";
+import type { UsageEvent, BranchUsageSummary } from "../../shared/usage.js";
+import type { ProviderCapacity } from "../../shared/providerCapacity.js";
+import { calculateTotalTokens } from "../../shared/usage.js";
 
 const require = createRequire(import.meta.url);
 
@@ -86,10 +89,89 @@ function validateMetrics(data: unknown): TelemetryMetrics {
   return { gpt, gemini, estimatedCostUsd };
 }
 
+function cloneUsageEvent(event: UsageEvent): UsageEvent {
+  return {
+    id: event.id,
+    sourceId: event.sourceId,
+    sourceEventId: event.sourceEventId,
+    occurredAt: event.occurredAt,
+    provider: event.provider,
+    tool: event.tool,
+    model: event.model,
+    runId: event.runId,
+    agentId: event.agentId,
+    sessionId: event.sessionId,
+    tokens: {
+      inputTokens: event.tokens.inputTokens,
+      outputTokens: event.tokens.outputTokens,
+      cachedInputTokens: event.tokens.cachedInputTokens
+    },
+    estimatedCostUsd: event.estimatedCostUsd,
+    pricingVersion: event.pricingVersion,
+    attribution: event.attribution
+      ? {
+          repositoryId: event.attribution.repositoryId,
+          worktreeId: event.attribution.worktreeId,
+          branch: event.attribution.branch,
+          commit: event.attribution.commit,
+          provenance: event.attribution.provenance
+        }
+      : null
+  };
+}
+
+function cloneBranchSummary(summary: BranchUsageSummary): BranchUsageSummary {
+  return {
+    repositoryId: summary.repositoryId,
+    worktreeId: summary.worktreeId,
+    branch: summary.branch,
+    tokens: {
+      inputTokens: summary.tokens.inputTokens,
+      outputTokens: summary.tokens.outputTokens,
+      cachedInputTokens: summary.tokens.cachedInputTokens
+    },
+    knownEstimatedCostUsd: summary.knownEstimatedCostUsd,
+    unpricedEventCount: summary.unpricedEventCount
+  };
+}
+
+function cloneMetrics(metrics: TelemetryMetrics): TelemetryMetrics {
+  return {
+    gpt: {
+      inputTokens: metrics.gpt.inputTokens,
+      outputTokens: metrics.gpt.outputTokens,
+      cachedInputTokens: metrics.gpt.cachedInputTokens
+    },
+    gemini: {
+      inputTokens: metrics.gemini.inputTokens,
+      outputTokens: metrics.gemini.outputTokens,
+      cachedInputTokens: metrics.gemini.cachedInputTokens
+    },
+    estimatedCostUsd: metrics.estimatedCostUsd
+  };
+}
+
+function cloneProviderCapacity(cap: ProviderCapacity): ProviderCapacity {
+  return {
+    provider: cap.provider,
+    scope: cap.scope,
+    metric: cap.metric,
+    limit: cap.limit,
+    remaining: cap.remaining,
+    resetAt: cap.resetAt,
+    windowSeconds: cap.windowSeconds,
+    windowKind: cap.windowKind,
+    source: cap.source,
+    observedAt: cap.observedAt,
+    expiresAt: cap.expiresAt
+  };
+}
+
 export class TelemetryService {
   private storagePath: string | null = null;
   private currentSessionMetrics: TelemetryMetrics = createZeroMetrics();
   private allTimeMetrics: TelemetryMetrics = createZeroMetrics();
+  private usageEvents = new Map<string, UsageEvent>();
   private listeners = new Set<(snapshot: TelemetrySnapshot) => void>();
   private snapshot: TelemetrySnapshot;
 
@@ -125,7 +207,9 @@ export class TelemetryService {
       dockerStatus: "Unavailable",
       lastUpdated: Date.now(),
       currentSession: this.currentSessionMetrics,
-      allTime: this.allTimeMetrics
+      allTime: this.allTimeMetrics,
+      branchUsage: [],
+      providerCapacity: []
     };
   }
 
@@ -158,7 +242,13 @@ export class TelemetryService {
   }
 
   getSnapshot(): TelemetrySnapshot {
-    return this.snapshot;
+    return {
+      ...this.snapshot,
+      currentSession: cloneMetrics(this.currentSessionMetrics),
+      allTime: cloneMetrics(this.allTimeMetrics),
+      branchUsage: this.snapshot.branchUsage ? this.snapshot.branchUsage.map(cloneBranchSummary) : [],
+      providerCapacity: this.snapshot.providerCapacity ? this.snapshot.providerCapacity.map(cloneProviderCapacity) : []
+    };
   }
 
   resetCurrentSession(): void {
@@ -177,8 +267,9 @@ export class TelemetryService {
       allTime: this.allTimeMetrics,
       lastUpdated: Date.now()
     };
+    const broadcast = this.getSnapshot();
     for (const listener of this.listeners) {
-      listener(this.snapshot);
+      listener(broadcast);
     }
   }
 
@@ -261,8 +352,124 @@ export class TelemetryService {
       lastUpdated: Date.now()
     };
 
+    const broadcast = this.getSnapshot();
     for (const listener of this.listeners) {
-      listener(this.snapshot);
+      listener(broadcast);
+    }
+  }
+
+  /**
+   * Records a canonical UsageEvent into the immutable attribution ledger.
+   * Guarantees idempotency: replaying an event with the same ID has no effect.
+   * Returns true if newly recorded, false if ignored as duplicate.
+   */
+  recordUsageEvent(event: UsageEvent): boolean {
+    if (!event || !event.id) {
+      return false;
+    }
+    if (this.usageEvents.has(event.id)) {
+      return false;
+    }
+    this.usageEvents.set(event.id, cloneUsageEvent(event));
+    this.recalculateBranchUsage();
+    return true;
+  }
+
+  /**
+   * Aggregates usage events by repository, worktree, and branch.
+   */
+  private recalculateBranchUsage(): void {
+    const groups = new Map<
+      string,
+      {
+        repositoryId: string;
+        worktreeId: string;
+        branch: string | null;
+        inputTokens: number;
+        outputTokens: number;
+        cachedInputTokens: number;
+        knownEstimatedCostUsd: number;
+        unpricedEventCount: number;
+      }
+    >();
+
+    for (const event of this.usageEvents.values()) {
+      const repoId = event.attribution?.repositoryId ?? "default-repo";
+      const worktreeId = event.attribution?.worktreeId ?? "default-worktree";
+      const branch = event.attribution?.branch ?? null;
+      const key = `${repoId}::${worktreeId}::${branch ?? "<detached>"}`;
+
+      let entry = groups.get(key);
+      if (!entry) {
+        entry = {
+          repositoryId: repoId,
+          worktreeId,
+          branch,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          knownEstimatedCostUsd: 0,
+          unpricedEventCount: 0
+        };
+        groups.set(key, entry);
+      }
+
+      entry.inputTokens += Math.max(0, event.tokens.inputTokens);
+      entry.outputTokens += Math.max(0, event.tokens.outputTokens);
+      entry.cachedInputTokens += Math.min(
+        Math.max(0, event.tokens.inputTokens),
+        Math.max(0, event.tokens.cachedInputTokens)
+      );
+
+      if (typeof event.estimatedCostUsd === "number" && Number.isFinite(event.estimatedCostUsd)) {
+        entry.knownEstimatedCostUsd += Math.max(0, event.estimatedCostUsd);
+      } else {
+        entry.unpricedEventCount += 1;
+      }
+    }
+
+    const summaries: BranchUsageSummary[] = Array.from(groups.values()).map((g) => ({
+      repositoryId: g.repositoryId,
+      worktreeId: g.worktreeId,
+      branch: g.branch,
+      tokens: {
+        inputTokens: g.inputTokens,
+        outputTokens: g.outputTokens,
+        cachedInputTokens: g.cachedInputTokens
+      },
+      knownEstimatedCostUsd: Math.round(g.knownEstimatedCostUsd * 10000) / 10000,
+      unpricedEventCount: g.unpricedEventCount
+    }));
+
+    this.snapshot = {
+      ...this.snapshot,
+      branchUsage: summaries.map(cloneBranchSummary),
+      lastUpdated: Date.now()
+    };
+
+    const broadcast = this.getSnapshot();
+    for (const listener of this.listeners) {
+      listener(broadcast);
+    }
+  }
+
+  getBranchUsageSummaries(): readonly BranchUsageSummary[] {
+    return (this.snapshot.branchUsage ?? []).map(cloneBranchSummary);
+  }
+
+  getUsageEvents(): readonly UsageEvent[] {
+    return Array.from(this.usageEvents.values()).map(cloneUsageEvent);
+  }
+
+  updateProviderCapacity(capacities: readonly ProviderCapacity[]): void {
+    this.snapshot = {
+      ...this.snapshot,
+      providerCapacity: capacities.map(cloneProviderCapacity),
+      lastUpdated: Date.now()
+    };
+    const broadcast = this.getSnapshot();
+    for (const listener of this.listeners) {
+      listener(broadcast);
     }
   }
 
@@ -272,7 +479,7 @@ export class TelemetryService {
 
   subscribe(listener: (snapshot: TelemetrySnapshot) => void): () => void {
     this.listeners.add(listener);
-    listener(this.snapshot);
+    listener(this.getSnapshot());
     return () => this.listeners.delete(listener);
   }
 

@@ -40,7 +40,7 @@ test("Assertion 1: --project-root routes all Git, state, and evaluation operatio
 
     // 1. Run ai-loop init with --project-root from unrelated cwd
     const initOutput = execFileSync(
-      "node",
+      process.execPath,
       [AI_LOOP_SCRIPT, "init", "--project-root", extDir, "--run-id", "test-ext-1", "--json"],
       { cwd: randomCwd, encoding: "utf-8" }
     );
@@ -55,7 +55,7 @@ test("Assertion 1: --project-root routes all Git, state, and evaluation operatio
 
     // 2. Run transition SPEC_GATE
     const transOutput = execFileSync(
-      "node",
+      process.execPath,
       [AI_LOOP_SCRIPT, "transition", "SPEC_GATE", "--project-root", extDir, "--json"],
       { cwd: randomCwd, encoding: "utf-8" }
     );
@@ -64,7 +64,7 @@ test("Assertion 1: --project-root routes all Git, state, and evaluation operatio
 
     // 3. Run isolate --task test-task-1
     const isolateOutput = execFileSync(
-      "node",
+      process.execPath,
       [AI_LOOP_SCRIPT, "isolate", "--task", "test-task-1", "--project-root", extDir, "--json"],
       { cwd: randomCwd, encoding: "utf-8" }
     );
@@ -75,7 +75,7 @@ test("Assertion 1: --project-root routes all Git, state, and evaluation operatio
 
     // 4. Run status with --project-root
     const statusOutput = execFileSync(
-      "node",
+      process.execPath,
       [AI_LOOP_SCRIPT, "status", "--project-root", extDir, "--json"],
       { cwd: randomCwd, encoding: "utf-8" }
     );
@@ -194,7 +194,7 @@ test("Assertion 5: Initialized repo with unborn HEAD opens safely; worktree isol
   try {
     // 1. Initializing state in unborn repo succeeds without modifying or committing files
     const initOutput = execFileSync(
-      "node",
+      process.execPath,
       [AI_LOOP_SCRIPT, "init", "--project-root", unbornDir, "--run-id", "unborn-test-1", "--json"],
       { encoding: "utf-8" }
     );
@@ -213,7 +213,7 @@ test("Assertion 5: Initialized repo with unborn HEAD opens safely; worktree isol
     // 2. Isolate on unborn HEAD throws clear, actionable error instead of crashing or corrupting git
     assert.throws(() => {
       execFileSync(
-        "node",
+        process.execPath,
         [AI_LOOP_SCRIPT, "isolate", "--task", "unborn-task", "--project-root", unbornDir],
         { stdio: "pipe" }
       );

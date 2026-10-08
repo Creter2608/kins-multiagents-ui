@@ -185,7 +185,7 @@ test("network-policy: executeTaskCommand applies and scrubs securePatchPath in f
 
     // Execute a command while patch is injected
     const execRes = await executeTaskCommand(
-      { argv: ["node", "-e", "const fs = require('fs'); const c = fs.readFileSync('sample.txt', 'utf-8'); if (!c.includes('secure_injected_assertion')) process.exit(1);"], timeoutMs: 10000 },
+      { argv: [process.execPath, "-e", "const fs = require('fs'); const c = fs.readFileSync('sample.txt', 'utf-8'); if (!c.includes('secure_injected_assertion')) process.exit(1);"], timeoutMs: 10000 },
       tempDir,
       "test",
       tempDir,

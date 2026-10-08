@@ -10,11 +10,14 @@ import { TelemetryService } from "./services/TelemetryService.js";
 import { DockerStatusService } from "./services/DockerStatusService.js";
 import { RollbackService } from "./services/RollbackService.js";
 import { TranscriptIngestionService } from "./services/TranscriptIngestionService.js";
+import { WorktreeAttributionService } from "./services/WorktreeAttributionService.js";
 import { ProjectService } from "./services/ProjectService.js";
 import { EvalHarnessService } from "./services/EvalHarnessService.js";
 import { SubagentService } from "./services/SubagentService.js";
 import { PreToolUseHookService } from "./services/preToolUseHookService.js";
 import { HarnessService } from "./services/HarnessService.js";
+import { ContextOptimizationService } from "./services/ContextOptimizationService.js";
+import { ProviderCapacityService } from "./services/ProviderCapacityService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
@@ -38,13 +41,22 @@ const rollbackService = new RollbackService(projectRoot, projectRoot);
 const evalService = new EvalHarnessService(projectRoot, projectRoot);
 const subagentService = new SubagentService();
 const preToolUseHookService = new PreToolUseHookService();
+const worktreeService = new WorktreeAttributionService();
+const contextOptimizationService = new ContextOptimizationService();
+const providerCapacityService = new ProviderCapacityService();
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
+transcriptService.setWorktreeAttributionService(worktreeService);
 let projectService: ProjectService | null = null;
 let harnessService: HarnessService | null = null;
 
 // Connect docker status updates to telemetry service
 dockerService.subscribe((status) => {
   telemetryService.updateDockerStatus(status);
+});
+
+// Connect provider capacity updates to telemetry service
+providerCapacityService.subscribe((capacities) => {
+  telemetryService.updateProviderCapacity(capacities);
 });
 
 async function createWindow(): Promise<void> {
@@ -137,7 +149,9 @@ async function createWindow(): Promise<void> {
     rollback: rollbackService,
     evalHarness: evalService,
     subagents: subagentService,
-    harness: harnessService
+    harness: harnessService,
+    contextOptimization: contextOptimizationService,
+    providerCapacity: providerCapacityService
   });
 
   // Push immediate snapshots as soon as renderer is ready

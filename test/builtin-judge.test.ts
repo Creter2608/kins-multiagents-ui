@@ -134,7 +134,7 @@ test("builtin judge: setProjectRoot on external git repo resets prior state and 
     const initialService = new LoopStateService(path.resolve(".ai/state.json"));
     initialService.setAppRootForTesting(process.cwd());
 
-    await initialService.setProjectRoot(repoDir);
+    await initialService.setProjectRoot(repoDir, path.join(repoDir, "sidecar"));
     // Allow background evaluation
     await new Promise((r) => setTimeout(r, 100));
 

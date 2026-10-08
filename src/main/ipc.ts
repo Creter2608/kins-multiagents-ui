@@ -9,7 +9,9 @@ import type { ProjectService } from "./services/ProjectService.js";
 import type { EvalHarnessService } from "./services/EvalHarnessService.js";
 import type { SubagentService } from "./services/SubagentService.js";
 import type { HarnessService } from "./services/HarnessService.js";
-import { SUBAGENT_IPC_CHANNELS, type ProjectState } from "../shared/contracts.js";
+import type { ContextOptimizationService } from "./services/ContextOptimizationService.js";
+import type { ProviderCapacityService } from "./services/ProviderCapacityService.js";
+import { SUBAGENT_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity } from "../shared/contracts.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -22,6 +24,8 @@ export interface ServiceContainer {
   evalHarness: EvalHarnessService;
   subagents?: SubagentService | undefined;
   harness?: HarnessService | undefined;
+  contextOptimization?: ContextOptimizationService | undefined;
+  providerCapacity?: ProviderCapacityService | undefined;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -228,6 +232,18 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     })
   );
 
+  // Context Optimization (Report-only)
+  ipcMain.handle("context:analyze", async (_event: unknown, items?: ContextItem[]) => {
+    if (!services.contextOptimization) return null;
+    const mcpSnap = services.mcp.getSnapshot();
+    const usedTools = new Set<string>();
+    for (const call of mcpSnap.recentCalls) {
+      if (call.toolName) usedTools.add(call.toolName);
+    }
+    const targetItems: ContextItem[] = Array.isArray(items) ? items : [];
+    return services.contextOptimization.analyze(targetItems, usedTools);
+  });
+
   // Eval Harness
   ipcMain.handle("eval:getSnapshot", async () => {
     return services.evalHarness.getSnapshot();
@@ -276,6 +292,18 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     );
   }
 
+  // Provider Capacity
+  if (services.providerCapacity) {
+    ipcMain.handle("capacity:getSnapshot", async () => {
+      return services.providerCapacity!.snapshot();
+    });
+
+    ipcMain.handle("capacity:record", async (_event: unknown, observation: ProviderCapacity) => {
+      services.providerCapacity!.record(observation);
+      return { success: true };
+    });
+  }
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
@@ -304,6 +332,9 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("logs:clear");
     ipcMain.removeHandler("telemetry:getSnapshot");
     ipcMain.removeHandler("telemetry:resetSession");
+    ipcMain.removeHandler("context:analyze");
+    ipcMain.removeHandler("capacity:getSnapshot");
+    ipcMain.removeHandler("capacity:record");
     ipcMain.removeHandler("eval:getSnapshot");
     ipcMain.removeHandler("eval:runBenchmark");
     ipcMain.removeHandler(SUBAGENT_IPC_CHANNELS.list);

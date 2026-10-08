@@ -2,11 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { TelemetryService } from "./TelemetryService.js";
+import { calculateEstimatedCostUsd } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
 import type { LoopStateService } from "./LoopStateService.js";
 import type { SubagentService } from "./SubagentService.js";
 import type { HarnessService } from "./HarnessService.js";
 import type { JsonValue } from "../../shared/contracts.js";
+import type { UsageEvent, WorktreeAttribution } from "../../shared/usage.js";
+import type { WorktreeAttributionService } from "./WorktreeAttributionService.js";
 import { LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
 import {
   isVerificationCommand,
@@ -128,6 +131,8 @@ export class TranscriptIngestionService {
   private lastObservedRunId: string | null = null;
   private allowedOutputRoots?: readonly string[] | undefined;
   private harnessService: HarnessService | null = null;
+  private currentAttribution: WorktreeAttribution | null = null;
+  private worktreeAttributionService: WorktreeAttributionService | null = null;
 
   constructor(
     telemetryService: TelemetryService,
@@ -166,6 +171,25 @@ export class TranscriptIngestionService {
 
   setHarnessService(harnessService: HarnessService | null): void {
     this.harnessService = harnessService;
+  }
+
+  setWorktreeAttribution(attribution: WorktreeAttribution | null): void {
+    this.currentAttribution = attribution;
+  }
+
+  getWorktreeAttribution(): WorktreeAttribution | null {
+    return this.currentAttribution;
+  }
+
+  setWorktreeAttributionService(service: WorktreeAttributionService | null): void {
+    this.worktreeAttributionService = service;
+    if (service && this.projectRoot) {
+      void service.resolve(this.projectRoot).then((attr) => {
+        if (attr) {
+          this.currentAttribution = attr;
+        }
+      });
+    }
   }
 
   getSessionGeneration(): number {
@@ -495,6 +519,30 @@ export class TranscriptIngestionService {
             oracleCalls: this.seenGptEventKeys.size
           });
         }
+
+        const occurredAt = typeof step.created_at === "string" ? step.created_at : new Date().toISOString();
+        const eventId = `gpt:${this.currentTranscriptPath || "default"}:${stepIdx}:${gptUsage.totalTokens}`;
+        const cost = calculateEstimatedCostUsd(gptUsage.inputTokens, gptUsage.outputTokens, gptUsage.cachedTokens);
+        this.telemetryService.recordUsageEvent({
+          id: eventId,
+          sourceId: this.currentTranscriptPath || "default",
+          sourceEventId: String(stepIdx),
+          occurredAt,
+          provider: "openai",
+          tool: "gpt_architect",
+          model: "gpt-6.1-sol",
+          runId: this.loopService?.getSnapshot().runId ?? null,
+          agentId: null,
+          sessionId: this.currentTranscriptPath || null,
+          tokens: {
+            inputTokens: gptUsage.inputTokens,
+            outputTokens: gptUsage.outputTokens,
+            cachedInputTokens: gptUsage.cachedTokens
+          },
+          estimatedCostUsd: cost,
+          pricingVersion: "1.0",
+          attribution: this.currentAttribution
+        });
       }
     }
 

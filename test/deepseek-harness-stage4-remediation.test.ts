@@ -10,7 +10,10 @@ import {
   ToolPlanExecutor,
   type RegisteredTool
 } from '../src/main/harness/ToolPlanExecutor.js';
-import { DEFAULT_TOOL_TIMEOUT_MS } from '../src/main/harness/ExecutionGuard.js';
+import {
+  DEFAULT_TOOL_TIMEOUT_MS,
+  canonicalizeJson
+} from '../src/main/harness/ExecutionGuard.js';
 import type { ToolPlan } from '../src/shared/harnessContracts.js';
 
 async function fixture(
@@ -85,7 +88,7 @@ test('sandbox enforcement covers registered effects and dangling aliases (F1, F2
       }
     });
 
-    await t.test('dangling symlink into .eval is denied (F2)', async () => {
+    await t.test('dangling symlink into .eval is denied (F2)', async (st) => {
       const f = await fixture();
 
       try {
@@ -95,7 +98,15 @@ test('sandbox enforcement covers registered effects and dangling aliases (F1, F2
         );
 
         // Creates only the alias, never the protected destination.
-        await fs.symlink(protectedDestination, alias);
+        try {
+          await fs.symlink(protectedDestination, alias);
+        } catch (symlinkErr: any) {
+          if (process.platform === 'win32' && symlinkErr?.code === 'EPERM') {
+            st.skip('Skipping dangling symlink test on Windows without symlink privileges');
+            return;
+          }
+          throw symlinkErr;
+        }
 
         assert.equal(
           f.policy.authorizePath(alias, 'write').allowed,
@@ -371,3 +382,22 @@ test('journal recovery and failed appends preserve committed ordering (F6, F7)',
     );
   }
 );
+
+test('dispatch keys distinguish nested argument values (A2 counterexample)', () => {
+  const first = canonicalizeJson({ payload: { value: 1 } });
+  const second = canonicalizeJson({ payload: { value: 2 } });
+  assert.notEqual(
+    first,
+    second,
+    'Distinct nested argument values must not share a dispatch fingerprint'
+  );
+
+  const arrayFirst = canonicalizeJson({ items: [1, 2] });
+  const arraySecond = canonicalizeJson({ items: [2, 1] });
+  assert.notEqual(
+    arrayFirst,
+    arraySecond,
+    'Array order must be preserved deterministically'
+  );
+});
+

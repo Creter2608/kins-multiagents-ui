@@ -1,7 +1,12 @@
 import type { LoopPhase, PhaseDisplayItem } from "./phases.js";
 import type { EvaluationReport, ArchitecturalCompliance, ArchitecturalCriteriaScores } from "./harness.js";
 import type { SessionEvent } from "./harnessContracts.js";
+import type { BranchUsageSummary } from "./usage.js";
+import type { ProviderCapacity } from "./providerCapacity.js";
 
+export * from "./usage.js";
+export * from "./contextOptimization.js";
+export * from "./providerCapacity.js";
 export type { ArchitecturalCompliance, ArchitecturalCriteriaScores };
 export type Unsubscribe = () => void;
 
@@ -260,6 +265,8 @@ export interface TelemetrySnapshot {
   readonly lastUpdated: number;
   readonly currentSession: TelemetryMetrics;
   readonly allTime: TelemetryMetrics;
+  readonly branchUsage?: readonly BranchUsageSummary[] | undefined;
+  readonly providerCapacity?: readonly ProviderCapacity[] | undefined;
 }
 
 export interface RollbackResult {

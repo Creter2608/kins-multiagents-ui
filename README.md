@@ -1,7 +1,7 @@
 # Kin's Multi-Agents UI 🤖⚡
 
-[![Release: v2.11.1](https://img.shields.io/badge/Release-v2.11.1-emerald.svg)](package.json)
-[![Tests: 444 passing](https://img.shields.io/badge/Tests-444%20passing-brightgreen.svg)](package.json)
+[![Release: v2.12.1](https://img.shields.io/badge/Release-v2.12.1-emerald.svg)](package.json)
+[![Tests: 467 passing](https://img.shields.io/badge/Tests-467%20passing-brightgreen.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-34-black.svg)](https://www.electronjs.org/)
@@ -15,9 +15,27 @@ Repository: **[https://github.com/Creter2608/kins-multiagents-ui](https://github
 
 ---
 
-## 🌟 What's New in v2.11.1 (Major Release Notes)
+## 🌟 What's New in v2.12.1 (Major Release Notes)
 
-Version `2.11.1` delivers a major architectural leap forward, integrating the **DeepSeek Harness** autonomous runtime patterns, an adversarial-hardened 3-tier sandbox policy, real-time activity event journaling, and a **Diff-First Context Pruning Engine** that slashes Stage 4 GPT token consumption by over 50–85%:
+Version `2.12.1` introduces enterprise-grade **Token & Quota Observability** alongside intelligent **Context Optimization**, integrating architectural patterns adapted from `codeburn` into the Cockpit without spawning speculative abstractions or extra Electron windows:
+
+1. **Per-Worktree / Branch Token Attribution Ledger (`WorktreeAttributionService`, `TelemetryService`)**:
+   - **Fine-Grained Attribution**: Traces prompt, completion, and cached token consumption directly back to specific Git worktrees and branches with deterministic path hashing.
+   - **Immutable Attribution Ledger**: Idempotent event recording (`recordUsageEvent`) guarantees replaying identical events never double-counts tokens or overwrites historical branch allocations (**GA1**, **GA2**).
+   - **Accurate Token Math**: Strict separation of uncached input, cached input, and output tokens preventing duplicate accounting (**GA5**).
+2. **Context Optimization & Deduplication Engine (`ContextOptimizationService`, IPC `context:analyze`)**:
+   - **Report-Only Analysis**: Accurately analyzes token footprint, identifying duplicate instructions and unused registered MCP tools to prevent prompt bloat.
+   - **Specification Integrity Invariant**: Mandatory oversized system instructions (e.g. `AGENTS.md`) produce actionable warnings while leaving the underlying prompt files 100% unmutated and untouched (**GA3**).
+3. **Provider Capacity HUD & Rolling Quota Observability (`ProviderCapacityService`, `TelemetryHud`)**:
+   - **External Rolling Quota Tracking**: Observes rate limits, remaining tokens/requests, and window reset deadlines across providers (OpenAI, Gemini, Anthropic).
+   - **Karpathy-Compliant HUD Integration**: Integrated directly into the existing Cockpit footer HUD with a compact `Gauge` icon badge—zero extra Electron windows spawned.
+   - **Fail-Closed Quota Expiration**: Expired observations (`expiresAt <= now`) strictly transition to `source: "unavailable"` and nullify remaining/limit numbers, rendering clean `N/A` badges instead of misleading speculative metrics (**GA4**).
+4. **Adversarial Hardening & Deep Immutability**:
+   - **Stage 4 Adversarial Remediation**: Passed thorough scrutiny by Stage 4 Oracle (`audit_and_break_code_with_gpt`) with deep defensive copying (`cloneMetrics`, `cloneProviderCapacity`, `cloneBranchSummary`) across all snapshot and listener boundaries (**IMM-01**, **IMM-02**).
+   - **467 Deterministic Tests Passing 100%**: Expanded test suite with 23 new unit, integration, and adversarial contract tests (`worktree-attribution-ledger.test.ts`, `context-optimization.test.ts`, `provider-capacity.test.ts`, `telemetry-snapshot-immutability.test.ts`, `telemetry-contract-adversarial.test.ts`).
+   - Protected Evaluation Zone (`.eval/`) 100% intact; AQI compliance 10/10.
+
+---
 
 1. **DeepSeek Harness Runtime Integration**:
    - **3-Tier Sandbox Confinement (`SandboxPolicy.ts`)**: Supports `read-only`, `workspace-write`, and `danger-full-access` execution modes. Enforces an immutable `.eval/` protected root invariant and canonical symlink resolution (including dangling symlink alias defense) to prevent filesystem escapes.
@@ -194,7 +212,7 @@ kins-multiagents-ui/
 ├── src/
 │   ├── main/                  # Electron Main Process
 │   │   ├── harness/           # DeepSeek Harness Runtime (SandboxPolicy, ExecutionGuard, SessionJournal, ToolPlanExecutor, HookBridge)
-│   │   ├── services/          # Telemetry, Pty, McpMonitor, LoopState, TranscriptIngestion, HarnessService
+│   │   ├── services/          # Telemetry, WorktreeAttribution, ContextOptimization, ProviderCapacity, Pty, McpMonitor, LoopState, TranscriptIngestion, HarnessService
 │   │   ├── ipc.ts             # Typed IPC event bridge
 │   │   └── index.ts           # Window lifecycle & service bootstrapping
 │   ├── preload/               # Context bridge (esbuild -> CommonJS)
@@ -202,7 +220,7 @@ kins-multiagents-ui/
 │   │   ├── components/        # PhaseTracker, TelemetryHud, McpSidebar, RunActivityPanel, TerminalStage, CriticalLogDrawer
 │   │   ├── App.tsx            # Cockpit mission-control layout & event wiring
 │   │   └── main.tsx           # UI entrypoint
-│   ├── shared/                # Shared contracts, phases, harnessContracts, and interfaces
+│   ├── shared/                # Shared contracts, phases, usage, contextOptimization, providerCapacity
 │   └── engine.ts              # Canonical LoopEngine state machine
 ├── docs/
 │   └── LOOP.md                # Normative Autonomous Loop v3.0 specification
@@ -210,7 +228,7 @@ kins-multiagents-ui/
 │   ├── decisions/             # Architecture Decision Records (ADR-001, ADR-002, ADR-003)
 │   ├── pitfalls.md            # Living pitfalls and cognitive traps registry
 │   └── log.md                 # Autonomous execution log
-├── test/                      # 444 automated unit, integration, and adversarial tests
+├── test/                      # 467 automated unit, integration, and adversarial tests
 ├── scripts/                   # harness (aqi/, pricing/, schemas/), ai-loop.mjs, ai-exec.mjs, init-template.mjs
 ├── start-cockpit.bat          # 1-click Windows desktop batch launcher
 └── .eval/                     # Read-only golden assertions locked by SHA-256

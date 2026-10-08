@@ -118,30 +118,37 @@ export class PreToolUseHookService {
 
   static getOrCreateSigningKeySync(userDataPath: string): Buffer {
     const hooksDir = path.join(userDataPath, "hooks");
-    if (!syncFs.existsSync(hooksDir)) {
-      syncFs.mkdirSync(hooksDir, { recursive: true });
-    }
-    const keyPath = path.join(hooksDir, "auth.key");
     try {
-      return syncFs.readFileSync(keyPath);
+      if (!syncFs.existsSync(hooksDir)) {
+        syncFs.mkdirSync(hooksDir, { recursive: true });
+      }
+      const keyPath = path.join(hooksDir, "auth.key");
+      try {
+        return syncFs.readFileSync(keyPath);
+      } catch {
+        const key = crypto.randomBytes(32);
+        syncFs.writeFileSync(keyPath, key, { mode: 0o600 });
+        return key;
+      }
     } catch {
-      const key = crypto.randomBytes(32);
-      syncFs.writeFileSync(keyPath, key, { mode: 0o600 });
-      return key;
+      return crypto.randomBytes(32);
     }
   }
 
   static async getOrCreateSigningKey(userDataPath: string): Promise<Buffer> {
     const hooksDir = path.join(userDataPath, "hooks");
-    await fs.mkdir(hooksDir, { recursive: true });
-    const keyPath = path.join(hooksDir, "auth.key");
-
     try {
-      return await fs.readFile(keyPath);
+      await fs.mkdir(hooksDir, { recursive: true });
+      const keyPath = path.join(hooksDir, "auth.key");
+      try {
+        return await fs.readFile(keyPath);
+      } catch {
+        const key = crypto.randomBytes(32);
+        await fs.writeFile(keyPath, key, { mode: 0o600 });
+        return key;
+      }
     } catch {
-      const key = crypto.randomBytes(32);
-      await fs.writeFile(keyPath, key, { mode: 0o600 });
-      return key;
+      return crypto.randomBytes(32);
     }
   }
 
@@ -189,8 +196,20 @@ export class PreToolUseHookService {
     await fs.writeFile(tmpRegistry, JSON.stringify(registry, null, 2), "utf-8");
     await fs.rename(tmpRegistry, registryPath);
 
-    // 2. Resolve hooks.json config path
-    const hooksConfigPath = options.hooksConfigPath ?? path.join(os.homedir(), ".gemini", "config", "hooks.json");
+    // 2. Resolve hooks.json config path (isolated during test execution)
+    const isTestRuntime =
+      process.env.NODE_ENV === "test" ||
+      process.env.VITEST !== undefined ||
+      process.argv.some((arg) => arg.includes("test"));
+
+    const defaultHooksPath = isTestRuntime
+      ? path.join(options.userDataPath, "hooks.json")
+      : path.join(os.homedir(), ".gemini", "config", "hooks.json");
+
+    const hooksConfigPath =
+      options.hooksConfigPath ??
+      process.env.ANTIGRAVITY_HOOKS_CONFIG_PATH ??
+      defaultHooksPath;
     await fs.mkdir(path.dirname(hooksConfigPath), { recursive: true });
 
     // 3. Merge PreToolUse hook into hooks.json idempotently

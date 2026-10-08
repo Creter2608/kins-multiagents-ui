@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import type { TelemetrySnapshot, TelemetryViewScope, TelemetryMetrics } from "../../shared/contracts.js";
-import { Cpu, Zap, DollarSign, Box, RotateCcw, Download } from "lucide-react";
+import type { TelemetrySnapshot, TelemetryViewScope, TelemetryMetrics, BranchUsageSummary, ProviderCapacity } from "../../shared/contracts.js";
+import { calculateTotalTokens, calculateRemainingPercentage } from "../../shared/contracts.js";
+import { Cpu, Zap, DollarSign, Box, RotateCcw, Download, GitBranch, Gauge } from "lucide-react";
 
 export function formatTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) {
@@ -47,6 +48,8 @@ export interface DiagnosticsPayload {
     readonly geminiCacheStatus: string;
     readonly allTime?: TelemetryMetrics;
     readonly currentSession?: TelemetryMetrics;
+    readonly branchUsage?: readonly BranchUsageSummary[] | undefined;
+    readonly providerCapacity?: readonly ProviderCapacity[] | undefined;
   };
   readonly ceilingStatus: CeilingStatus;
 }
@@ -65,7 +68,9 @@ export function createDiagnosticsSnapshot(
       dockerStatus: telemetry.dockerStatus,
       geminiCacheStatus: telemetry.geminiCacheStatus,
       allTime: telemetry.allTime,
-      currentSession: telemetry.currentSession
+      currentSession: telemetry.currentSession,
+      branchUsage: telemetry.branchUsage,
+      providerCapacity: telemetry.providerCapacity
     },
     ceilingStatus: evaluateCeilingStatus(
       metrics.gpt.inputTokens,
@@ -119,6 +124,10 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
     gptTotalInput > 0
       ? Math.round((gptCachedInput / gptTotalInput) * 100)
       : null;
+
+  const branchList = telemetry.branchUsage;
+  const activeBranch: BranchUsageSummary | undefined =
+    branchList && branchList.length > 0 ? branchList[branchList.length - 1] : undefined;
 
   const handleResetSession = async () => {
     if (isResetting) return;
@@ -239,6 +248,61 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
 
       {/* Right: Cost & Docker Sandbox Status */}
       <div className="flex items-center space-x-5">
+        {/* Branch Attribution Badge */}
+        {activeBranch && (
+          <div
+            className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-zinc-800/90 border border-zinc-700/80 text-[11px] font-mono"
+            title={`Branch Attribution: ${activeBranch.branch || "detached"} (${formatTokens(calculateTotalTokens(activeBranch.tokens))} tokens, $${activeBranch.knownEstimatedCostUsd.toFixed(4)})`}
+          >
+            <GitBranch className="w-3 h-3 text-cyan-400" />
+            <span className="text-zinc-300 max-w-[110px] truncate font-sans">
+              {activeBranch.branch || "detached"}
+            </span>
+            <span className="text-cyan-400 font-semibold tabular-nums">
+              ${activeBranch.knownEstimatedCostUsd.toFixed(3)}
+            </span>
+          </div>
+        )}
+
+        {/* Provider Capacity Badges */}
+        {telemetry.providerCapacity && telemetry.providerCapacity.length > 0 && (
+          <div className="flex items-center space-x-2">
+            {telemetry.providerCapacity.map((cap) => {
+              const pct = calculateRemainingPercentage(cap);
+              const isUnavailable = cap.source === "unavailable" || pct === null;
+              return (
+                <div
+                  key={`${cap.provider}::${cap.scope}`}
+                  className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-zinc-800/90 border border-zinc-700/80 text-[11px] font-mono"
+                  title={`Provider Quota ${cap.provider.toUpperCase()} [${cap.scope}]: ${
+                    isUnavailable
+                      ? "Unavailable / Expired"
+                      : `${pct}% remaining (${cap.remaining ?? 0}/${cap.limit ?? 0} ${cap.metric})`
+                  }${cap.resetAt ? ` - Reset: ${cap.resetAt}` : ""}`}
+                >
+                  <Gauge className="w-3 h-3 text-indigo-400" />
+                  <span className="text-zinc-400 uppercase font-sans font-semibold text-[10px]">
+                    {cap.provider}
+                  </span>
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      isUnavailable
+                        ? "text-zinc-500"
+                        : pct < 20
+                        ? "text-rose-400 font-bold"
+                        : pct < 50
+                        ? "text-amber-400"
+                        : "text-indigo-300"
+                    }`}
+                  >
+                    {isUnavailable ? "N/A" : `${pct}%`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Cost vs Budget */}
         <div className="flex items-center space-x-1.5">
           <DollarSign className="w-3.5 h-3.5 text-emerald-400" />

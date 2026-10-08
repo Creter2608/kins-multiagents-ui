@@ -68,7 +68,14 @@ test(
       fs.mkdirSync(actualProtectedRoot);
 
       const protectedAlias = path.join(root, 'protected-alias');
-      fs.symlinkSync(actualProtectedRoot, protectedAlias, 'junction');
+      try {
+        fs.symlinkSync(actualProtectedRoot, protectedAlias, 'junction');
+      } catch (err: any) {
+        if (process.platform === 'win32' && err?.code === 'EPERM') {
+          return;
+        }
+        throw err;
+      }
 
       const existingTarget = path.join(actualProtectedRoot, 'golden.txt');
       fs.writeFileSync(existingTarget, 'GOLDEN_BYTES');
@@ -132,7 +139,14 @@ test(
       fs.writeFileSync(readableFile, 'PUBLIC');
 
       const escapeAlias = path.join(workspace, 'escape');
-      fs.symlinkSync(outside, escapeAlias, 'junction');
+      try {
+        fs.symlinkSync(outside, escapeAlias, 'junction');
+      } catch (err: any) {
+        if (process.platform === 'win32' && err?.code === 'EPERM') {
+          return;
+        }
+        throw err;
+      }
 
       let hasFileSymlink = false;
       const localAlias = path.join(workspace, 'local-alias.txt');

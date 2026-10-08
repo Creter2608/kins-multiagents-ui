@@ -13,7 +13,7 @@ const SCRIPT_PATH = path.join(REPO_ROOT, "scripts", "init-template.mjs");
 
 function runInit(args: string[]): { stdout: string; stderr: string; status: number } {
   try {
-    const stdout = execFileSync("node", [SCRIPT_PATH, ...args], {
+    const stdout = execFileSync(process.execPath, [SCRIPT_PATH, ...args], {
       cwd: REPO_ROOT,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"]

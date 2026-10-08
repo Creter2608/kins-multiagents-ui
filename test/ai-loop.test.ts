@@ -11,7 +11,7 @@ const SCRIPT_PATH = path.join(REPO_ROOT, "scripts", "ai-loop.mjs");
 
 function runAiLoop(args: string[], cwd: string = REPO_ROOT): { stdout: string; stderr: string; status: number } {
   try {
-    const stdout = execFileSync("node", [SCRIPT_PATH, ...args], {
+    const stdout = execFileSync(process.execPath, [SCRIPT_PATH, ...args], {
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"]
@@ -191,13 +191,21 @@ test("ai-loop: isolate Assertion 5 - rejects path traversal or invalid task ID",
 });
 
 test("ai-loop: isolate Assertion 4 - creates worktree and reuses on repeat invocation", () => {
+  const tempGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-loop-wt-"));
   const taskId = `smoke-test-${Date.now()}`;
-  const wtPath = path.resolve(REPO_ROOT, ".worktrees", taskId);
+  const wtPath = path.resolve(tempGitDir, ".worktrees", taskId);
   const branchName = `task/${taskId}`;
 
   try {
+    execFileSync("git", ["init", "-b", "main"], { cwd: tempGitDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: tempGitDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tempGitDir, stdio: "ignore" });
+    fs.writeFileSync(path.join(tempGitDir, "file.txt"), "baseline\n", "utf-8");
+    execFileSync("git", ["add", "file.txt"], { cwd: tempGitDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: tempGitDir, stdio: "ignore" });
+
     // First invocation: creates worktree
-    const res1 = runAiLoop(["isolate", "--task", taskId, "--json"]);
+    const res1 = runAiLoop(["isolate", "--task", taskId, "--project-root", tempGitDir, "--json"]);
     assert.equal(res1.status, 0, `isolate 1 failed: ${res1.stderr}`);
     const out1 = JSON.parse(res1.stdout);
     assert.equal(out1.reused, false);
@@ -207,7 +215,7 @@ test("ai-loop: isolate Assertion 4 - creates worktree and reuses on repeat invoc
     assert.ok(fs.existsSync(wtPath));
 
     // Second invocation: reuses worktree
-    const res2 = runAiLoop(["isolate", "--task", taskId, "--json"]);
+    const res2 = runAiLoop(["isolate", "--task", taskId, "--project-root", tempGitDir, "--json"]);
     assert.equal(res2.status, 0, `isolate 2 failed: ${res2.stderr}`);
     const out2 = JSON.parse(res2.stdout);
     assert.equal(out2.reused, true);
@@ -217,13 +225,8 @@ test("ai-loop: isolate Assertion 4 - creates worktree and reuses on repeat invoc
   } finally {
     // Cleanup worktree and branch
     try {
-      execFileSync("git", ["worktree", "remove", "--force", wtPath], { cwd: REPO_ROOT, stdio: "ignore" });
+      execFileSync("git", ["worktree", "remove", "--force", wtPath], { cwd: tempGitDir, stdio: "ignore" });
     } catch {}
-    try {
-      execFileSync("git", ["branch", "-D", branchName], { cwd: REPO_ROOT, stdio: "ignore" });
-    } catch {}
-    if (fs.existsSync(wtPath)) {
-      fs.rmSync(wtPath, { recursive: true, force: true });
-    }
+    fs.rmSync(tempGitDir, { recursive: true, force: true });
   }
 });
