@@ -39,15 +39,9 @@ export function parseAntigravityQuota(
     return Object.freeze([]);
   }
 
-  // Support real cascadeModelConfigData.clientModelConfigs, as well as userStatus.quota.models and quota.models
+  // Support both { userStatus: { quota: { models: [...] } } } and { quota: { models: [...] } }
   let modelsArray: unknown = undefined;
-  if (
-    isRecord(payload["userStatus"]) &&
-    isRecord(payload["userStatus"]["cascadeModelConfigData"]) &&
-    Array.isArray(payload["userStatus"]["cascadeModelConfigData"]["clientModelConfigs"])
-  ) {
-    modelsArray = payload["userStatus"]["cascadeModelConfigData"]["clientModelConfigs"];
-  } else if (isRecord(payload["userStatus"]) && isRecord(payload["userStatus"]["quota"])) {
+  if (isRecord(payload["userStatus"]) && isRecord(payload["userStatus"]["quota"])) {
     modelsArray = payload["userStatus"]["quota"]["models"];
   } else if (isRecord(payload["quota"])) {
     modelsArray = payload["quota"]["models"];
@@ -79,15 +73,7 @@ export function parseAntigravityQuota(
       continue;
     }
 
-    let rawQuota: RawQuotaObject | null = isRecord(item["quota"]) ? item["quota"] : null;
-    if (!rawQuota && isRecord(item["quotaInfo"])) {
-      const qInfo = item["quotaInfo"] as Record<string, unknown>;
-      const fraction = typeof qInfo["remainingFraction"] === "number" ? qInfo["remainingFraction"] : null;
-      rawQuota = {
-        remainingPercentage: fraction !== null ? fraction * 100 : undefined,
-        resetTime: qInfo["resetTime"]
-      };
-    }
+    const rawQuota: RawQuotaObject | null = isRecord(item["quota"]) ? item["quota"] : null;
     const isExhaustedVal = typeof item["isExhausted"] === "boolean" ? item["isExhausted"] : null;
 
     let validAbsolute = false;

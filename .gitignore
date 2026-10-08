@@ -9,4 +9,3 @@ Thumbs.db
 .env.*
 *.pem
 *.key
-antigravity-endpoint.json
