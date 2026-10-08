@@ -125,11 +125,20 @@ test("CLI PreToolUseHook: documentation-fast-path allows README.md mutation with
     const state = createMockState({ currentPhase: "INITIALIZE" });
     await fs.writeFile(sidecarStatePath, JSON.stringify(state), "utf-8");
 
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-hybrid-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey: PreToolUseHookService.getOrCreateSigningKeySync(userData)
+    });
+
     await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
       userDataPath: userData,
-      mutationPolicyMode: "documentation-fast-path"
+      mutationPolicyMode: "documentation-fast-path",
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     // 1. Mutate README.md -> ALLOWED via fast path

@@ -201,5 +201,50 @@ export function parseAntigravityQuota(
     });
   }
 
-  return Object.freeze(Array.from(scopeMap.values()));
+    return Object.freeze(Array.from(scopeMap.values()));
 }
+
+export type QuotaReadResult =
+  | { readonly status: "available"; readonly quota: readonly ProviderCapacity[]; readonly observedAtMs: number }
+  | {
+      readonly status: "unavailable";
+      readonly reason: "NOT_FOUND" | "TIMEOUT" | "AUTH_REQUIRED" | "SCHEMA_UNSUPPORTED";
+    };
+
+export function parseQuotaResponse(
+  payload: unknown,
+  observedAt: Date = new Date(),
+  freshnessMs: number = 120_000
+): QuotaReadResult {
+  if (payload === null || payload === undefined) {
+    return { status: "unavailable", reason: "NOT_FOUND" };
+  }
+
+  // Detect configuration-only schemas like cascadeModelConfigData
+  if (typeof payload === "object") {
+    const obj = payload as Record<string, unknown>;
+    if ("cascadeModelConfigData" in obj) {
+      // Contains configuration only, never fabricate quota
+      return { status: "unavailable", reason: "SCHEMA_UNSUPPORTED" };
+    }
+    if ("clientModelConfigs" in obj && !("quota" in obj) && !("userStatus" in obj)) {
+      return { status: "unavailable", reason: "SCHEMA_UNSUPPORTED" };
+    }
+  }
+
+  const capacities = parseAntigravityQuota(payload, observedAt, freshnessMs);
+  const providerActive = capacities.filter(
+    (c) => c.source === "provider" && c.remainingPercentage !== null
+  );
+
+  if (providerActive.length > 0) {
+    return {
+      status: "available",
+      quota: capacities,
+      observedAtMs: observedAt.getTime()
+    };
+  }
+
+  return { status: "unavailable", reason: "SCHEMA_UNSUPPORTED" };
+}
+

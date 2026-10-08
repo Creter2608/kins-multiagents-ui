@@ -80,10 +80,20 @@ test("Golden Assertion 1: write before approval -> deny", async () => {
     });
     await fs.writeFile(sidecarStatePath, JSON.stringify(state), "utf-8");
 
+    const signingKey = PreToolUseHookService.getOrCreateSigningKeySync(userData);
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-test-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey
+    });
+
     await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
-      userDataPath: userData
+      userDataPath: userData,
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     const input: PreToolUseHookInput = {
@@ -115,11 +125,21 @@ test("Golden Assertion 2: valid signed approval in EXECUTE -> allow", async () =
     const sidecarStatePath = path.join(sidecarDir, "state.json");
 
     const hooksConfigPath = path.join(tmpDir, "hooks.json");
+    const signingKey = PreToolUseHookService.getOrCreateSigningKeySync(userData);
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-test-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey
+    });
+
     const equipped = await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
       userDataPath: userData,
-      hooksConfigPath
+      hooksConfigPath,
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     const approval = createBlueprintApproval(
@@ -283,10 +303,20 @@ test("Golden Assertion 5: mutation during read-only audit -> deny", async () => 
     const hookService = new PreToolUseHookService();
     const sidecarStatePath = path.join(sidecarDir, "state.json");
 
+    const signingKey = PreToolUseHookService.getOrCreateSigningKeySync(userData);
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-test-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey
+    });
+
     const equipped = await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
-      userDataPath: userData
+      userDataPath: userData,
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     const approval = createBlueprintApproval(
@@ -381,10 +411,19 @@ test("Real process CLI pipe test: spawn preToolUseHook.js with stdin/stdout prot
     const hookService = new PreToolUseHookService();
     const sidecarStatePath = path.join(sidecarDir, "state.json");
 
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-pipe-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey: PreToolUseHookService.getOrCreateSigningKeySync(userData)
+    });
+
     const equipped = await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
-      userDataPath: userData
+      userDataPath: userData,
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     const approval = createBlueprintApproval(

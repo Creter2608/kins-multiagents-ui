@@ -8,6 +8,9 @@ import * as crypto from "node:crypto";
 import { canonicalizePath } from "./blueprintApprovalAuthenticator.js";
 import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
 
+import type { ActiveSessionAuthority } from "./blueprintApprovalAuthenticator.js";
+import type { MutationAuthorization } from "../../cli/preToolUseHookHelpers.js";
+
 export interface WorkspaceRegistryEntry {
   readonly canonicalWorkspacePath: string;
   readonly sidecarStatePath: string;
@@ -16,6 +19,8 @@ export interface WorkspaceRegistryEntry {
   readonly mutationPolicyMode?: WorkspaceMutationPolicyMode;
   readonly modeHmac?: string;
   readonly entryHmac?: string;
+  readonly activeSession?: ActiveSessionAuthority;
+  readonly sessionAuthorization?: MutationAuthorization;
 }
 
 export interface WorkspaceRegistryFile {

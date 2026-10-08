@@ -11,6 +11,13 @@ export interface AntigravityEndpoint {
   readonly csrfToken: string | null;
 }
 
+export interface VerifiedLanguageServer {
+  readonly pid: number;
+  readonly host: "127.0.0.1" | "::1";
+  readonly port: number;
+  readonly processIdentity: string;
+}
+
 export interface AntigravityQuotaTransport {
   discover(signal?: AbortSignal): Promise<readonly AntigravityEndpoint[]>;
   getUserStatus(
@@ -183,19 +190,105 @@ export class AntigravityQuotaClient implements AntigravityQuotaTransport {
     }
   }
 
+  /**
+   * Discovers a verified Language Server process and its current loopback listening endpoint.
+   * If a verified process changes its listening port, rediscovery reflects the new port.
+   */
+  async discoverLanguageServer(signal?: AbortSignal): Promise<VerifiedLanguageServer | null> {
+    if (signal?.aborted) return null;
+
+    try {
+      if (process.platform === "win32") {
+        const psScript = `
+$ErrorActionPreference = 'Stop'
+$processes = @(
+  Get-CimInstance -ClassName Win32_Process |
+    Where-Object {
+      $_.Name -match '^(language_server_windows(?:_x64|_arm64)?|language_server)\\.exe$'
+    } |
+    Select-Object ProcessId, ExecutablePath, CommandLine
+)
+ConvertTo-Json -InputObject $processes -Depth 4 -Compress
+`.trim();
+
+        const { stdout } = await execFileAsync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", psScript],
+          { timeout: PROCESS_DISCOVERY_TIMEOUT_MS, signal, windowsHide: true }
+        );
+
+        let procs: Array<{ ProcessId?: number; ExecutablePath?: string; CommandLine?: string }> = [];
+        try {
+          const parsed = JSON.parse(stdout);
+          procs = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === "object" ? [parsed] : []);
+        } catch {
+          procs = [];
+        }
+
+        for (const proc of procs) {
+          const pid = typeof proc.ProcessId === "number" ? proc.ProcessId : null;
+          if (!pid || pid <= 0) continue;
+          const cmd = proc.CommandLine ?? proc.ExecutablePath ?? "language_server.exe";
+
+          // Correlate confirmed loopback listening ports for verified PID
+          const ports = await this.queryWindowsListeningPortsForPid(pid, signal);
+          const correlated = this.correlateProcessEndpoint(proc, ports);
+          if (correlated) {
+            return correlated;
+          }
+        }
+      }
+    } catch {
+      // Discover failure fails closed
+    }
+
+    return null;
+  }
+
+  /**
+   * Correlates a discovered process with its confirmed active loopback listeners.
+   * Command-line port is treated strictly as an optional hint; only confirmed listeners are returned.
+   */
+  correlateProcessEndpoint(
+    proc: { ProcessId?: number; ExecutablePath?: string; CommandLine?: string },
+    listeners: readonly number[]
+  ): VerifiedLanguageServer | null {
+    const pid = typeof proc.ProcessId === "number" ? proc.ProcessId : null;
+    if (!pid || pid <= 0) return null;
+    if (!listeners || listeners.length === 0) return null;
+
+    const cmd = proc.CommandLine ?? proc.ExecutablePath ?? "language_server.exe";
+    const explicitEp = this.parseCandidateCommandLine(cmd);
+
+    let targetPort = listeners[0]!;
+    if (explicitEp && listeners.includes(explicitEp.port)) {
+      targetPort = explicitEp.port;
+    }
+
+    return {
+      pid,
+      host: "127.0.0.1",
+      port: targetPort,
+      processIdentity: cmd
+    };
+  }
+
   private async discoverWindowsProcesses(
     addCandidate: (ep: AntigravityEndpoint | null) => void,
     signal?: AbortSignal
   ): Promise<void> {
     try {
       const psScript = `
-        $procs = Get-CimInstance Win32_Process | Where-Object {
-          $_.CommandLine -match 'extension_server_port' -or $_.Name -match 'agy|language_server|antigravity'
-        }
-        foreach ($p in $procs) {
-          Write-Output "PID:$($p.ProcessId)|CMD:$($p.CommandLine)"
-        }
-      `.trim();
+$ErrorActionPreference = 'Stop'
+$processes = @(
+  Get-CimInstance -ClassName Win32_Process |
+    Where-Object {
+      $_.Name -match '^(language_server_windows(?:_x64|_arm64)?|language_server)\\.exe$' -or $_.CommandLine -match 'extension_server_port' -or $_.Name -match 'agy|antigravity'
+    } |
+    Select-Object ProcessId, ExecutablePath, CommandLine
+)
+ConvertTo-Json -InputObject $processes -Depth 4 -Compress
+`.trim();
 
       const { stdout } = await execFileAsync(
         "powershell.exe",
@@ -203,20 +296,25 @@ export class AntigravityQuotaClient implements AntigravityQuotaTransport {
         { timeout: PROCESS_DISCOVERY_TIMEOUT_MS, signal, windowsHide: true }
       );
 
-      const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      let procs: Array<{ ProcessId?: number; ExecutablePath?: string; CommandLine?: string }> = [];
+      try {
+        const parsed = JSON.parse(stdout);
+        procs = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === "object" ? [parsed] : []);
+      } catch {
+        procs = [];
+      }
+
       const relevantPids: number[] = [];
 
-      for (const line of lines) {
-        const match = /^PID:(\d+)\|CMD:(.*)$/.exec(line);
-        if (!match) continue;
-        const pid = Number.parseInt(match[1]!, 10);
-        const cmd = match[2]!;
+      for (const proc of procs) {
+        const pid = typeof proc.ProcessId === "number" ? proc.ProcessId : null;
+        const cmd = proc.CommandLine ?? "";
 
         // 1. Try parsing explicit commandline arguments
         const ep = this.parseCandidateCommandLine(cmd);
         if (ep) {
           addCandidate(ep);
-        } else if (Number.isInteger(pid) && pid > 0) {
+        } else if (pid && pid > 0) {
           relevantPids.push(pid);
         }
       }
@@ -228,6 +326,41 @@ export class AntigravityQuotaClient implements AntigravityQuotaTransport {
     } catch {
       // WMI denied, timeout, or missing tools -> recoverable
     }
+  }
+
+  private async queryWindowsListeningPortsForPid(
+    pid: number,
+    signal?: AbortSignal
+  ): Promise<readonly number[]> {
+    const ports: number[] = [];
+    try {
+      const { stdout } = await execFileAsync(
+        "netstat.exe",
+        ["-ano", "-p", "tcp"],
+        { timeout: 2000, signal, windowsHide: true }
+      );
+      const lines = stdout.split(/\r?\n/);
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 5 && parts[0]?.toUpperCase() === "TCP") {
+          const localAddr = parts[1]!;
+          const state = parts[3]?.toUpperCase();
+          const procId = Number.parseInt(parts[4]!, 10);
+          if (state === "LISTENING" && procId === pid) {
+            const portMatch = /(?:127\.0\.0\.1|localhost):(\d+)$/i.exec(localAddr);
+            if (portMatch && portMatch[1]) {
+              const portNum = Number.parseInt(portMatch[1], 10);
+              if (portNum >= 1 && portNum <= 65535 && !ports.includes(portNum)) {
+                ports.push(portNum);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Recoverable
+    }
+    return Object.freeze(ports);
   }
 
   private async correlateWindowsListeningPorts(

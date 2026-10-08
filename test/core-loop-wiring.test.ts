@@ -96,10 +96,20 @@ test("Golden Assertion 2: evaluatePreToolUseHook with userDataPath resolves regi
     });
     await fs.writeFile(sidecarStatePath, JSON.stringify(state), "utf-8");
 
+    const signingKey = PreToolUseHookService.getOrCreateSigningKeySync(userData);
+    const sessionAuth = PreToolUseHookService.createSessionAuthorization({
+      workspacePath: workspaceDir,
+      runId: "run-wiring-001",
+      blueprintDigest: "a".repeat(64),
+      signingKey
+    });
+
     await hookService.equipWorkspace({
       workspaceRoot: workspaceDir,
       sidecarStatePath,
-      userDataPath: userData
+      userDataPath: userData,
+      activeSession: PreToolUseHookService.getActiveSession(workspaceDir) ?? undefined,
+      sessionAuthorization: sessionAuth
     });
 
     const input = {
