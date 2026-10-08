@@ -14,6 +14,7 @@ import { ProjectService } from "./services/ProjectService.js";
 import { EvalHarnessService } from "./services/EvalHarnessService.js";
 import { SubagentService } from "./services/SubagentService.js";
 import { PreToolUseHookService } from "./services/preToolUseHookService.js";
+import { HarnessService } from "./services/HarnessService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
@@ -39,6 +40,7 @@ const subagentService = new SubagentService();
 const preToolUseHookService = new PreToolUseHookService();
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 let projectService: ProjectService | null = null;
+let harnessService: HarnessService | null = null;
 
 // Connect docker status updates to telemetry service
 dockerService.subscribe((status) => {
@@ -46,6 +48,14 @@ dockerService.subscribe((status) => {
 });
 
 async function createWindow(): Promise<void> {
+  if (!harnessService) {
+    harnessService = new HarnessService(
+      path.join(app.getPath("userData"), "harness"),
+      loopService.getSnapshot().runId || "default-run"
+    );
+    transcriptService.setHarnessService(harnessService);
+  }
+
   if (!projectService) {
     projectService = new ProjectService(
       path.join(app.getPath("userData"), "recent-projects.json"),
@@ -126,7 +136,8 @@ async function createWindow(): Promise<void> {
     telemetry: telemetryService,
     rollback: rollbackService,
     evalHarness: evalService,
-    subagents: subagentService
+    subagents: subagentService,
+    harness: harnessService
   });
 
   // Push immediate snapshots as soon as renderer is ready
@@ -138,6 +149,13 @@ async function createWindow(): Promise<void> {
       mainWindow.webContents.send("telemetry:snapshot", telemetryService.getSnapshot());
       mainWindow.webContents.send("eval:snapshot", evalService.getSnapshot());
       mainWindow.webContents.send(SUBAGENT_IPC_CHANNELS.changed, subagentService.list());
+      if (harnessService) {
+        void harnessService.getEvents().then((events) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("harness:snapshot", events);
+          }
+        });
+      }
     }
   });
 
@@ -192,4 +210,5 @@ app.on("before-quit", () => {
   telemetryService.dispose();
   transcriptService.dispose();
   void evalService.dispose();
+  void harnessService?.dispose();
 });

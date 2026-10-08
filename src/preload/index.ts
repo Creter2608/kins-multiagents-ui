@@ -9,7 +9,8 @@ import type {
   TelemetrySnapshot,
   RollbackResult,
   EvalHarnessSnapshot,
-  SubagentActivity
+  SubagentActivity,
+  SessionEvent
 } from "../shared/contracts.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 
@@ -110,6 +111,19 @@ const cockpitApi: CockpitApi = {
       const handler = (_event: Electron.IpcRendererEvent, activities: SubagentActivity[]) => listener(activities);
       ipcRenderer.on(SUBAGENT_IPC_CHANNELS.changed, handler);
       return () => ipcRenderer.removeListener(SUBAGENT_IPC_CHANNELS.changed, handler);
+    }
+  },
+  harness: {
+    getEvents: () => ipcRenderer.invoke("harness:getEvents"),
+    onEvent: (listener: (event: SessionEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, ev: SessionEvent) => listener(ev);
+      ipcRenderer.on("harness:event", handler);
+      return () => ipcRenderer.removeListener("harness:event", handler);
+    },
+    onSnapshot: (listener: (events: readonly SessionEvent[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, events: readonly SessionEvent[]) => listener(events);
+      ipcRenderer.on("harness:snapshot", handler);
+      return () => ipcRenderer.removeListener("harness:snapshot", handler);
     }
   }
 };

@@ -5,6 +5,7 @@ import type { TelemetryService } from "./TelemetryService.js";
 import type { McpMonitorService } from "./McpMonitorService.js";
 import type { LoopStateService } from "./LoopStateService.js";
 import type { SubagentService } from "./SubagentService.js";
+import type { HarnessService } from "./HarnessService.js";
 import type { JsonValue } from "../../shared/contracts.js";
 import { LOOP_PHASES, type LoopPhase } from "../../shared/phases.js";
 import {
@@ -126,6 +127,7 @@ export class TranscriptIngestionService {
   private projectRoot = process.cwd();
   private lastObservedRunId: string | null = null;
   private allowedOutputRoots?: readonly string[] | undefined;
+  private harnessService: HarnessService | null = null;
 
   constructor(
     telemetryService: TelemetryService,
@@ -162,6 +164,10 @@ export class TranscriptIngestionService {
     this.allowedOutputRoots = roots;
   }
 
+  setHarnessService(harnessService: HarnessService | null): void {
+    this.harnessService = harnessService;
+  }
+
   getSessionGeneration(): number {
     return this.sessionGeneration;
   }
@@ -177,6 +183,10 @@ export class TranscriptIngestionService {
     this.lastOffset = 0;
     this.incompleteLine = "";
     this.currentTranscriptPath = null;
+    if (this.harnessService) {
+      const projId = path.basename(this.projectRoot).replace(/[^a-zA-Z0-9_-]/g, "_") || "default";
+      await this.harnessService.switchRun(`run_${projId}`);
+    }
   }
 
   reset(): void {
@@ -373,6 +383,33 @@ export class TranscriptIngestionService {
             args
           });
 
+          if (this.harnessService) {
+            const guardArgs = (args && typeof args === "object" ? args : {}) as Readonly<Record<string, unknown>>;
+            const guardDecision = this.harnessService.checkToolCall(toolName, guardArgs);
+            if (!guardDecision.allowed) {
+              void this.harnessService.recordEvent({
+                source: "guard",
+                kind: "tool_blocked",
+                data: {
+                  tool: toolName,
+                  reasonCode: guardDecision.reasonCode || "REPEAT_TOOL_DETECTED",
+                  message: guardDecision.message || "Execution blocked by ExecutionGuard"
+                }
+              });
+            } else {
+              this.harnessService.recordToolDispatch(toolName, guardArgs);
+              void this.harnessService.recordEvent({
+                source: "tool",
+                kind: "tool_dispatch",
+                data: {
+                  server: serverName,
+                  tool: toolName,
+                  ...(args !== undefined && typeof args === "object" ? { args: guardArgs } : {})
+                }
+              });
+            }
+          }
+
           if (this.subagentService && (toolName === "invoke_subagent" || toolName.endsWith(".invoke_subagent"))) {
             this.handleSubagentToolCall(step, tc, stepIdx, i);
           } else if (this.subagentService && (toolName === "manage_subagents" || toolName.endsWith(".manage_subagents"))) {
@@ -415,6 +452,9 @@ export class TranscriptIngestionService {
       const snap = this.loopService.getSnapshot();
       if (this.lastObservedRunId !== null && snap.runId && snap.runId !== this.lastObservedRunId) {
         this.resetRunCounters();
+        if (this.harnessService && snap.runId) {
+          void this.harnessService.switchRun(snap.runId);
+        }
       }
       this.lastObservedRunId = snap.runId || null;
     }
@@ -520,6 +560,16 @@ export class TranscriptIngestionService {
       // must NOT attempt to rewind the active workflow.
       if (targetIdx > currentIdx || detection.phase === "INITIALIZE") {
         this.loopService.advanceToPhase(detection.phase, detection.evidence);
+        if (this.harnessService) {
+          void this.harnessService.recordEvent({
+            source: "loop",
+            kind: "phase_transition",
+            data: {
+              targetPhase: detection.phase,
+              ...(detection.evidence ? { evidence: detection.evidence } : {})
+            }
+          });
+        }
       }
     }
 

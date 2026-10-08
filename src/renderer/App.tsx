@@ -16,6 +16,8 @@ import { CriticalLogDrawer } from "./components/CriticalLogDrawer.js";
 import { TelemetryHud } from "./components/TelemetryHud.js";
 import { ProjectSelector } from "./components/ProjectSelector.js";
 import { EvalScoreboard } from "./components/EvalScoreboard.js";
+import { RunActivityPanel } from "./components/RunActivityPanel.js";
+import type { SessionEvent } from "../shared/harnessContracts.js";
 import "./styles/cockpit.css";
 
 const DEFAULT_LOOP_STATE: LoopStateSnapshot = {
@@ -90,7 +92,8 @@ export const App: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(DEFAULT_TELEMETRY);
   const [evalSnapshot, setEvalSnapshot] = useState<EvalHarnessSnapshot>(DEFAULT_EVAL_STATE);
   const [subagents, setSubagents] = useState<readonly SubagentActivity[]>([]);
-  const [activeTab, setActiveTab] = useState<"terminal" | "eval">("terminal");
+  const [activeTab, setActiveTab] = useState<"terminal" | "eval" | "activity">("terminal");
+  const [harnessEvents, setHarnessEvents] = useState<readonly SessionEvent[]>([]);
   const [rightSidebarTab, setRightSidebarTab] = useState<"mcp" | "subagents">("mcp");
 
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(true);
@@ -126,6 +129,15 @@ export const App: React.FC = () => {
         setRightSidebarTab("subagents");
       }
     });
+    const unsubHarness = api.harness?.onEvent?.((event) => {
+      setHarnessEvents((prev) => {
+        const next = [...prev, event];
+        return next.length > 500 ? next.slice(-500) : next;
+      });
+    });
+    const unsubHarnessSnap = api.harness?.onSnapshot?.((events) => {
+      setHarnessEvents(events);
+    });
 
     // 2. Fetch initial snapshots independently so one failure does not block the rest
     void api.loop.getSnapshot().then(setLoopState).catch((err) => {
@@ -152,6 +164,13 @@ export const App: React.FC = () => {
     }).catch((err) => {
       console.error("[Cockpit] Failed to fetch subagents snapshot:", err);
     });
+    void api.harness?.getEvents?.().then((events) => {
+      if (events && events.length > 0) {
+        setHarnessEvents(events);
+      }
+    }).catch((err) => {
+      console.error("[Cockpit] Failed to fetch harness events:", err);
+    });
 
     return () => {
       unsubLoop();
@@ -160,6 +179,8 @@ export const App: React.FC = () => {
       unsubTelemetry();
       unsubEval?.();
       unsubSubagents?.();
+      unsubHarness?.();
+      unsubHarnessSnap?.();
     };
   }, []);
 
@@ -255,6 +276,18 @@ export const App: React.FC = () => {
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("activity")}
+              aria-current={activeTab === "activity" ? "page" : undefined}
+              className={`px-3 py-1 text-xs font-sans font-medium rounded-md transition-colors min-h-[28px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer ${
+                activeTab === "activity"
+                  ? "bg-zinc-800 text-zinc-100 shadow-xs border border-zinc-700/60 font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
+              }`}
+            >
+              Activity
+            </button>
           </nav>
         </div>
 
@@ -287,6 +320,16 @@ export const App: React.FC = () => {
         </div>
         <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "eval" ? "" : "hidden"}`}>
           <EvalScoreboard snapshot={evalSnapshot} loopState={loopState} onRunBenchmark={handleRunBenchmark} />
+        </div>
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${activeTab === "activity" ? "" : "hidden"}`}>
+          <RunActivityPanel
+            events={harnessEvents}
+            onRefresh={() => {
+              void window.cockpitApi?.harness?.getEvents?.().then((events) => {
+                if (events) setHarnessEvents(events);
+              });
+            }}
+          />
         </div>
 
         {/* Right: Tabbed MCP & Subagents Sidebar */}

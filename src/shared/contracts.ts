@@ -1,5 +1,6 @@
 import type { LoopPhase, PhaseDisplayItem } from "./phases.js";
 import type { EvaluationReport, ArchitecturalCompliance, ArchitecturalCriteriaScores } from "./harness.js";
+import type { SessionEvent } from "./harnessContracts.js";
 
 export type { ArchitecturalCompliance, ArchitecturalCriteriaScores };
 export type Unsubscribe = () => void;
@@ -419,6 +420,13 @@ export interface CockpitApi {
     readonly getSubagents: () => Promise<SubagentActivity[]>;
     readonly onSubagentsChanged: (listener: (activities: SubagentActivity[]) => void) => Unsubscribe;
   };
+  readonly harness?: CockpitApiHarness;
+}
+
+export interface CockpitApiHarness {
+  readonly getEvents: () => Promise<readonly SessionEvent[]>;
+  readonly onEvent: (listener: (event: SessionEvent) => void) => Unsubscribe;
+  readonly onSnapshot?: (listener: (events: readonly SessionEvent[]) => void) => Unsubscribe;
 }
 
 export type EvalHarnessStatus =
@@ -476,4 +484,5 @@ export const SUBAGENT_IPC_CHANNELS = {
 } as const;
 
 export * from "./stealthRules.js";
+export * from "./harnessContracts.js";
 

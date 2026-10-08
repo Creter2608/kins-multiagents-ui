@@ -8,6 +8,7 @@ import type { RollbackService } from "./services/RollbackService.js";
 import type { ProjectService } from "./services/ProjectService.js";
 import type { EvalHarnessService } from "./services/EvalHarnessService.js";
 import type { SubagentService } from "./services/SubagentService.js";
+import type { HarnessService } from "./services/HarnessService.js";
 import { SUBAGENT_IPC_CHANNELS, type ProjectState } from "../shared/contracts.js";
 
 export interface ServiceContainer {
@@ -20,6 +21,7 @@ export interface ServiceContainer {
   rollback: RollbackService;
   evalHarness: EvalHarnessService;
   subagents?: SubagentService | undefined;
+  harness?: HarnessService | undefined;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -33,6 +35,13 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
       window.webContents.send("eval:snapshot", services.evalHarness.getSnapshot());
       if (services.subagents) {
         window.webContents.send(SUBAGENT_IPC_CHANNELS.changed, services.subagents.list());
+      }
+      if (services.harness) {
+        void services.harness.getEvents().then((events) => {
+          if (!window.isDestroyed()) {
+            window.webContents.send("harness:snapshot", events);
+          }
+        });
       }
       window.webContents.send("terminal:clear");
     }
@@ -251,6 +260,22 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     );
   }
 
+  // Harness Activity Journal
+  if (services.harness) {
+    ipcMain.handle("harness:getEvents", async (_event, options?: { limit?: number }) => {
+      const limit = typeof options?.limit === "number" ? Math.min(Math.max(1, options.limit), 500) : 200;
+      return await services.harness!.getEvents(limit);
+    });
+
+    unsubs.push(
+      services.harness.subscribe((event) => {
+        if (!window.isDestroyed()) {
+          window.webContents.send("harness:event", event);
+        }
+      })
+    );
+  }
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
@@ -282,5 +307,6 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("eval:getSnapshot");
     ipcMain.removeHandler("eval:runBenchmark");
     ipcMain.removeHandler(SUBAGENT_IPC_CHANNELS.list);
+    ipcMain.removeHandler("harness:getEvents");
   };
 }
