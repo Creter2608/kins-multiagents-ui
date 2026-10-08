@@ -8,6 +8,7 @@ function cloneCapacity(cap: ProviderCapacity): ProviderCapacity {
     metric: cap.metric,
     limit: cap.limit,
     remaining: cap.remaining,
+    remainingPercentage: cap.remainingPercentage,
     resetAt: cap.resetAt,
     windowSeconds: cap.windowSeconds,
     windowKind: cap.windowKind,
@@ -42,7 +43,7 @@ export class ProviderCapacityService {
   /**
    * Retrieves a snapshot of provider capacities with strict expiry evaluation.
    * Golden Assertion 4: If an observation has expired, its source becomes "unavailable"
-   * and remaining/limit are nullified, ensuring no false or stale quota is displayed.
+   * and remaining/limit/percentage are nullified, ensuring no false or stale quota is displayed.
    */
   snapshot(now: Date = new Date()): readonly ProviderCapacity[] {
     const nowMs = now.getTime();
@@ -56,7 +57,8 @@ export class ProviderCapacityService {
           ...cloneCapacity(obs),
           source: "unavailable",
           remaining: null,
-          limit: null
+          limit: null,
+          remainingPercentage: null
         });
       } else {
         result.push(cloneCapacity(obs));

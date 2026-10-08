@@ -11,6 +11,7 @@ import type { SubagentService } from "./services/SubagentService.js";
 import type { HarnessService } from "./services/HarnessService.js";
 import type { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import type { ProviderCapacityService } from "./services/ProviderCapacityService.js";
+import type { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
 import { SUBAGENT_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity } from "../shared/contracts.js";
 
 export interface ServiceContainer {
@@ -26,6 +27,7 @@ export interface ServiceContainer {
   harness?: HarnessService | undefined;
   contextOptimization?: ContextOptimizationService | undefined;
   providerCapacity?: ProviderCapacityService | undefined;
+  antigravityQuota?: AntigravityQuotaService | undefined;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -302,6 +304,13 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
       services.providerCapacity!.record(observation);
       return { success: true };
     });
+
+    ipcMain.handle("capacity:refresh", async () => {
+      if (services.antigravityQuota) {
+        await services.antigravityQuota.refresh("manual");
+      }
+      return { success: true };
+    });
   }
 
   return () => {
@@ -335,6 +344,7 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("context:analyze");
     ipcMain.removeHandler("capacity:getSnapshot");
     ipcMain.removeHandler("capacity:record");
+    ipcMain.removeHandler("capacity:refresh");
     ipcMain.removeHandler("eval:getSnapshot");
     ipcMain.removeHandler("eval:runBenchmark");
     ipcMain.removeHandler(SUBAGENT_IPC_CHANNELS.list);

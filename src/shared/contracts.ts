@@ -428,6 +428,11 @@ export interface CockpitApi {
     readonly onSubagentsChanged: (listener: (activities: SubagentActivity[]) => void) => Unsubscribe;
   };
   readonly harness?: CockpitApiHarness;
+  readonly providerCapacity?: {
+    readonly getSnapshot: () => Promise<readonly ProviderCapacity[]>;
+    readonly record?: (observation: ProviderCapacity) => Promise<{ success: boolean }>;
+    readonly refresh: () => Promise<{ success: boolean }>;
+  };
 }
 
 export interface CockpitApiHarness {

@@ -10,7 +10,8 @@ import type {
   RollbackResult,
   EvalHarnessSnapshot,
   SubagentActivity,
-  SessionEvent
+  SessionEvent,
+  ProviderCapacity
 } from "../shared/contracts.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 
@@ -125,6 +126,11 @@ const cockpitApi: CockpitApi = {
       ipcRenderer.on("harness:snapshot", handler);
       return () => ipcRenderer.removeListener("harness:snapshot", handler);
     }
+  },
+  providerCapacity: {
+    getSnapshot: () => ipcRenderer.invoke("capacity:getSnapshot"),
+    record: (observation: ProviderCapacity) => ipcRenderer.invoke("capacity:record", observation),
+    refresh: () => ipcRenderer.invoke("capacity:refresh")
   }
 };
 

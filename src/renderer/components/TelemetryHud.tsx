@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import type { TelemetrySnapshot, TelemetryViewScope, TelemetryMetrics, BranchUsageSummary, ProviderCapacity } from "../../shared/contracts.js";
-import { calculateTotalTokens, calculateRemainingPercentage } from "../../shared/contracts.js";
+import { calculateTotalTokens, calculateRemainingPercentage, isGeminiScope, isGeminiProScope, isCapacityActive } from "../../shared/contracts.js";
 import { Cpu, Zap, DollarSign, Box, RotateCcw, Download, GitBranch, Gauge } from "lucide-react";
+import { GeminiQuotaRing } from "./GeminiQuotaRing.js";
 
 export function formatTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) {
@@ -80,13 +81,76 @@ export function createDiagnosticsSnapshot(
   };
 }
 
-interface TelemetryHudProps {
-  readonly telemetry: TelemetrySnapshot;
+/**
+ * Selects only active Gemini capacity, ranked:
+ * 1. Exact active-model scope match.
+ * 2. Gemini Pro.
+ * 3. Any Gemini scope.
+ * Within a rank, prefer provider-sourced capacity, then newest valid observation; retain input order for ties.
+ */
+export function selectBestGeminiCapacity(
+  capacities: readonly ProviderCapacity[] | undefined,
+  activeModel?: string | null,
+  nowMs: number = Date.now()
+): ProviderCapacity | null {
+  if (!capacities || capacities.length === 0) {
+    return null;
+  }
+
+  const geminiCapacities = capacities.filter(
+    (c) => c.provider === "gemini" && isGeminiScope(c.scope) && isCapacityActive(c, nowMs)
+  );
+
+  if (geminiCapacities.length === 0) {
+    return null;
+  }
+
+  const normalizedActive = activeModel?.trim().toLowerCase() ?? null;
+
+  const getRank = (cap: ProviderCapacity): number => {
+    const scopeLower = cap.scope.trim().toLowerCase();
+    if (normalizedActive && scopeLower === normalizedActive) {
+      return 1;
+    }
+    if (isGeminiProScope(cap.scope)) {
+      return 2;
+    }
+    return 3;
+  };
+
+  const getSourceScore = (cap: ProviderCapacity): number => {
+    return cap.source === "provider" ? 2 : cap.source === "local-estimate" ? 1 : 0;
+  };
+
+  const getObservedEpoch = (cap: ProviderCapacity): number => {
+    return cap.observedAt ? new Date(cap.observedAt).getTime() : 0;
+  };
+
+  const sorted = [...geminiCapacities].sort((a, b) => {
+    const rankDiff = getRank(a) - getRank(b);
+    if (rankDiff !== 0) return rankDiff;
+
+    const sourceDiff = getSourceScore(b) - getSourceScore(a);
+    if (sourceDiff !== 0) return sourceDiff;
+
+    const timeDiff = getObservedEpoch(b) - getObservedEpoch(a);
+    if (timeDiff !== 0) return timeDiff;
+
+    return 0;
+  });
+
+  return sorted[0] ?? null;
 }
 
-const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
+interface TelemetryHudProps {
+  readonly telemetry: TelemetrySnapshot;
+  readonly activeModel?: string | null | undefined;
+}
+
+const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry, activeModel }) => {
   const [scope, setScope] = useState<TelemetryViewScope>("session");
   const [isResetting, setIsResetting] = useState(false);
+  const [quotaRefreshError, setQuotaRefreshError] = useState<string | null>(null);
 
   const metrics: TelemetryMetrics =
     scope === "allTime" && telemetry.allTime
@@ -140,6 +204,30 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
       setTimeout(() => setIsResetting(false), 500);
     }
   };
+
+  const handleRefreshQuota = async () => {
+    const api = window.cockpitApi;
+    if (!api?.providerCapacity?.refresh) {
+      return;
+    }
+    try {
+      await api.providerCapacity.refresh();
+      setQuotaRefreshError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to refresh quota";
+      setQuotaRefreshError(message);
+    }
+  };
+
+  const selectedGeminiCapacity = selectBestGeminiCapacity(
+    telemetry.providerCapacity,
+    activeModel
+  );
+
+  const otherCapacities =
+    telemetry.providerCapacity?.filter(
+      (c) => c !== selectedGeminiCapacity
+    ) ?? [];
 
   const handleExportDiagnostics = () => {
     try {
@@ -243,6 +331,16 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
           <span className="text-[11px] text-emerald-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 font-mono">
             {telemetry.geminiCacheStatus === "Active" ? "Pro" : telemetry.geminiCacheStatus}
           </span>
+          <GeminiQuotaRing capacity={selectedGeminiCapacity} onRefresh={handleRefreshQuota} />
+          {quotaRefreshError && (
+            <span
+              role="alert"
+              className="text-[10px] text-rose-400 bg-rose-950/60 border border-rose-800/80 px-1.5 py-0.5 rounded font-mono"
+              title={quotaRefreshError}
+            >
+              Refresh failed
+            </span>
+          )}
         </div>
       </div>
 
@@ -264,15 +362,15 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry }) => {
           </div>
         )}
 
-        {/* Provider Capacity Badges */}
-        {telemetry.providerCapacity && telemetry.providerCapacity.length > 0 && (
+        {/* Other Provider Capacity Badges (e.g. non-Gemini Pro) */}
+        {otherCapacities.length > 0 && (
           <div className="flex items-center space-x-2">
-            {telemetry.providerCapacity.map((cap) => {
+            {otherCapacities.map((cap) => {
               const pct = calculateRemainingPercentage(cap);
               const isUnavailable = cap.source === "unavailable" || pct === null;
               return (
                 <div
-                  key={`${cap.provider}::${cap.scope}`}
+                  key={`${cap.provider}::${cap.scope}::${cap.metric}`}
                   className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-zinc-800/90 border border-zinc-700/80 text-[11px] font-mono"
                   title={`Provider Quota ${cap.provider.toUpperCase()} [${cap.scope}]: ${
                     isUnavailable

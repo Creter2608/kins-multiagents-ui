@@ -18,6 +18,8 @@ import { PreToolUseHookService } from "./services/preToolUseHookService.js";
 import { HarnessService } from "./services/HarnessService.js";
 import { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import { ProviderCapacityService } from "./services/ProviderCapacityService.js";
+import { AntigravityQuotaClient } from "./services/AntigravityQuotaClient.js";
+import { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
@@ -44,6 +46,10 @@ const preToolUseHookService = new PreToolUseHookService();
 const worktreeService = new WorktreeAttributionService();
 const contextOptimizationService = new ContextOptimizationService();
 const providerCapacityService = new ProviderCapacityService();
+const antigravityQuotaClient = new AntigravityQuotaClient({
+  userDataPath: app.getPath("userData")
+});
+const antigravityQuotaService = new AntigravityQuotaService(providerCapacityService, antigravityQuotaClient);
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 transcriptService.setWorktreeAttributionService(worktreeService);
 let projectService: ProjectService | null = null;
@@ -57,6 +63,21 @@ dockerService.subscribe((status) => {
 // Connect provider capacity updates to telemetry service
 providerCapacityService.subscribe((capacities) => {
   telemetryService.updateProviderCapacity(capacities);
+});
+
+// Start background Antigravity quota polling and hook loop terminal events
+antigravityQuotaService.start();
+let prevLoopPhase = "";
+let prevLoopStatus = "";
+loopService.subscribe((state) => {
+  const isTerminalPhase = state.currentPhase === "COMPLETE" || state.status === "succeeded" || state.status === "failed";
+  const changed = state.currentPhase !== prevLoopPhase || state.status !== prevLoopStatus;
+  prevLoopPhase = String(state.currentPhase);
+  prevLoopStatus = String(state.status);
+
+  if (isTerminalPhase && changed) {
+    void antigravityQuotaService.refresh("loop-complete").catch(() => {});
+  }
 });
 
 async function createWindow(): Promise<void> {
@@ -151,7 +172,8 @@ async function createWindow(): Promise<void> {
     subagents: subagentService,
     harness: harnessService,
     contextOptimization: contextOptimizationService,
-    providerCapacity: providerCapacityService
+    providerCapacity: providerCapacityService,
+    antigravityQuota: antigravityQuotaService
   });
 
   // Push immediate snapshots as soon as renderer is ready
@@ -223,6 +245,7 @@ app.on("before-quit", () => {
   dockerService.dispose();
   telemetryService.dispose();
   transcriptService.dispose();
+  antigravityQuotaService.dispose();
   void evalService.dispose();
   void harnessService?.dispose();
 });
