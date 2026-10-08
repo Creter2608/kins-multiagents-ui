@@ -10,7 +10,12 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { canonicalizePath } from "./blueprintApprovalAuthenticator.js";
+import {
+  canonicalizePath,
+  type ActiveSessionAuthority,
+  signMutationAuthorization
+} from "./blueprintApprovalAuthenticator.js";
+import type { MutationAuthorization } from "../../cli/preToolUseHookHelpers.js";
 import type { WorkspaceMutationPolicyMode } from "../../shared/workspaceMutationPolicy.js";
 import {
   STEALTH_TRANSPARENCY_TAG,
@@ -70,6 +75,8 @@ export interface EquipPreToolUseHookOptions {
   readonly runtimeCommand?: string | undefined;
   readonly hooksConfigPath?: string | undefined;
   readonly mutationPolicyMode?: WorkspaceMutationPolicyMode | undefined;
+  readonly activeSession?: ActiveSessionAuthority | undefined;
+  readonly sessionAuthorization?: MutationAuthorization | undefined;
 }
 
 export interface CodeGraphReadGateResolution {
@@ -152,6 +159,112 @@ export class PreToolUseHookService {
     }
   }
 
+  private static readonly activeSessions = new Map<string, ActiveSessionAuthority>();
+
+  static setActiveSession(workspacePath: string, session: ActiveSessionAuthority): void {
+    const canon = canonicalizePath(workspacePath);
+    PreToolUseHookService.activeSessions.set(canon, session);
+  }
+
+  static getActiveSession(workspacePath: string): ActiveSessionAuthority | null {
+    const canon = canonicalizePath(workspacePath);
+    return PreToolUseHookService.activeSessions.get(canon) ?? null;
+  }
+
+  static invalidateSession(workspacePath: string, userDataPath?: string): void {
+    const canon = canonicalizePath(workspacePath);
+    const current = PreToolUseHookService.activeSessions.get(canon);
+    if (current) {
+      const mutableCurrent = current as { revision: number; leaseExpiresAtMs: number };
+      mutableCurrent.revision += 1;
+      mutableCurrent.leaseExpiresAtMs = 0;
+      PreToolUseHookService.activeSessions.set(canon, current);
+    } else {
+      PreToolUseHookService.activeSessions.delete(canon);
+    }
+
+    try {
+      const uPath = userDataPath ?? resolveDefaultUserDataPath();
+      const registryPath = path.join(uPath, "hooks", "workspaces.json");
+      if (syncFs.existsSync(registryPath)) {
+        const raw = syncFs.readFileSync(registryPath, "utf-8");
+        const reg = JSON.parse(raw);
+        if (reg.workspaces) {
+          let modified = false;
+          for (const [ws, entry] of Object.entries(reg.workspaces as Record<string, WorkspaceRegistryEntry>)) {
+            if (canonicalizePath(ws) === canon || canonicalizePath(entry.canonicalWorkspacePath) === canon) {
+              const updatedEntry: WorkspaceRegistryEntry = {
+                ...entry,
+                ...(entry.activeSession
+                  ? {
+                      activeSession: {
+                        ...entry.activeSession,
+                        leaseExpiresAtMs: 0,
+                        revision: (entry.activeSession.revision ?? 1) + 1
+                      }
+                    }
+                  : {})
+              };
+              delete (updatedEntry as unknown as Record<string, unknown>).sessionAuthorization;
+              if (!entry.activeSession) {
+                delete (updatedEntry as unknown as Record<string, unknown>).activeSession;
+              }
+              reg.workspaces[ws] = updatedEntry;
+              modified = true;
+            }
+          }
+          if (modified) {
+            syncFs.writeFileSync(registryPath, JSON.stringify(reg, null, 2), "utf-8");
+          }
+        }
+      }
+    } catch {
+      // Best-effort disk sync
+    }
+  }
+
+  static createSessionAuthorization(options: {
+    workspacePath: string;
+    runId: string;
+    blueprintDigest: string;
+    leaseMs?: number;
+    signingKey: Buffer;
+  }): MutationAuthorization {
+    const canon = canonicalizePath(options.workspacePath);
+    const existing = PreToolUseHookService.activeSessions.get(canon);
+    const revision = existing ? existing.revision + 1 : 1;
+    const sessionId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex");
+    const now = Date.now();
+    const leaseMs = options.leaseMs ?? 300_000;
+    const expiresAtMs = now + leaseMs;
+
+    const sessionAuthority: ActiveSessionAuthority = {
+      sessionId,
+      runId: options.runId,
+      workspaceId: canon,
+      revision,
+      blueprintDigest: options.blueprintDigest,
+      leaseExpiresAtMs: expiresAtMs
+    };
+
+    PreToolUseHookService.activeSessions.set(canon, sessionAuthority);
+
+    return signMutationAuthorization(
+      {
+        version: 1,
+        sessionId,
+        runId: options.runId,
+        workspaceId: canon,
+        revision,
+        phase: "EXECUTE",
+        blueprintDigest: options.blueprintDigest,
+        issuedAtMs: now,
+        expiresAtMs
+      },
+      options.signingKey
+    );
+  }
+
   async equipWorkspace(options: EquipPreToolUseHookOptions): Promise<EquippedPreToolUseHook> {
     const canonicalWorkspace = canonicalizePath(options.workspaceRoot);
     const hooksDir = path.join(options.userDataPath, "hooks");
@@ -177,12 +290,17 @@ export class PreToolUseHookService {
     const sidecarStatePath = path.resolve(options.sidecarStatePath);
     const modeHmac = computeModeHmac(mode, canonicalWorkspace, signingKey);
 
+    const activeSession = options.activeSession ?? PreToolUseHookService.getActiveSession(canonicalWorkspace) ?? undefined;
+    const sessionAuthorization = options.sessionAuthorization ?? undefined;
+
     const baseEntry = {
       canonicalWorkspacePath: canonicalWorkspace,
       sidecarStatePath,
       schemaVersion: 1 as const,
       registeredAt: new Date().toISOString(),
-      mutationPolicyMode: mode
+      mutationPolicyMode: mode,
+      ...(activeSession ? { activeSession } : {}),
+      ...(sessionAuthorization ? { sessionAuthorization } : {})
     };
     const entryHmac = computeRegistryEntryHmac(baseEntry, signingKey);
 

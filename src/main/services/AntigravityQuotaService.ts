@@ -1,6 +1,6 @@
 import type { ProviderCapacityService } from "./ProviderCapacityService.js";
 import type { AntigravityQuotaTransport, AntigravityEndpoint } from "./AntigravityQuotaClient.js";
-import { parseAntigravityQuota } from "./antigravityQuotaTransform.js";
+import { parseAntigravityQuota, parseQuotaResponse } from "./antigravityQuotaTransform.js";
 
 export type AntigravityRefreshReason =
   | "startup"
@@ -121,9 +121,12 @@ export class AntigravityQuotaService {
 
         try {
           const rawResponse = await this.transport.getUserStatus(endpoint, controller.signal);
-          const capacities = parseAntigravityQuota(rawResponse, observedAt, this.freshnessMs);
+          const quotaResult = parseQuotaResponse(rawResponse, observedAt, this.freshnessMs);
+          const capacities = quotaResult.status === "available"
+            ? quotaResult.quota
+            : parseAntigravityQuota(rawResponse, observedAt, this.freshnessMs);
 
-          if (capacities.length > 0) {
+          if (capacities.length > 0 && quotaResult.status !== "unavailable") {
             // Structurally recognized response: cache endpoint
             this.cachedEndpoint = endpoint;
             success = true;

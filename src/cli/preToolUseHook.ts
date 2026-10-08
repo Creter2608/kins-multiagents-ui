@@ -8,7 +8,12 @@
 import * as fs from "node:fs/promises";
 import * as syncFs from "node:fs";
 import * as path from "node:path";
-import { canonicalizePath, verifyBlueprintApproval } from "../main/services/blueprintApprovalAuthenticator.js";
+import {
+  canonicalizePath,
+  verifyBlueprintApproval,
+  authorizeMutation,
+  type ActiveSessionAuthority
+} from "../main/services/blueprintApprovalAuthenticator.js";
 import {
   evaluateWorkspaceMutationPolicy,
   type WorkspaceMutationPolicyMode
@@ -372,6 +377,49 @@ export async function evaluatePreToolUseHook(
   }
 
   // 1. If fast-path mode is active, check if target is an inert documentation file
+  // 1. Active Session & Mutation Authorization check (Mandatory for ALL mutations, including fast paths)
+  const activeSession: ActiveSessionAuthority | null =
+    PreToolUseHookService.getActiveSession(matchedWorkspace.canonicalWorkspacePath) ??
+    matchedWorkspace.activeSession ??
+    null;
+
+  if (!activeSession) {
+    return {
+      decision: "deny",
+      reason: "VIOLATION: Mutation authorization denied (NO_ACTIVE_SESSION): No active mutation session authority registered for workspace."
+    };
+  }
+
+  const candidateAuth = (payload as { authorization?: unknown }).authorization ?? matchedWorkspace.sessionAuthorization;
+  if (!candidateAuth) {
+    return {
+      decision: "deny",
+      reason: "VIOLATION: Mutation authorization denied (MISSING_AUTHORIZATION): Mutation payload missing authorization envelope."
+    };
+  }
+
+  const authDecision = authorizeMutation(
+    candidateAuth,
+    { canonicalPath: canonicalTarget },
+    activeSession,
+    signingKey
+  );
+  if (!authDecision.allowed) {
+    return {
+      decision: "deny",
+      reason: `VIOLATION: Mutation authorization denied (${authDecision.reason}): Invalid, expired, or mismatched session authorization.`
+    };
+  }
+
+  // Verify that state runId matches activeSession runId
+  if (state.runId !== activeSession.runId) {
+    return {
+      decision: "deny",
+      reason: `VIOLATION: Mutation denied (SESSION_MISMATCH): State runId '${state.runId}' does not match active session runId '${activeSession.runId}'.`
+    };
+  }
+
+  // 2. If fast-path mode is active, check if target is an inert documentation file
   if (mode === "documentation-fast-path") {
     const fastPathResult = evaluateWorkspaceMutationPolicy(
       state,
@@ -387,7 +435,7 @@ export async function evaluatePreToolUseHook(
     }
   }
 
-  // 2. For non-fast-path mutations, verify HMAC Blueprint approval first
+  // 3. For non-fast-path mutations, verify HMAC Blueprint approval first
   const isApproved = verifyBlueprintApproval(state, matchedWorkspace.canonicalWorkspacePath, signingKey);
   if (!isApproved) {
     return {
@@ -396,7 +444,17 @@ export async function evaluatePreToolUseHook(
     };
   }
 
-  // 3. Verify shared mutation policy (phase, .eval, blueprint immutability)
+  // Verify blueprint digest matches activeSession
+  if (state.blueprint?.artifactSha256) {
+    if (state.blueprint.artifactSha256.toLowerCase() !== activeSession.blueprintDigest.toLowerCase()) {
+      return {
+        decision: "deny",
+        reason: "VIOLATION: Mutation denied (APPROVAL_MISMATCH): Blueprint digest does not match active approved blueprint."
+      };
+    }
+  }
+
+  // 4. Verify shared mutation policy (phase, .eval, blueprint immutability)
   const policyResult = evaluateWorkspaceMutationPolicy(
     state,
     [canonicalTarget],

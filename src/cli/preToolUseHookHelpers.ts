@@ -8,6 +8,41 @@ import * as syncFs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
+export interface MutationAuthorization {
+  readonly version: 1;
+  readonly sessionId: string;
+  readonly runId: string;
+  readonly workspaceId: string;
+  readonly revision: number;
+  readonly phase: "EXECUTE";
+  readonly blueprintDigest: string;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly signature: string;
+}
+
+export type AuthorizationDecision =
+  | { readonly allowed: true }
+  | {
+      readonly allowed: false;
+      readonly reason:
+        | "MALFORMED"
+        | "BAD_SIGNATURE"
+        | "NO_ACTIVE_SESSION"
+        | "SESSION_MISMATCH"
+        | "WORKSPACE_MISMATCH"
+        | "STALE_REVISION"
+        | "EXPIRED"
+        | "PHASE_DENIED"
+        | "APPROVAL_MISMATCH"
+        | "PROTECTED_TARGET";
+    };
+
+export interface ExistingMutationTarget {
+  readonly canonicalPath: string;
+  readonly isProtectedTarget?: boolean;
+}
+
 export interface PreToolUseHookInput {
   readonly toolCall?: {
     readonly name?: string;
@@ -23,6 +58,7 @@ export interface PreToolUseHookInput {
   };
   readonly workspacePaths?: readonly string[];
   readonly runId?: string;
+  readonly authorization?: MutationAuthorization | unknown;
 }
 
 export interface PreToolUseHookOutput {
