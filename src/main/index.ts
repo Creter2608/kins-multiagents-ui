@@ -18,8 +18,6 @@ import { PreToolUseHookService } from "./services/preToolUseHookService.js";
 import { HarnessService } from "./services/HarnessService.js";
 import { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import { ProviderCapacityService } from "./services/ProviderCapacityService.js";
-import { AntigravityQuotaClient } from "./services/AntigravityQuotaClient.js";
-import { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
 import { EccCatalogService } from "./services/EccCatalogService.js";
 import { EccDispatcherService } from "./services/EccDispatcherService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
@@ -48,10 +46,6 @@ const preToolUseHookService = new PreToolUseHookService();
 const worktreeService = new WorktreeAttributionService();
 const contextOptimizationService = new ContextOptimizationService();
 const providerCapacityService = new ProviderCapacityService();
-const antigravityQuotaClient = new AntigravityQuotaClient({
-  userDataPath: app.getPath("userData")
-});
-const antigravityQuotaService = new AntigravityQuotaService(providerCapacityService, antigravityQuotaClient);
 const eccCatalogPath = process.env.ECC_PATH || path.resolve(projectRoot, "../ECC");
 const eccCatalogService = new EccCatalogService(eccCatalogPath);
 const eccDispatcherService = new EccDispatcherService(eccCatalogService, subagentService);
@@ -68,21 +62,6 @@ dockerService.subscribe((status) => {
 // Connect provider capacity updates to telemetry service
 providerCapacityService.subscribe((capacities) => {
   telemetryService.updateProviderCapacity(capacities);
-});
-
-// Start background Antigravity quota polling and hook loop terminal events
-antigravityQuotaService.start();
-let prevLoopPhase = "";
-let prevLoopStatus = "";
-loopService.subscribe((state) => {
-  const isTerminalPhase = state.currentPhase === "COMPLETE" || state.status === "succeeded" || state.status === "failed";
-  const changed = state.currentPhase !== prevLoopPhase || state.status !== prevLoopStatus;
-  prevLoopPhase = String(state.currentPhase);
-  prevLoopStatus = String(state.status);
-
-  if (isTerminalPhase && changed) {
-    void antigravityQuotaService.refresh("loop-complete").catch(() => {});
-  }
 });
 
 async function createWindow(): Promise<void> {
@@ -178,7 +157,6 @@ async function createWindow(): Promise<void> {
     harness: harnessService,
     contextOptimization: contextOptimizationService,
     providerCapacity: providerCapacityService,
-    antigravityQuota: antigravityQuotaService,
     eccCatalog: eccCatalogService,
     eccDispatcher: eccDispatcherService
   });
@@ -252,7 +230,6 @@ app.on("before-quit", () => {
   dockerService.dispose();
   telemetryService.dispose();
   transcriptService.dispose();
-  antigravityQuotaService.dispose();
   eccCatalogService.dispose();
   void evalService.dispose();
   void harnessService?.dispose();

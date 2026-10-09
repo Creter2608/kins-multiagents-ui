@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import type { TelemetrySnapshot, TelemetryViewScope, TelemetryMetrics, BranchUsageSummary, ProviderCapacity } from "../../shared/contracts.js";
 import { calculateTotalTokens, calculateRemainingPercentage, isGeminiScope, isGeminiProScope, isCapacityActive } from "../../shared/contracts.js";
 import { Cpu, Zap, DollarSign, Box, RotateCcw, Download, GitBranch, Gauge } from "lucide-react";
-import { GeminiQuotaRing } from "./GeminiQuotaRing.js";
 
 export function formatTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) {
@@ -150,7 +149,6 @@ interface TelemetryHudProps {
 const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry, activeModel }) => {
   const [scope, setScope] = useState<TelemetryViewScope>("session");
   const [isResetting, setIsResetting] = useState(false);
-  const [quotaRefreshError, setQuotaRefreshError] = useState<string | null>(null);
 
   const metrics: TelemetryMetrics =
     scope === "allTime" && telemetry.allTime
@@ -205,29 +203,7 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry, activeM
     }
   };
 
-  const handleRefreshQuota = async () => {
-    const api = window.cockpitApi;
-    if (!api?.providerCapacity?.refresh) {
-      return;
-    }
-    try {
-      await api.providerCapacity.refresh();
-      setQuotaRefreshError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to refresh quota";
-      setQuotaRefreshError(message);
-    }
-  };
-
-  const selectedGeminiCapacity = selectBestGeminiCapacity(
-    telemetry.providerCapacity,
-    activeModel
-  );
-
-  const otherCapacities =
-    telemetry.providerCapacity?.filter(
-      (c) => c !== selectedGeminiCapacity
-    ) ?? [];
+  const otherCapacities = telemetry.providerCapacity ?? [];
 
   const handleExportDiagnostics = () => {
     try {
@@ -331,16 +307,6 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry, activeM
           <span className="text-[11px] text-emerald-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 font-mono">
             {telemetry.geminiCacheStatus === "Active" ? "Pro" : telemetry.geminiCacheStatus}
           </span>
-          <GeminiQuotaRing capacity={selectedGeminiCapacity} onRefresh={handleRefreshQuota} />
-          {quotaRefreshError && (
-            <span
-              role="alert"
-              className="text-[10px] text-rose-400 bg-rose-950/60 border border-rose-800/80 px-1.5 py-0.5 rounded font-mono"
-              title={quotaRefreshError}
-            >
-              Refresh failed
-            </span>
-          )}
         </div>
       </div>
 

@@ -20,13 +20,6 @@ import {
   type ActiveSessionAuthority
 } from "../src/main/services/blueprintApprovalAuthenticator.js";
 import type { MutationAuthorization } from "../src/cli/preToolUseHookHelpers.js";
-import {
-  parseQuotaResponse
-} from "../src/main/services/antigravityQuotaTransform.js";
-import {
-  AntigravityQuotaClient,
-  type VerifiedLanguageServer
-} from "../src/main/services/AntigravityQuotaClient.js";
 import { parseSha256Hex } from "../src/checksum.js";
 import type { LoopState } from "../src/engine.js";
 
@@ -313,57 +306,6 @@ test("Golden Assertion 3: approval digest differs from active blueprint -> APPRO
   assert.equal(decision.reason, "APPROVAL_MISMATCH");
 });
 
-test("Golden Assertion 4: verified LS PID changes listening port -> rediscover verified loopback endpoint", async () => {
-  const client = new AntigravityQuotaClient();
-
-  // Test port listening query helper
-  const candidatePid = 12345;
-  const initialPort = 53001;
-  const changedPort = 53002;
-
-  // Verify parseCandidateCommandLine with port changing
-  const ep1 = (client as unknown as { parseCandidateCommandLine: (cmd: string) => { port: number } | null })
-    .parseCandidateCommandLine(`language_server_windows_x64.exe --extension_server_port=${initialPort} --csrf_token=tok1`);
-  assert.ok(ep1);
-  assert.equal(ep1.port, initialPort);
-
-  // When LS changes listening port on restart or dynamic rebind
-  const ep2 = (client as unknown as { parseCandidateCommandLine: (cmd: string) => { port: number } | null })
-    .parseCandidateCommandLine(`language_server_windows_x64.exe --extension_server_port=${changedPort} --csrf_token=tok1`);
-  assert.ok(ep2);
-  assert.equal(ep2.port, changedPort, "Rediscovery must capture the updated loopback listening port");
-  assert.notEqual(ep1.port, ep2.port);
-});
-
-test("Golden Assertion 5: cascadeModelConfigData contains configuration only -> SCHEMA_UNSUPPORTED; no fabricated quota", () => {
-  const configurationOnlyPayload = {
-    cascadeModelConfigData: {
-      clientModelConfigs: [
-        {
-          modelName: "MODEL_CHAT_COMPLETION",
-          label: "Chat Completion",
-          isDefault: true,
-          supportsTools: true
-        },
-        {
-          modelName: "MODEL_CODE_GENERATION",
-          label: "Code Generation",
-          isDefault: false
-        }
-      ]
-    }
-  };
-
-  const result = parseQuotaResponse(configurationOnlyPayload);
-
-  assert.equal(result.status, "unavailable");
-  assert.equal(result.reason, "SCHEMA_UNSUPPORTED");
-
-  // Ensure no fabricated quota items were generated
-  const directCapacities = (result as { quota?: unknown }).quota;
-  assert.equal(directCapacities, undefined, "Configuration-only payload must not fabricate quota");
-});
-
 function createAuditFixture() {
   const workspacePath = path.resolve(
     os.tmpdir(),
@@ -599,24 +541,5 @@ test("AUTH-01: legacy blueprint approval without active session authority or env
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-});
-
-test("LS-01: correlated listener port overrides command line hint; no listener returns null", () => {
-  const client = new AntigravityQuotaClient();
-
-  // 1. CIM discovery advertises port 41000 in commandline, but actual confirmed listener is 42000
-  const candidateProc = {
-    ProcessId: 4242,
-    CommandLine: "language_server_windows_x64.exe --extension_server_port=41000 --csrf_token=tok1"
-  };
-
-  const correlatedWithNewPort = client.correlateProcessEndpoint(candidateProc, [42000]);
-  assert.ok(correlatedWithNewPort);
-  assert.equal(correlatedWithNewPort.pid, 4242);
-  assert.equal(correlatedWithNewPort.port, 42000, "Actual confirmed listener (42000) must override unverified hint (41000)");
-
-  // 2. Discovered process has no active loopback listeners -> returns null
-  const correlatedWithNoListener = client.correlateProcessEndpoint(candidateProc, []);
-  assert.equal(correlatedWithNoListener, null, "Process without confirmed loopback listeners must return null");
 });
 

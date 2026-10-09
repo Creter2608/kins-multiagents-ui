@@ -11,7 +11,6 @@ import type { SubagentService } from "./services/SubagentService.js";
 import type { HarnessService } from "./services/HarnessService.js";
 import type { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import type { ProviderCapacityService } from "./services/ProviderCapacityService.js";
-import type { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
 import type { EccCatalogService } from "./services/EccCatalogService.js";
 import type { EccDispatcherService } from "./services/EccDispatcherService.js";
 import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity, type EccDispatchRequest } from "../shared/contracts.js";
@@ -29,7 +28,6 @@ export interface ServiceContainer {
   harness?: HarnessService | undefined;
   contextOptimization?: ContextOptimizationService | undefined;
   providerCapacity?: ProviderCapacityService | undefined;
-  antigravityQuota?: AntigravityQuotaService | undefined;
   eccCatalog?: EccCatalogService | undefined;
   eccDispatcher?: EccDispatcherService | undefined;
 }
@@ -310,9 +308,6 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     });
 
     ipcMain.handle("capacity:refresh", async () => {
-      if (services.antigravityQuota) {
-        await services.antigravityQuota.refresh("manual");
-      }
       return { success: true };
     });
   }
