@@ -20,6 +20,8 @@ import { ContextOptimizationService } from "./services/ContextOptimizationServic
 import { ProviderCapacityService } from "./services/ProviderCapacityService.js";
 import { AntigravityQuotaClient } from "./services/AntigravityQuotaClient.js";
 import { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
+import { EccCatalogService } from "./services/EccCatalogService.js";
+import { EccDispatcherService } from "./services/EccDispatcherService.js";
 import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
 import { registerIpcHandlers } from "./ipc.js";
 
@@ -50,6 +52,9 @@ const antigravityQuotaClient = new AntigravityQuotaClient({
   userDataPath: app.getPath("userData")
 });
 const antigravityQuotaService = new AntigravityQuotaService(providerCapacityService, antigravityQuotaClient);
+const eccCatalogPath = process.env.ECC_PATH || path.resolve(projectRoot, "../ECC");
+const eccCatalogService = new EccCatalogService(eccCatalogPath);
+const eccDispatcherService = new EccDispatcherService(eccCatalogService, subagentService);
 const transcriptService = new TranscriptIngestionService(telemetryService, mcpService, loopService, null, subagentService);
 transcriptService.setWorktreeAttributionService(worktreeService);
 let projectService: ProjectService | null = null;
@@ -173,7 +178,9 @@ async function createWindow(): Promise<void> {
     harness: harnessService,
     contextOptimization: contextOptimizationService,
     providerCapacity: providerCapacityService,
-    antigravityQuota: antigravityQuotaService
+    antigravityQuota: antigravityQuotaService,
+    eccCatalog: eccCatalogService,
+    eccDispatcher: eccDispatcherService
   });
 
   // Push immediate snapshots as soon as renderer is ready
@@ -246,6 +253,7 @@ app.on("before-quit", () => {
   telemetryService.dispose();
   transcriptService.dispose();
   antigravityQuotaService.dispose();
+  eccCatalogService.dispose();
   void evalService.dispose();
   void harnessService?.dispose();
 });

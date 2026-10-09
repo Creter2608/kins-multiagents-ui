@@ -11,9 +11,10 @@ import type {
   EvalHarnessSnapshot,
   SubagentActivity,
   SessionEvent,
-  ProviderCapacity
+  ProviderCapacity,
+  EccDispatchRequest
 } from "../shared/contracts.js";
-import { SUBAGENT_IPC_CHANNELS } from "../shared/contracts.js";
+import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS } from "../shared/contracts.js";
 
 const cockpitApi: CockpitApi = {
   project: {
@@ -131,6 +132,11 @@ const cockpitApi: CockpitApi = {
     getSnapshot: () => ipcRenderer.invoke("capacity:getSnapshot"),
     record: (observation: ProviderCapacity) => ipcRenderer.invoke("capacity:record", observation),
     refresh: () => ipcRenderer.invoke("capacity:refresh")
+  },
+  ecc: {
+    getCatalog: () => ipcRenderer.invoke(ECC_IPC_CHANNELS.GET_CATALOG),
+    refreshCatalog: () => ipcRenderer.invoke(ECC_IPC_CHANNELS.REFRESH_CATALOG),
+    dispatch: (request: EccDispatchRequest) => ipcRenderer.invoke(ECC_IPC_CHANNELS.DISPATCH, request)
   }
 };
 
