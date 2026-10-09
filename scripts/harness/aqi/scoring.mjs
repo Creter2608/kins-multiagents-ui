@@ -83,7 +83,7 @@ export function scoreArchitectureAnalysis(analysis, options = {}) {
       hardFailures: [],
       findings: [],
       metrics: analysis.metrics,
-      feedback: ['Empty diff, no modifications evaluated.']
+      feedback: []
     };
   }
 
