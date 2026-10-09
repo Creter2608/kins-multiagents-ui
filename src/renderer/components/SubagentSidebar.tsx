@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { SubagentActivity } from "../../shared/contracts.js";
-import { Bot, Clock, X, Copy, Check } from "lucide-react";
+import { Bot, Clock, X, Copy, Check, Sparkles } from "lucide-react";
+import { EccCatalogView } from "./EccCatalogView.js";
 
 export interface SubagentSidebarProps {
   readonly activities: readonly SubagentActivity[];
@@ -22,6 +23,7 @@ function formatDuration(ms: number): string {
 }
 
 export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) => {
+  const [subTab, setSubTab] = useState<"queue" | "catalog">("queue");
   const [now, setNow] = useState<number>(Date.now());
   const [selectedActivity, setSelectedActivity] = useState<SubagentActivity | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -54,26 +56,49 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-zinc-300 font-sans select-none">
-      {/* Sub-header inside tab panel */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/80 shrink-0">
-        <div className="flex items-center space-x-2">
-          <Bot className="w-4 h-4 text-blue-400" />
-          <span className="font-bold text-xs tracking-wider uppercase text-zinc-100">
-            Subagents Queue
-          </span>
-        </div>
-        <span
-          className={`text-xs px-2 py-0.5 rounded border font-mono font-medium ${
-            activeCount > 0
-              ? "bg-blue-950/50 text-blue-300 border-blue-800/70"
-              : "bg-zinc-800 text-zinc-400 border-zinc-700"
+      {/* Sub-header toggle between Live Queue and ECC Library */}
+      <div className="p-2 border-b border-zinc-800 flex items-center gap-1.5 bg-zinc-900/80 shrink-0">
+        <button
+          type="button"
+          onClick={() => setSubTab("queue")}
+          className={`flex-1 py-1 px-2 rounded-md text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
+            subTab === "queue"
+              ? "bg-zinc-800 text-zinc-100 border-zinc-700 shadow-xs"
+              : "bg-transparent text-zinc-400 hover:text-zinc-200 border-transparent"
           }`}
         >
-          {activeCount} Active
-        </span>
+          <Bot className="w-3.5 h-3.5 text-blue-400" />
+          <span>Queue</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+              activeCount > 0
+                ? "bg-blue-950 text-blue-300 border border-blue-800"
+                : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+            }`}
+          >
+            {activeCount > 0 ? `${activeCount} act` : activities.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab("catalog")}
+          className={`flex-1 py-1 px-2 rounded-md text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
+            subTab === "catalog"
+              ? "bg-zinc-800 text-zinc-100 border-zinc-700 shadow-xs"
+              : "bg-transparent text-zinc-400 hover:text-zinc-200 border-transparent"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span>ECC Library</span>
+        </button>
       </div>
 
-      {/* Activities list */}
+      {subTab === "catalog" ? (
+        <EccCatalogView onDispatched={() => setSubTab("queue")} />
+      ) : (
+        <>
+          {/* Activities list */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
         {activities.length === 0 ? (
           <div className="text-center py-8 px-3 text-zinc-400 space-y-2">
@@ -122,19 +147,34 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
                     </span>
                   </div>
 
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded border font-mono uppercase shrink-0 font-medium ${
-                      act.status === "running"
-                        ? "bg-blue-950/50 text-blue-300 border-blue-800/70"
-                        : act.status === "idle"
-                        ? "bg-amber-950/50 text-amber-300 border-amber-800/70"
-                        : act.status === "completed"
-                        ? "bg-emerald-950/50 text-emerald-300 border-emerald-800/70"
-                        : "bg-rose-950/50 text-rose-300 border-rose-800/70"
-                    }`}
-                  >
-                    {act.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {act.eccMetadata && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border font-mono font-medium flex items-center gap-1 bg-purple-950/60 text-purple-300 border-purple-800/80">
+                        <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+                        <span>ECC</span>
+                      </span>
+                    )}
+
+                    {act.eccMetadata?.optimization && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border font-mono text-emerald-300 bg-emerald-950/50 border-emerald-800/70 font-medium">
+                        {Math.round(act.eccMetadata.optimization.savingsRatio * 100)}% saved
+                      </span>
+                    )}
+
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded border font-mono uppercase shrink-0 font-medium ${
+                        act.status === "running"
+                          ? "bg-blue-950/50 text-blue-300 border-blue-800/70"
+                          : act.status === "idle"
+                          ? "bg-amber-950/50 text-amber-300 border-amber-800/70"
+                          : act.status === "completed"
+                          ? "bg-emerald-950/50 text-emerald-300 border-emerald-800/70"
+                          : "bg-rose-950/50 text-rose-300 border-rose-800/70"
+                      }`}
+                    >
+                      {act.status}
+                    </span>
+                  </div>
                 </div>
 
                 {(act.fullPrompt || act.promptSummary) && (
@@ -213,6 +253,51 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
                   <div className="capitalize text-zinc-200 font-medium">{selectedActivity.status}</div>
                 </div>
               </div>
+
+              {selectedActivity.eccMetadata && (
+                <div className="p-2.5 rounded-lg bg-purple-950/20 border border-purple-800/50 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[10px] text-purple-300 uppercase font-bold tracking-wider">
+                      <Sparkles className="w-3 h-3 text-purple-400" />
+                      <span>ECC Capability & Skills</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-mono">
+                      Agent: {selectedActivity.eccMetadata.agentId}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider mb-1">Attached Skills</div>
+                    {selectedActivity.eccMetadata.skillIds.length === 0 ? (
+                      <div className="text-[11px] text-zinc-500 italic font-mono">No attached skills</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {selectedActivity.eccMetadata.skillIds.map((sId: string, idx: number) => (
+                          <span
+                            key={`${sId}-${idx}`}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-purple-800/60 text-purple-200 font-mono"
+                          >
+                            {sId}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedActivity.eccMetadata.optimization && (
+                    <div className="pt-2 border-t border-purple-900/50 space-y-1.5 font-mono text-[11px]">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider font-sans">Token Budget Optimization</div>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-zinc-300">
+                        <div>Original: <span className="text-zinc-100">{selectedActivity.eccMetadata.optimization.originalBytes} B</span></div>
+                        <div>Compacted: <span className="text-zinc-100">{selectedActivity.eccMetadata.optimization.compactedBytes} B</span></div>
+                        <div>Saved: <span className="text-emerald-400 font-semibold">{Math.round(selectedActivity.eccMetadata.optimization.savingsRatio * 100)}%</span></div>
+                        <div>Skills: <span className="text-zinc-100">{selectedActivity.eccMetadata.optimization.includedSkillCount} incl / {selectedActivity.eccMetadata.optimization.truncatedSkillCount} trunc</span></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <div className="flex items-center justify-between text-[10px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">
                   <span>Prompt / Task Details</span>
@@ -276,6 +361,8 @@ export const SubagentSidebar: React.FC<SubagentSidebarProps> = ({ activities }) 
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

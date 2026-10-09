@@ -2,7 +2,8 @@ import type {
   SubagentActivity,
   SubagentInvocationInput,
   SubagentStatusUpdate,
-  SubagentStatus
+  SubagentStatus,
+  EccDispatchedMetadata
 } from "../../shared/contracts.js";
 
 export type SubagentListener = (activities: SubagentActivity[]) => void;
@@ -18,6 +19,21 @@ interface StoredSubagent {
   updatedAt: number;
   completedAt?: number | undefined;
   errorMessage?: string | undefined;
+  eccMetadata?: EccDispatchedMetadata | undefined;
+}
+
+function snapshotEccMetadata(
+  metadata: EccDispatchedMetadata | undefined
+): EccDispatchedMetadata | undefined {
+  if (!metadata) return undefined;
+  return {
+    source: metadata.source,
+    agentId: metadata.agentId,
+    skillIds: [...metadata.skillIds],
+    optimization: metadata.optimization
+      ? { ...metadata.optimization }
+      : undefined
+  };
 }
 
 function normalizePromptSummary(prompt?: string): string {
@@ -65,6 +81,9 @@ export class SubagentService {
       if (input.prompt && !existing.promptSummary) {
         existing.promptSummary = normalizePromptSummary(input.prompt);
       }
+      if (input.eccMetadata && !existing.eccMetadata) {
+        existing.eccMetadata = snapshotEccMetadata(input.eccMetadata);
+      }
       existing.updatedAt = currentTime;
       this.notify();
       return this.toActivity(existing);
@@ -84,7 +103,8 @@ export class SubagentService {
       fullPrompt: rawPrompt,
       status: "running",
       startedAt,
-      updatedAt: startedAt
+      updatedAt: startedAt,
+      eccMetadata: snapshotEccMetadata(input.eccMetadata)
     };
 
     this.records.set(input.id, stored);
@@ -206,7 +226,8 @@ export class SubagentService {
       updatedAt: record.updatedAt,
       completedAt: record.completedAt,
       elapsedMs,
-      errorMessage: record.errorMessage
+      errorMessage: record.errorMessage,
+      eccMetadata: snapshotEccMetadata(record.eccMetadata)
     };
   }
 

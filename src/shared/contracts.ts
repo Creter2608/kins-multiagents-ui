@@ -3,10 +3,13 @@ import type { EvaluationReport, ArchitecturalCompliance, ArchitecturalCriteriaSc
 import type { SessionEvent } from "./harnessContracts.js";
 import type { BranchUsageSummary } from "./usage.js";
 import type { ProviderCapacity } from "./providerCapacity.js";
+import type { EccApi, EccDispatchedMetadata } from "./eccContracts.js";
 
 export * from "./usage.js";
 export * from "./contextOptimization.js";
 export * from "./providerCapacity.js";
+export * from "./eccContracts.js";
+export type { EccDispatchedMetadata };
 export type { ArchitecturalCompliance, ArchitecturalCriteriaScores };
 export type Unsubscribe = () => void;
 
@@ -433,6 +436,7 @@ export interface CockpitApi {
     readonly record?: (observation: ProviderCapacity) => Promise<{ success: boolean }>;
     readonly refresh: () => Promise<{ success: boolean }>;
   };
+  readonly ecc?: EccApi;
 }
 
 export interface CockpitApiHarness {
@@ -473,6 +477,7 @@ export interface SubagentActivity {
   readonly completedAt?: number | undefined;
   readonly elapsedMs: number;
   readonly errorMessage?: string | undefined;
+  readonly eccMetadata?: EccDispatchedMetadata | undefined;
 }
 
 export interface SubagentInvocationInput {
@@ -481,6 +486,7 @@ export interface SubagentInvocationInput {
   readonly model?: string | undefined;
   readonly prompt?: string | undefined;
   readonly startedAt?: number | undefined;
+  readonly eccMetadata?: EccDispatchedMetadata | undefined;
 }
 
 export interface SubagentStatusUpdate {

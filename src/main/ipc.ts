@@ -12,7 +12,9 @@ import type { HarnessService } from "./services/HarnessService.js";
 import type { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import type { ProviderCapacityService } from "./services/ProviderCapacityService.js";
 import type { AntigravityQuotaService } from "./services/AntigravityQuotaService.js";
-import { SUBAGENT_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity } from "../shared/contracts.js";
+import type { EccCatalogService } from "./services/EccCatalogService.js";
+import type { EccDispatcherService } from "./services/EccDispatcherService.js";
+import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity, type EccDispatchRequest } from "../shared/contracts.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -28,6 +30,8 @@ export interface ServiceContainer {
   contextOptimization?: ContextOptimizationService | undefined;
   providerCapacity?: ProviderCapacityService | undefined;
   antigravityQuota?: AntigravityQuotaService | undefined;
+  eccCatalog?: EccCatalogService | undefined;
+  eccDispatcher?: EccDispatcherService | undefined;
 }
 
 export function registerIpcHandlers(window: BrowserWindow, services: ServiceContainer): () => void {
@@ -313,10 +317,29 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     });
   }
 
+  if (services.eccCatalog) {
+    ipcMain.handle(ECC_IPC_CHANNELS.GET_CATALOG, async () => {
+      return services.eccCatalog!.getSnapshot();
+    });
+
+    ipcMain.handle(ECC_IPC_CHANNELS.REFRESH_CATALOG, async () => {
+      return services.eccCatalog!.refresh();
+    });
+  }
+
+  if (services.eccDispatcher) {
+    ipcMain.handle(ECC_IPC_CHANNELS.DISPATCH, async (_event: unknown, request: EccDispatchRequest) => {
+      return services.eccDispatcher!.dispatch(request);
+    });
+  }
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
     }
+    ipcMain.removeHandler(ECC_IPC_CHANNELS.GET_CATALOG);
+    ipcMain.removeHandler(ECC_IPC_CHANNELS.REFRESH_CATALOG);
+    ipcMain.removeHandler(ECC_IPC_CHANNELS.DISPATCH);
     ipcMain.removeHandler("project:get-state");
     ipcMain.removeHandler("project:get-workspace-context");
     ipcMain.removeHandler("project:sync-global-ide-rules");
