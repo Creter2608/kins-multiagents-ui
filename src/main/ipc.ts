@@ -329,6 +329,8 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
   }
 
   return () => {
+    services.project.setOnProjectSwitched?.(null);
+    services.project.setOnWorkspaceContextChanged?.(null);
     for (const unsub of unsubs) {
       unsub();
     }

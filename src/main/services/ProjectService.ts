@@ -149,11 +149,11 @@ export class ProjectService {
     }
   }
 
-  setOnProjectSwitched(callback: (state: ProjectState) => void): void {
+  setOnProjectSwitched(callback: ((state: ProjectState) => void) | null): void {
     this.onProjectSwitchedCallback = callback;
   }
 
-  setOnWorkspaceContextChanged(callback: (context: WorkspaceContext) => void): void {
+  setOnWorkspaceContextChanged(callback: ((context: WorkspaceContext) => void) | null): void {
     this.onWorkspaceContextChangedCallback = callback;
   }
 
