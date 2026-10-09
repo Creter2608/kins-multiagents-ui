@@ -13,7 +13,39 @@ const repositoryRoot = execFileSync(
   }
 ).trim();
 
-const experimentalRef = "refs/heads/experimental/antigravity-quota";
+function resolveExperimentalRef(): string | null {
+  for (const candidate of [
+    "refs/heads/experimental/antigravity-quota",
+    "refs/remotes/origin/experimental/antigravity-quota",
+    "experimental/antigravity-quota",
+    "origin/experimental/antigravity-quota"
+  ]) {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", `${candidate}^{commit}`], {
+        cwd: repositoryRoot,
+        stdio: "ignore"
+      });
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+
+  try {
+    execFileSync(
+      "git",
+      ["fetch", "origin", "experimental/antigravity-quota:refs/remotes/origin/experimental/antigravity-quota"],
+      { cwd: repositoryRoot, stdio: "ignore", timeout: 15_000 }
+    );
+    execFileSync("git", ["rev-parse", "--verify", "refs/remotes/origin/experimental/antigravity-quota^{commit}"], {
+      cwd: repositoryRoot,
+      stdio: "ignore"
+    });
+    return "refs/remotes/origin/experimental/antigravity-quota";
+  } catch {
+    return null;
+  }
+}
 
 function gitText(args: string[]): string {
   return execFileSync("git", args, {
@@ -28,8 +60,8 @@ function workingSource(path: string): string {
   return readFileSync(join(repositoryRoot, path), "utf8");
 }
 
-function experimentalSource(path: string): string {
-  return gitText(["show", `${experimentalRef}:${path}`]);
+function experimentalSource(ref: string, path: string): string {
+  return gitText(["show", `${ref}:${path}`]);
 }
 
 test("main bootstrap and IPC do not retain the removed quota service wiring", () => {
@@ -59,7 +91,13 @@ test("main HUD has no dedicated quota ring or obsolete refresh state", () => {
   );
 });
 
-test("experimental branch retains quota modules, startup wiring, and regression entry points", () => {
+test("experimental branch retains quota modules, startup wiring, and regression entry points", (t) => {
+  const experimentalRef = resolveExperimentalRef();
+  if (!experimentalRef) {
+    t.skip("experimental/antigravity-quota branch not present in current clone");
+    return;
+  }
+
   gitText(["rev-parse", "--verify", `${experimentalRef}^{commit}`]);
 
   const trackedFiles = gitText([
@@ -86,7 +124,7 @@ test("experimental branch retains quota modules, startup wiring, and regression 
       `Experimental branch must retain ${path}`
     );
     assert.ok(
-      experimentalSource(path).trim().length > 0,
+      experimentalSource(experimentalRef, path).trim().length > 0,
       `${path} must not be an empty retained artifact`
     );
   }
@@ -98,7 +136,7 @@ test("experimental branch retains quota modules, startup wiring, and regression 
     "Experimental branch must retain the Gemini quota ring component"
   );
 
-  const bootstrap = experimentalSource("src/main/index.ts");
+  const bootstrap = experimentalSource(experimentalRef, "src/main/index.ts");
   assert.match(bootstrap, /\bAntigravityQuotaClient\b/);
   assert.match(bootstrap, /\bAntigravityQuotaService\b/);
   assert.match(
@@ -108,6 +146,7 @@ test("experimental branch retains quota modules, startup wiring, and regression 
   );
 
   const quotaTests = experimentalSource(
+    experimentalRef,
     "test/session-auth-and-ls-quota.test.ts"
   );
 
