@@ -38,7 +38,20 @@ jobs:
         run: npm run typecheck
 
       - name: Build and Run Engine Tests
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+
+      - name: Diagnostic On Failure
+        if: failure()
+        run: |
+          echo "### ❌ Test Failures Diagnostic" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -B 3 -A 25 "not ok" test.log >> $GITHUB_STEP_SUMMARY || tail -n 50 test.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          while IFS= read -r line; do
+            echo "::error title=Test Failure::$line"
+          done < <(grep "not ok" test.log || true)
 
       - name: Verify Golden Assertions SHA-256 Tamper Gate
         run: |
