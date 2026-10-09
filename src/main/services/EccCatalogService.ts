@@ -228,7 +228,7 @@ export class EccCatalogService {
 
     for (const entry of entries) {
       if (assets.length >= MAX_TOTAL_SCANNED_ASSETS) break;
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      if ((!entry.isFile() && !entry.isSymbolicLink()) || !entry.name.endsWith(".md")) continue;
 
       const fullPath = path.join(agentsDir, entry.name);
       const relativePath = path.relative(this.sourceRoot, fullPath);
@@ -251,7 +251,15 @@ export class EccCatalogService {
     for (const entry of entries) {
       if (assets.length >= MAX_TOTAL_SCANNED_ASSETS) break;
 
-      if (entry.isDirectory()) {
+      if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith(".md")) {
+        const fullPath = path.join(skillsDir, entry.name);
+        const relativePath = path.relative(this.sourceRoot, fullPath);
+        const id = `skill:${entry.name.replace(/\.md$/, "")}`;
+        const summary = this.evaluateAsset(id, "skill", fullPath, relativePath, diagnostics);
+        if (summary) {
+          assets.push(summary);
+        }
+      } else if (entry.isDirectory() || entry.isSymbolicLink()) {
         const skillMdPath = path.join(skillsDir, entry.name, "SKILL.md");
         if (fs.existsSync(skillMdPath)) {
           const relativePath = path.relative(this.sourceRoot, skillMdPath);
@@ -260,14 +268,6 @@ export class EccCatalogService {
           if (summary) {
             assets.push(summary);
           }
-        }
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const fullPath = path.join(skillsDir, entry.name);
-        const relativePath = path.relative(this.sourceRoot, fullPath);
-        const id = `skill:${entry.name.replace(/\.md$/, "")}`;
-        const summary = this.evaluateAsset(id, "skill", fullPath, relativePath, diagnostics);
-        if (summary) {
-          assets.push(summary);
         }
       }
     }
