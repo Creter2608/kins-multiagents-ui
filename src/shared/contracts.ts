@@ -1,6 +1,6 @@
 import type { LoopPhase, PhaseDisplayItem } from "./phases.js";
 import type { EvaluationReport, ArchitecturalCompliance, ArchitecturalCriteriaScores } from "./harness.js";
-import type { SessionEvent } from "./harnessContracts.js";
+import type { SessionEvent, ModelMessage, DeriveMessagesOptions } from "./harnessContracts.js";
 import type { BranchUsageSummary } from "./usage.js";
 import type { ProviderCapacity } from "./providerCapacity.js";
 import type { EccApi, EccDispatchedMetadata } from "./eccContracts.js";
@@ -11,6 +11,8 @@ export * from "./providerCapacity.js";
 export * from "./eccContracts.js";
 export type { EccDispatchedMetadata };
 export type { ArchitecturalCompliance, ArchitecturalCriteriaScores };
+export type { SessionEvent, ModelMessage, ToolCall, DeriveMessagesOptions } from "./harnessContracts.js";
+export * from "./inner-step.js";
 export type Unsubscribe = () => void;
 
 export interface PtyExitEvent {
@@ -443,6 +445,8 @@ export interface CockpitApiHarness {
   readonly getEvents: () => Promise<readonly SessionEvent[]>;
   readonly onEvent: (listener: (event: SessionEvent) => void) => Unsubscribe;
   readonly onSnapshot?: (listener: (events: readonly SessionEvent[]) => void) => Unsubscribe;
+  readonly getDerivedMessages?: (options?: DeriveMessagesOptions) => Promise<readonly ModelMessage[]>;
+  readonly recoverPendingTools?: (status?: string, reasonCode?: string) => Promise<readonly SessionEvent[]>;
 }
 
 export type EvalHarnessStatus =

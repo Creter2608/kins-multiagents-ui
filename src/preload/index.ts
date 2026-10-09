@@ -12,7 +12,8 @@ import type {
   SubagentActivity,
   SessionEvent,
   ProviderCapacity,
-  EccDispatchRequest
+  EccDispatchRequest,
+  DeriveMessagesOptions
 } from "../shared/contracts.js";
 import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS } from "../shared/contracts.js";
 
@@ -126,7 +127,9 @@ const cockpitApi: CockpitApi = {
       const handler = (_event: Electron.IpcRendererEvent, events: readonly SessionEvent[]) => listener(events);
       ipcRenderer.on("harness:snapshot", handler);
       return () => ipcRenderer.removeListener("harness:snapshot", handler);
-    }
+    },
+    getDerivedMessages: (options?: DeriveMessagesOptions) => ipcRenderer.invoke("harness:getDerivedMessages", options),
+    recoverPendingTools: (status?: string, reasonCode?: string) => ipcRenderer.invoke("harness:recoverPendingTools", status, reasonCode)
   },
   providerCapacity: {
     getSnapshot: () => ipcRenderer.invoke("capacity:getSnapshot"),

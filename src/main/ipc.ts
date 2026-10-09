@@ -9,11 +9,12 @@ import type { ProjectService } from "./services/ProjectService.js";
 import type { EvalHarnessService } from "./services/EvalHarnessService.js";
 import type { SubagentService } from "./services/SubagentService.js";
 import type { HarnessService } from "./services/HarnessService.js";
+import type { TerminalRecoveryStatus } from "./harness/ToolCallRecovery.js";
 import type { ContextOptimizationService } from "./services/ContextOptimizationService.js";
 import type { ProviderCapacityService } from "./services/ProviderCapacityService.js";
 import type { EccCatalogService } from "./services/EccCatalogService.js";
 import type { EccDispatcherService } from "./services/EccDispatcherService.js";
-import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity, type EccDispatchRequest } from "../shared/contracts.js";
+import { SUBAGENT_IPC_CHANNELS, ECC_IPC_CHANNELS, type ProjectState, type ContextItem, type ProviderCapacity, type EccDispatchRequest, type DeriveMessagesOptions } from "../shared/contracts.js";
 
 export interface ServiceContainer {
   project: ProjectService;
@@ -287,6 +288,19 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
       return await services.harness!.getEvents(limit);
     });
 
+    ipcMain.handle("harness:getDerivedMessages", async (_event, options?: DeriveMessagesOptions) => {
+      return await services.harness!.getDerivedMessages(options);
+    });
+
+    ipcMain.handle("harness:recoverPendingTools", async (_event, status?: string, reasonCode?: string) => {
+      const allowedStatuses: readonly TerminalRecoveryStatus[] = ['cancelled', 'failed', 'timed-out', 'unknown'];
+      const resolvedStatus: TerminalRecoveryStatus =
+        typeof status === 'string' && (allowedStatuses as readonly string[]).includes(status)
+          ? (status as TerminalRecoveryStatus)
+          : 'cancelled';
+      return await services.harness!.recoverPendingTools(resolvedStatus, reasonCode);
+    });
+
     unsubs.push(
       services.harness.subscribe((event) => {
         if (!window.isDestroyed()) {
@@ -369,5 +383,7 @@ export function registerIpcHandlers(window: BrowserWindow, services: ServiceCont
     ipcMain.removeHandler("eval:runBenchmark");
     ipcMain.removeHandler(SUBAGENT_IPC_CHANNELS.list);
     ipcMain.removeHandler("harness:getEvents");
+    ipcMain.removeHandler("harness:getDerivedMessages");
+    ipcMain.removeHandler("harness:recoverPendingTools");
   };
 }

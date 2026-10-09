@@ -57,3 +57,47 @@ export interface GuardDecision {
   readonly reasonCode?: string;
   readonly message?: string;
 }
+
+export interface ToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: Readonly<Record<string, unknown>> | string;
+}
+
+export interface ModelMessage {
+  readonly role: 'system' | 'user' | 'assistant' | 'tool';
+  readonly content: string;
+  readonly toolCalls?: readonly ToolCall[];
+  readonly toolCallId?: string;
+  readonly name?: string;
+}
+
+export interface ToolResultPruneConfig {
+  readonly enabled?: boolean;
+  readonly thresholdChars?: number;
+  readonly headChars?: number;
+  readonly tailChars?: number;
+}
+
+export interface DeriveMessagesOptions {
+  readonly includeAttempts?: boolean;
+  readonly compaction?: ToolResultPruneConfig;
+}
+
+export interface SpillRef {
+  readonly locator: string;
+  readonly bytes: number;
+  readonly retrievalHint: string;
+}
+
+export interface SaveSpillInput {
+  readonly owner: { readonly sessionId: string };
+  readonly source: {
+    readonly kind: string;
+    readonly toolName: string;
+    readonly callId: string;
+    readonly label?: string;
+  };
+  readonly suggestedName: string;
+  readonly content: string;
+}

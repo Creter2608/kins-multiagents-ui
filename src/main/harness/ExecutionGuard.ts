@@ -142,5 +142,73 @@ export class ExecutionGuard {
   reset(): void {
     this.lastCallFingerprint = null;
     this.consecutiveIdenticalCount = 0;
+    this.lastInnerCallFingerprint = null;
+    this.stickyMaxTokens = false;
+  }
+
+  // --- INNER STEP LOOP METHODS (STAGE 2) ---
+
+  private lastInnerCallFingerprint: string | null = null;
+  private stickyMaxTokens: boolean = false;
+
+  /**
+   * Checks whether another step can be initiated given the completed steps in the turn.
+   */
+  canStartStep(completedSteps: number): boolean {
+    return completedSteps < this.maxPlanSteps;
+  }
+
+  /**
+   * Observes the model finish reason for sticky max-tokens tracking.
+   */
+  observeFinishReason(reason: 'stop' | 'tool-calls' | 'max-tokens'): void {
+    if (reason === 'max-tokens') {
+      this.stickyMaxTokens = true;
+    }
+  }
+
+  /**
+   * Evaluates an individual tool call for consecutive duplicate execution.
+   * Compares against the immediately preceding attempted call in dispatch order.
+   * Blocks on the 2nd consecutive identical call. Intervening different calls reset the tracker.
+   */
+  acceptToolCall(call: { name: string; arguments?: unknown }): boolean {
+    const rawArgs = call.arguments;
+    let normalizedArgs: unknown;
+    if (typeof rawArgs === 'string') {
+      try {
+        normalizedArgs = rawArgs.trim() ? JSON.parse(rawArgs) : {};
+      } catch {
+        normalizedArgs = rawArgs;
+      }
+    } else {
+      normalizedArgs = rawArgs ?? {};
+    }
+
+    const fingerprint = `${call.name}:${canonicalizeJson(normalizedArgs)}`;
+    if (this.lastInnerCallFingerprint === fingerprint) {
+      return false;
+    }
+
+    this.lastInnerCallFingerprint = fingerprint;
+    return true;
+  }
+
+  /**
+   * Resolves the final turn ending kind, enforcing sticky max-tokens precedence over completed/step-limit.
+   * Aborted and error outcomes take precedence over sticky max-tokens.
+   */
+  resolveEndKind(candidate: 'completed' | 'max-tokens' | 'aborted' | 'error' | 'step-limit'): 'completed' | 'max-tokens' | 'aborted' | 'error' | 'step-limit' {
+    if (candidate === 'aborted' || candidate === 'error') {
+      return candidate;
+    }
+    if (this.stickyMaxTokens) {
+      return 'max-tokens';
+    }
+    return candidate;
+  }
+
+  isStickyMaxTokens(): boolean {
+    return this.stickyMaxTokens;
   }
 }
