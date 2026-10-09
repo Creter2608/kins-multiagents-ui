@@ -24,6 +24,19 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
   const [nowMs, setNowMs] = useState<number>(Date.now());
   const isMountedRef = useRef(true);
 
+  const [lastKnown, setLastKnown] = useState<{
+    capacity: ProviderCapacity;
+    pct: number;
+  } | null>(() => {
+    if (capacity) {
+      const initialPct = calculateRemainingPercentage(capacity);
+      if (initialPct !== null && initialPct >= 0 && initialPct <= 100) {
+        return { capacity, pct: initialPct };
+      }
+    }
+    return null;
+  });
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -31,8 +44,29 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
     };
   }, []);
 
+  const isActive = capacity ? isCapacityActive(capacity, nowMs) : false;
+  const currentPct = capacity && isActive ? calculateRemainingPercentage(capacity) : null;
+
+  useEffect(() => {
+    if (capacity && isActive && currentPct !== null && currentPct >= 0 && currentPct <= 100) {
+      setLastKnown({ capacity, pct: currentPct });
+    }
+  }, [capacity, isActive, currentPct]);
+
+  // Handle scope change: if capacity is present with a different scope, don't leak previous scope's cached percentage
+  const currentScope = capacity?.scope ?? null;
+  const lastKnownScope = lastKnown?.capacity.scope ?? null;
+  const isSameScopeOrNoCurrent = !currentScope || !lastKnownScope || currentScope === lastKnownScope;
+  const effectiveLastKnown = isSameScopeOrNoCurrent ? lastKnown : null;
+
+  const isCurrentlyAvailable = !(!capacity || !isActive || currentPct === null);
+  const isStale = !isCurrentlyAvailable && effectiveLastKnown !== null;
+  const displayCapacity = isCurrentlyAvailable ? capacity! : (effectiveLastKnown ? effectiveLastKnown.capacity : null);
+  const pct = isCurrentlyAvailable ? currentPct : (effectiveLastKnown ? effectiveLastKnown.pct : null);
+  const isUnavailable = pct === null;
+
   // 1-second interval clock only when a future resetAt exists
-  const resetEpochMs = capacity?.resetAt ? new Date(capacity.resetAt).getTime() : null;
+  const resetEpochMs = displayCapacity?.resetAt ? new Date(displayCapacity.resetAt).getTime() : null;
   const hasFutureReset = resetEpochMs !== null && Number.isFinite(resetEpochMs) && resetEpochMs > nowMs;
 
   useEffect(() => {
@@ -42,10 +76,6 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
     }, 1000);
     return () => clearInterval(interval);
   }, [hasFutureReset, resetEpochMs]);
-
-  const isActive = capacity ? isCapacityActive(capacity, nowMs) : false;
-  const pct = capacity && isActive ? calculateRemainingPercentage(capacity) : null;
-  const isUnavailable = !capacity || !isActive || pct === null;
 
   // SVG Geometry: 24x24 px, center (12, 12), radius 9, stroke width 3
   const radius = 9;
@@ -57,7 +87,11 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
   let badgeTextColor = "text-zinc-400";
 
   if (!isUnavailable && pct !== null) {
-    if (pct >= 50) {
+    if (isStale) {
+      ringColor = "text-zinc-500";
+      strokeColor = "stroke-zinc-500";
+      badgeTextColor = "text-zinc-400";
+    } else if (pct >= 50) {
       ringColor = "text-emerald-400";
       strokeColor = "stroke-emerald-400";
       badgeTextColor = "text-emerald-300";
@@ -88,16 +122,18 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
   };
 
   // Tooltip content strings
-  const scopeLower = (capacity?.scope || "").toLowerCase();
+  const scopeLower = (displayCapacity?.scope || "").toLowerCase();
   const labelText = scopeLower.includes("flash") ? "Flash" : scopeLower.includes("pro") ? "Pro" : "Gemini";
-  const scopeName = capacity?.scope || `Gemini ${labelText}`;
+  const scopeName = displayCapacity?.scope || `Gemini ${labelText}`;
   let statusText = `Antigravity Gemini · Unavailable / Standby`;
   let countdownText = "";
 
-  if (!isUnavailable && pct !== null) {
+  if (isCurrentlyAvailable && pct !== null) {
     const countInfo =
-      capacity?.limit !== null && capacity?.remaining !== null
-        ? ` (${capacity.remaining}/${capacity.limit} requests)`
+      displayCapacity &&
+      displayCapacity.limit !== null &&
+      displayCapacity.remaining !== null
+        ? ` (${displayCapacity.remaining}/${displayCapacity.limit} requests)`
         : "";
     statusText = `Antigravity Gemini · ${scopeName}\nRemaining: ${pct}%${countInfo}`;
     if (resetEpochMs) {
@@ -109,6 +145,8 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
       }
     }
     countdownText += "\n(Fixed-window presentation assumption; click to refresh)";
+  } else if (isStale && pct !== null) {
+    statusText = `Antigravity Gemini · ${scopeName}\nLast known quota: ${pct}%; awaiting refresh.\n(Click to refresh)`;
   } else if (capacity && resetEpochMs && nowMs >= resetEpochMs) {
     statusText = `Antigravity Gemini · ${scopeName}\nReset reached; awaiting fresh status.\nClick to refresh status.`;
   } else {
@@ -120,7 +158,7 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
       type="button"
       onClick={handleRefreshClick}
       title={`${statusText}${countdownText}`}
-      aria-label={`Gemini Quota (${scopeName}): ${isUnavailable ? "Unavailable" : `${pct}% remaining`}. Click to refresh.`}
+      aria-label={`Gemini Quota (${scopeName}): ${isUnavailable ? "Unavailable" : isStale ? `Last known ${pct}% remaining (awaiting refresh)` : `${pct}% remaining`}. Click to refresh.`}
       className="group relative flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-zinc-800/90 hover:bg-zinc-700/80 border border-zinc-700/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 cursor-pointer text-[11px] font-mono min-h-[26px]"
     >
       {/* 24x24 SVG Donut Gauge */}
@@ -171,7 +209,7 @@ export const GeminiQuotaRing: React.FC<GeminiQuotaRingProps> = ({
         {labelText}
       </span>
       <span className={`font-semibold tabular-nums ${badgeTextColor}`}>
-        {isUnavailable ? "N/A" : `${pct}%`}
+        {isUnavailable ? "N/A" : isStale ? `~${pct}%` : `${pct}%`}
       </span>
     </button>
   );

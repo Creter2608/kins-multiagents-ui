@@ -21,6 +21,55 @@ interface RawQuotaObject {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+interface ResolvedReset {
+  readonly resetIso: string | null;
+  readonly resetMs: number | null;
+}
+
+function resolveResetMetadata(rawQuota: RawQuotaObject | null, observedMs: number): ResolvedReset {
+  if (!rawQuota) {
+    return { resetIso: null, resetMs: null };
+  }
+
+  // 1. String resetTime
+  if (typeof rawQuota.resetTime === "string") {
+    const trimmed = rawQuota.resetTime.trim();
+    if (trimmed.length > 0) {
+      const parsedDate = new Date(trimmed);
+      const t = parsedDate.getTime();
+      if (Number.isFinite(t) && t > 0) {
+        return { resetIso: parsedDate.toISOString(), resetMs: t };
+      }
+    }
+  }
+
+  // 2. Numeric resetTime
+  if (typeof rawQuota.resetTime === "number" && Number.isFinite(rawQuota.resetTime) && rawQuota.resetTime >= 0) {
+    const epochMs = rawQuota.resetTime < 1_000_000_000_000 ? rawQuota.resetTime * 1000 : rawQuota.resetTime;
+    const parsedDate = new Date(epochMs);
+    const t = parsedDate.getTime();
+    if (Number.isFinite(t) && t > 0) {
+      return { resetIso: parsedDate.toISOString(), resetMs: t };
+    }
+  }
+
+  // 3. timeUntilResetMs
+  if (
+    typeof rawQuota.timeUntilResetMs === "number" &&
+    Number.isFinite(rawQuota.timeUntilResetMs) &&
+    rawQuota.timeUntilResetMs >= 0
+  ) {
+    const epochMs = observedMs + rawQuota.timeUntilResetMs;
+    const parsedDate = new Date(epochMs);
+    const t = parsedDate.getTime();
+    if (Number.isFinite(t) && t > 0) {
+      return { resetIso: parsedDate.toISOString(), resetMs: t };
+    }
+  }
+
+  return { resetIso: null, resetMs: null };
+}
+
 
 /**
  * Parses raw Antigravity Language Server GetUserStatus response into strongly-typed ProviderCapacity items.
@@ -39,9 +88,33 @@ export function parseAntigravityQuota(
     return Object.freeze([]);
   }
 
-  // Support both { userStatus: { quota: { models: [...] } } } and { quota: { models: [...] } }
+  // Support userStatus.quota.models and quota.models precedence, with cascadeModelConfigData.clientModelConfigs fallback
   let modelsArray: unknown = undefined;
-  if (isRecord(payload["userStatus"]) && isRecord(payload["userStatus"]["quota"])) {
+  if (
+    isRecord(payload["userStatus"]) &&
+    isRecord(payload["userStatus"]["quota"]) &&
+    Array.isArray(payload["userStatus"]["quota"]["models"]) &&
+    payload["userStatus"]["quota"]["models"].length > 0
+  ) {
+    modelsArray = payload["userStatus"]["quota"]["models"];
+  } else if (
+    isRecord(payload["quota"]) &&
+    Array.isArray(payload["quota"]["models"]) &&
+    payload["quota"]["models"].length > 0
+  ) {
+    modelsArray = payload["quota"]["models"];
+  } else if (
+    isRecord(payload["userStatus"]) &&
+    isRecord(payload["userStatus"]["cascadeModelConfigData"]) &&
+    Array.isArray(payload["userStatus"]["cascadeModelConfigData"]["clientModelConfigs"])
+  ) {
+    modelsArray = payload["userStatus"]["cascadeModelConfigData"]["clientModelConfigs"];
+  } else if (
+    isRecord(payload["cascadeModelConfigData"]) &&
+    Array.isArray(payload["cascadeModelConfigData"]["clientModelConfigs"])
+  ) {
+    modelsArray = payload["cascadeModelConfigData"]["clientModelConfigs"];
+  } else if (isRecord(payload["userStatus"]) && isRecord(payload["userStatus"]["quota"])) {
     modelsArray = payload["userStatus"]["quota"]["models"];
   } else if (isRecord(payload["quota"])) {
     modelsArray = payload["quota"]["models"];
@@ -59,21 +132,65 @@ export function parseAntigravityQuota(
   const duplicateScopes = new Set<string>();
 
   for (const item of modelsArray) {
-    if (!isRecord(item) || typeof item["modelId"] !== "string") {
+    if (!isRecord(item)) {
       continue;
     }
 
-    const modelId = item["modelId"].trim();
-    if (!isGeminiScope(modelId)) {
+    let rawModelId: string | null = null;
+    const candidates = [item["modelId"], item["modelName"], item["label"]];
+    for (const cand of candidates) {
+      if (typeof cand === "string" && cand.trim()) {
+        const trimmed = cand.trim();
+        if (isGeminiScope(trimmed)) {
+          rawModelId = trimmed;
+          break;
+        }
+      }
+    }
+
+    if (!rawModelId) {
+      for (const cand of candidates) {
+        if (typeof cand === "string" && cand.trim()) {
+          const trimmed = cand.trim();
+          const normalized = trimmed.toLowerCase().replace(/\s+/g, "-");
+          if (isGeminiScope(normalized)) {
+            rawModelId = normalized;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!rawModelId || !isGeminiScope(rawModelId)) {
       continue;
     }
+
+    const modelId = rawModelId;
 
     if (scopeMap.has(modelId)) {
       duplicateScopes.add(modelId);
       continue;
     }
 
-    const rawQuota: RawQuotaObject | null = isRecord(item["quota"]) ? item["quota"] : null;
+    let rawQuota: RawQuotaObject | null = isRecord(item["quota"]) ? item["quota"] : null;
+    if (!rawQuota && isRecord(item["quotaInfo"])) {
+      const qInfo = item["quotaInfo"] as Record<string, unknown>;
+      const fraction =
+        typeof qInfo["remainingFraction"] === "number" &&
+        Number.isFinite(qInfo["remainingFraction"]) &&
+        qInfo["remainingFraction"] >= 0 &&
+        qInfo["remainingFraction"] <= 1
+          ? qInfo["remainingFraction"]
+          : null;
+      rawQuota = {
+        remainingPercentage: fraction !== null ? fraction * 100 : undefined,
+        resetTime:
+          typeof qInfo["resetTime"] === "string" || typeof qInfo["resetTime"] === "number"
+            ? (qInfo["resetTime"] as string | number)
+            : undefined,
+        timeUntilResetMs: typeof qInfo["timeUntilResetMs"] === "number" ? qInfo["timeUntilResetMs"] : undefined
+      };
+    }
     const isExhaustedVal = typeof item["isExhausted"] === "boolean" ? item["isExhausted"] : null;
 
     let validAbsolute = false;
@@ -81,26 +198,11 @@ export function parseAntigravityQuota(
     let limitVal: number | null = null;
     let remainingVal: number | null = null;
     let percentageVal: number | null = null;
-    let resetIso: string | null = null;
-    let expiresAtIso: string | null = null;
 
     if (rawQuota) {
       const rawLimit = rawQuota.limit;
       const rawRemaining = rawQuota.remaining;
-      const rawResetTime = rawQuota.resetTime;
       const rawRemainingPercentage = rawQuota.remainingPercentage;
-
-      let hasValidFutureReset = false;
-      if (typeof rawResetTime === "string" && rawResetTime.trim().length > 0) {
-        const parsedResetDate = new Date(rawResetTime.trim());
-        const resetMs = parsedResetDate.getTime();
-        if (Number.isFinite(resetMs) && resetMs > observedMs) {
-          hasValidFutureReset = true;
-          resetIso = parsedResetDate.toISOString();
-          const effectiveExpireMs = Math.min(resetMs, maxFreshnessMs);
-          expiresAtIso = new Date(effectiveExpireMs).toISOString();
-        }
-      }
 
       // Check discrete request counts
       const hasValidLimit =
@@ -123,13 +225,12 @@ export function parseAntigravityQuota(
         isContradictoryDiscrete = true;
       }
 
-      if (hasValidLimit && hasValidRemaining && hasValidFutureReset && !isContradictoryDiscrete) {
+      if (hasValidLimit && hasValidRemaining && !isContradictoryDiscrete) {
         validAbsolute = true;
         limitVal = rawLimit as number;
         remainingVal = rawRemaining as number;
         percentageVal = Math.min(100, Math.max(0, Math.round((remainingVal / limitVal) * 1000) / 10));
       } else if (
-        hasValidFutureReset &&
         typeof rawRemainingPercentage === "number" &&
         Number.isFinite(rawRemainingPercentage) &&
         rawRemainingPercentage >= 0 &&
@@ -150,7 +251,26 @@ export function parseAntigravityQuota(
       }
     }
 
-    if ((validAbsolute || validPercentageOnly) && resetIso !== null && expiresAtIso !== null) {
+    if (validAbsolute || validPercentageOnly) {
+      const resolvedReset = resolveResetMetadata(rawQuota, observedMs);
+      let effectiveResetIso: string | null = null;
+      let effectiveExpiresIso: string | null = null;
+      let windowKind: "fixed" | "unknown" = "unknown";
+
+      if (resolvedReset.resetMs !== null && resolvedReset.resetIso !== null) {
+        effectiveResetIso = resolvedReset.resetIso;
+        if (resolvedReset.resetMs > observedMs) {
+          windowKind = "fixed";
+          const effectiveExpireMs = Math.min(resolvedReset.resetMs, maxFreshnessMs);
+          effectiveExpiresIso = new Date(effectiveExpireMs).toISOString();
+        } else {
+          // Reset timestamp already reached
+          effectiveExpiresIso = resolvedReset.resetIso;
+        }
+      } else {
+        effectiveExpiresIso = new Date(maxFreshnessMs).toISOString();
+      }
+
       scopeMap.set(modelId, {
         provider: "gemini",
         scope: modelId,
@@ -158,12 +278,12 @@ export function parseAntigravityQuota(
         limit: limitVal,
         remaining: remainingVal,
         remainingPercentage: percentageVal,
-        resetAt: resetIso,
+        resetAt: effectiveResetIso,
         windowSeconds: null,
-        windowKind: "fixed",
+        windowKind,
         source: "provider",
         observedAt: observedAtIso,
-        expiresAt: expiresAtIso
+        expiresAt: effectiveExpiresIso
       });
     } else {
       scopeMap.set(modelId, {
@@ -218,18 +338,6 @@ export function parseQuotaResponse(
 ): QuotaReadResult {
   if (payload === null || payload === undefined) {
     return { status: "unavailable", reason: "NOT_FOUND" };
-  }
-
-  // Detect configuration-only schemas like cascadeModelConfigData
-  if (typeof payload === "object") {
-    const obj = payload as Record<string, unknown>;
-    if ("cascadeModelConfigData" in obj) {
-      // Contains configuration only, never fabricate quota
-      return { status: "unavailable", reason: "SCHEMA_UNSUPPORTED" };
-    }
-    if ("clientModelConfigs" in obj && !("quota" in obj) && !("userStatus" in obj)) {
-      return { status: "unavailable", reason: "SCHEMA_UNSUPPORTED" };
-    }
   }
 
   const capacities = parseAntigravityQuota(payload, observedAt, freshnessMs);

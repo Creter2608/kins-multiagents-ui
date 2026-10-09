@@ -103,13 +103,26 @@ export class AntigravityQuotaService {
         candidates.push(this.cachedEndpoint);
       }
 
-      // 2. Discover candidates if no cached endpoint or to supplement
+      // 2. Discover candidates and merge/upgrade
       const discovered = await this.transport.discover(controller.signal);
       for (const ep of discovered) {
-        if (!candidates.some((c) => c.port === ep.port)) {
+        const existingIdx = candidates.findIndex((c) => c.port === ep.port);
+        if (existingIdx === -1) {
           candidates.push(ep);
+        } else {
+          const existing = candidates[existingIdx];
+          if (existing && !existing.csrfToken && ep.csrfToken) {
+            // Upgrade candidate with verified CSRF token
+            candidates[existingIdx] = ep;
+            if (this.cachedEndpoint?.port === ep.port && !this.cachedEndpoint.csrfToken) {
+              this.cachedEndpoint = ep;
+            }
+          }
         }
       }
+
+      // Prioritize endpoints with CSRF tokens
+      candidates.sort((a, b) => (b.csrfToken ? 1 : 0) - (a.csrfToken ? 1 : 0));
 
       let success = false;
       const observedAt = new Date();

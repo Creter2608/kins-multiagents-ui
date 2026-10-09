@@ -331,15 +331,19 @@ const TelemetryHudComponent: React.FC<TelemetryHudProps> = ({ telemetry, activeM
           <span className="text-[11px] text-emerald-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 font-mono">
             {telemetry.geminiCacheStatus === "Active" ? "Pro" : telemetry.geminiCacheStatus}
           </span>
-          <GeminiQuotaRing capacity={selectedGeminiCapacity} onRefresh={handleRefreshQuota} />
-          {quotaRefreshError && (
-            <span
-              role="alert"
-              className="text-[10px] text-rose-400 bg-rose-950/60 border border-rose-800/80 px-1.5 py-0.5 rounded font-mono"
-              title={quotaRefreshError}
-            >
-              Refresh failed
-            </span>
+          {selectedGeminiCapacity && (
+            <>
+              <GeminiQuotaRing capacity={selectedGeminiCapacity} onRefresh={handleRefreshQuota} />
+              {quotaRefreshError && (
+                <span
+                  role="alert"
+                  className="text-[10px] text-rose-400 bg-rose-950/60 border border-rose-800/80 px-1.5 py-0.5 rounded font-mono"
+                  title={quotaRefreshError}
+                >
+                  Refresh failed
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
